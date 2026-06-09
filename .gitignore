@@ -29,7 +29,7 @@ settings.local.json
 .claude
 
 # Package files
-.pkg
+*.pkg
 
 # env file
 .env
