@@ -26,6 +26,7 @@ go.work.sum
 
 # Claude work files
 settings.local.json
+.claude
 
 # Package files
 .pkg
