@@ -343,7 +343,7 @@
         <div class="field"><label>Run interval (minutes)</label><input type="number" id="intervalMinutes" min="1"><small>How often the scheduler acts</small></div>
         <div class="field"><label>Run window (minutes)</label><input type="number" id="windowMinutes" min="1"><small>How long each VM stays up</small></div>
         <div class="field"><label>Max concurrent VMs</label><input type="number" id="maxConcurrent" min="1" max="2"><small>Host limit is 2 (Virtualization.framework)</small></div>
-        <div class="field"><label>History retention (days)</label><input type="number" id="historyDays" min="1"></div>
+        <div class="field"><label>Selection mode</label><select id="schedulerMode"><option value="random">Random</option><option value="sequential">Sequential (A→Z)</option></select><small>How the scheduler picks the next VM</small></div>
         <div class="field"><label>Daily start time</label><input type="time" id="dailyStart"><small>Begin auto-running VMs</small></div>
         <div class="field"><label>Daily stop time</label><input type="time" id="dailyStop"><small>Stop running VMs</small></div>
         <div class="field"><label>&nbsp;</label><label class="radio"><input type="checkbox" id="dailyEnabled"> Limit scheduler to daily hours</label></div>
@@ -383,6 +383,7 @@
       <div class="grid">
         <div class="field"><label>Listen (host:port — restart to apply)</label><input type="text" id="listen"></div>
         <div class="field"><label>Bearer token (optional auth)</label><input type="password" id="bearerToken" placeholder="empty = no auth"></div>
+        <div class="field"><label>History retention (days)</label><input type="number" id="historyDays" min="1"></div>
       </div>
       <div class="actions">
         <button id="srvRestart" class="ghost" title="Restart the Tart Oven server">⟳ Restart server</button>
@@ -483,6 +484,7 @@ function fillConfig(c) {
   set("intervalMinutes", c.intervalMinutes);
   set("windowMinutes", c.windowMinutes);
   set("maxConcurrent", c.maxConcurrent);
+  set("schedulerMode", c.schedulerMode === "sequential" ? "sequential" : "random");
   set("historyDays", c.historyDays);
   set("dailyStart", c.dailyStart || "08:00");
   set("dailyStop", c.dailyStop || "22:00");
@@ -511,6 +513,7 @@ function readConfig() {
     tartAppPath: str("tartAppPath"),
     intervalMinutes: num("intervalMinutes"), windowMinutes: num("windowMinutes"),
     maxConcurrent: num("maxConcurrent"), historyDays: num("historyDays"),
+    schedulerMode: str("schedulerMode"),
     dailyEnabled: document.getElementById("dailyEnabled").checked,
     dailyStart: str("dailyStart"), dailyStop: str("dailyStop"),
     excluded,
@@ -670,7 +673,8 @@ function render(state) {
   } else {
     pb.textContent = "⏸ Turn scheduler OFF"; pb.className = "big pause";
     let s = "Scheduler is ON — every " + state.config.intervalMinutes + " min, window " +
-      state.config.windowMinutes + " min, up to " + state.config.maxConcurrent + " at once.";
+      state.config.windowMinutes + " min, up to " + state.config.maxConcurrent + " at once" +
+      " (" + (state.config.schedulerMode === "sequential" ? "sequential" : "random") + ").";
     if (state.config.dailyEnabled) {
       s += " Active " + state.config.dailyStart + "–" + state.config.dailyStop + ".";
       if (!state.withinHours) s += " ⏰ Outside active hours — VMs are stopped.";

@@ -8,8 +8,10 @@ This VM orchestration server fully relies on Tart and Apple's virtualization fra
 
 ## What it does
 
-- **Scheduler** — Run random VMs for XX minutes following a schedule and daily working hours.Outside it the scheduler stops all running VMs and starts
-  none.
+- **Scheduler** — Run VMs for a set window following an interval and daily
+  working hours. Outside the daily hours the scheduler stops all running VMs and
+  starts none. The **Selection mode** is either *random* or *sequential* (cycles
+  through the eligible VMs in alphabetical order).
 - **SSH status & Info** — on start, after getting an IP, tart-oven runs the
   status command (Get info) over SSH: a green/red bubble shows reachability and
   the **Info** column shows the (multi-line) output. Clicking **Get info**

@@ -35,7 +35,7 @@ import (
 //go:embed index.html README.md
 var content embed.FS
 
-const version = "1.16"
+const version = "1.17"
 
 // ---------------------------------------------------------------------------
 // Editable constants.
@@ -125,6 +125,7 @@ type Config struct {
 	IntervalMinutes int      `json:"intervalMinutes"` // how often the scheduler acts
 	WindowMinutes   int      `json:"windowMinutes"`   // how long each VM stays up
 	MaxConcurrent   int      `json:"maxConcurrent"`   // max VMs running at once
+	SchedulerMode   string   `json:"schedulerMode"`   // "random" | "sequential" (alphabetical)
 	Excluded        []string `json:"excluded"`        // VM names never auto-selected
 	JamfRecon       bool     `json:"jamfRecon"`       // run `jamf recon` after start/stop
 	Paused          bool     `json:"paused"`          // global scheduler pause
@@ -151,6 +152,7 @@ func defaultConfig() Config {
 		IntervalMinutes: 10,
 		WindowMinutes:   120,
 		MaxConcurrent:   1,
+		SchedulerMode:   "random",
 		Excluded:        []string{},
 		JamfRecon:       false,
 		Paused:          true, // scheduler OFF until the user turns it on
@@ -292,6 +294,7 @@ type Manager struct {
 	logs           []string             // rolling tart command log (last ~200 lines)
 	hostStats      HostStats            // refreshed ~once a minute
 	tartVersion    string               // `tart --version`, refreshed periodically
+	lastSequential string               // last VM started in sequential scheduler mode
 	busy           map[string]bool      // VMs with an op in flight (start/stop)
 	opStart        map[string]time.Time // when each busy op started (to detect stuck ops)
 	runningCmds    map[string]*exec.Cmd // live `tart run` processes
@@ -377,6 +380,9 @@ func (m *Manager) load() {
 	}
 	if m.cfg.MaxConcurrent > hardMaxConcurrent {
 		m.cfg.MaxConcurrent = hardMaxConcurrent
+	}
+	if m.cfg.SchedulerMode != "sequential" {
+		m.cfg.SchedulerMode = "random"
 	}
 	if m.cfg.SSHUser == "" {
 		m.cfg.SSHUser = d.SSHUser
@@ -1103,6 +1109,8 @@ func (m *Manager) tick() {
 			}
 		}
 	}
+	mode := m.cfg.SchedulerMode
+	lastSeq := m.lastSequential
 	m.mu.Unlock()
 
 	for _, n := range toStop {
@@ -1113,8 +1121,31 @@ func (m *Manager) tick() {
 		candidates = failed // everything else failed too; give them another go
 	}
 	if len(candidates) > 0 {
-		m.doRun(candidates[rand.Intn(len(candidates))], "scheduler")
+		var pick string
+		if mode == "sequential" {
+			// Walk the eligible VMs in alphabetical order, advancing past the
+			// last one we started so we cycle through the whole list.
+			sort.Strings(candidates)
+			pick = nextSequential(candidates, lastSeq)
+			m.mu.Lock()
+			m.lastSequential = pick
+			m.mu.Unlock()
+		} else {
+			pick = candidates[rand.Intn(len(candidates))]
+		}
+		m.doRun(pick, "scheduler")
 	}
+}
+
+// nextSequential returns the first name in the sorted list that comes after
+// last (alphabetically), wrapping to the first when there is none.
+func nextSequential(sorted []string, last string) string {
+	for _, n := range sorted {
+		if n > last {
+			return n
+		}
+	}
+	return sorted[0]
 }
 
 // ---------------------------------------------------------------------------
@@ -2018,6 +2049,9 @@ func (m *Manager) handleConfig(w http.ResponseWriter, r *http.Request) {
 	}
 	if m.cfg.MaxConcurrent > hardMaxConcurrent {
 		m.cfg.MaxConcurrent = hardMaxConcurrent
+	}
+	if m.cfg.SchedulerMode != "sequential" {
+		m.cfg.SchedulerMode = "random"
 	}
 	if m.cfg.SSHTimeoutSec < 1 {
 		m.cfg.SSHTimeoutSec = 1
