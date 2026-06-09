@@ -1,0 +1,38 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+    <key>Label</key>
+    <string>com.tartoven.agent</string>
+
+    <!-- Binary installed by the PKG. -->
+    <key>ProgramArguments</key>
+    <array>
+        <string>/Library/Application Support/Tart Oven/tart-oven</string>
+    </array>
+
+    <!-- Start at login, keep alive across crashes. As a LaunchAgent it runs in
+         the logged-in console user's GUI session, so tart sees the same VMs and
+         no sudo / user-switching is needed. -->
+    <key>RunAtLoad</key>
+    <true/>
+    <key>KeepAlive</key>
+    <true/>
+
+    <!-- tart usually lives in Homebrew or /Applications; give the agent a PATH
+         that can find it. -->
+    <key>EnvironmentVariables</key>
+    <dict>
+        <key>PATH</key>
+        <string>/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin</string>
+    </dict>
+
+    <key>StandardOutPath</key>
+    <string>/Users/Shared/tart-oven.out.log</string>
+    <key>StandardErrorPath</key>
+    <string>/Users/Shared/tart-oven.err.log</string>
+
+    <key>ProcessType</key>
+    <string>Interactive</string>
+</dict>
+</plist>

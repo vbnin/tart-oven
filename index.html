@@ -1,0 +1,1157 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Tart Oven</title>
+<style>
+  :root {
+    --bg: #0f1115; --panel: #181b21; --panel2: #1f232b; --border: #2a2f3a;
+    --text: #e6e9ef; --muted: #9aa3b2; --accent: #4f8cff; --accent2: #3a6fd8;
+    --green: #2ecc71; --red: #ff5c5c; --amber: #ffb74d; --grey: #6b7280;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0; font: 14px/1.5 -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+    background: var(--bg); color: var(--text);
+  }
+  header {
+    display: flex; align-items: center; justify-content: space-between;
+    padding: 14px 22px; border-bottom: 1px solid var(--border); background: var(--panel);
+  }
+  header h1 { font-size: 17px; margin: 0; font-weight: 600; }
+  header .meta { color: var(--muted); font-size: 12px; }
+  .hostbar { display: flex; align-items: center; gap: 20px; flex-wrap: wrap; justify-content: flex-end; }
+  .stat { display: flex; flex-direction: column; align-items: flex-end; line-height: 1.15; }
+  .stat-label { font-size: 10px; text-transform: uppercase; letter-spacing: .04em; color: var(--grey); }
+  .stat-val { font-size: 13px; font-weight: 600; font-variant-numeric: tabular-nums; color: var(--text); }
+  /* markdown (Helper Guide) */
+  .markdown { line-height: 1.6; }
+  .markdown h1 { font-size: 22px; margin: 18px 0 8px; }
+  .markdown h2 { font-size: 18px; margin: 20px 0 8px; border-bottom: 1px solid var(--border); padding-bottom: 5px; }
+  .markdown h3 { font-size: 14px; margin: 14px 0 6px; color: var(--muted); text-transform: uppercase; letter-spacing: .03em; }
+  .markdown p { margin: 8px 0; }
+  .markdown ul, .markdown ol { margin: 8px 0 8px 22px; }
+  .markdown li { margin: 3px 0; }
+  .markdown code { font-family: ui-monospace, Menlo, monospace; font-size: 12px; background: var(--panel2); padding: 1px 5px; border-radius: 4px; }
+  .markdown pre.md-code { background: #0b0d11; border: 1px solid var(--border); border-radius: 8px; padding: 12px 14px; overflow: auto; font-family: ui-monospace, Menlo, monospace; font-size: 12px; white-space: pre; }
+  .markdown pre.md-code code { background: none; padding: 0; }
+  .markdown a { color: var(--accent); }
+  .markdown table.md-table { border-collapse: collapse; margin: 10px 0; width: 100%; }
+  .markdown .md-table th, .markdown .md-table td { border: 1px solid var(--border); padding: 6px 10px; text-align: left; font-size: 12px; vertical-align: top; }
+  .markdown .md-table th { background: var(--panel2); }
+  .radio { display: inline-flex; align-items: center; gap: 6px; cursor: pointer; color: var(--text); font-size: 13px; }
+  .guide h3 { font-size: 13px; margin: 16px 0 4px; color: var(--text); }
+  .guide p { margin: 4px 0; }
+  .cmd { display: flex; align-items: flex-start; gap: 8px; background: #0b0d11; border: 1px solid var(--border); border-radius: 8px; padding: 8px 10px; margin: 6px 0 10px; }
+  .cmd code { font-family: ui-monospace, Menlo, monospace; font-size: 12px; color: #c8d0dc; white-space: pre-wrap; word-break: break-all; flex: 1; }
+  .cmd button { padding: 3px 11px; font-size: 11px; flex: none; }
+  .wrap { max-width: 1500px; margin: 0 auto; padding: 18px 22px 60px; }
+  .banner {
+    border-radius: 10px; padding: 12px 16px; margin-bottom: 16px; font-weight: 600;
+    display: flex; align-items: center; gap: 10px;
+  }
+  .banner.ok  { background: rgba(46,204,113,.12); color: var(--green); border: 1px solid rgba(46,204,113,.35); }
+  .banner.bad { background: rgba(255,92,92,.12);  color: var(--red);   border: 1px solid rgba(255,92,92,.4); }
+  .dot { width: 10px; height: 10px; border-radius: 50%; display: inline-block; }
+  .dot.ok { background: var(--green); } .dot.bad { background: var(--red); }
+
+  /* tabs */
+  .tabs { display: flex; gap: 8px; margin-bottom: 18px; }
+  .tabbtn {
+    background: var(--panel); border: 1px solid var(--border); color: var(--muted); cursor: pointer;
+    padding: 9px 20px; font: inherit; font-weight: 600; border-radius: 8px;
+  }
+  .tabbtn:hover { color: var(--text); border-color: var(--accent2); }
+  .tabbtn.active { color: var(--accent); border-color: var(--accent); background: rgba(79,140,255,.12); }
+  .tab { display: none; }
+  .tab.active { display: block; }
+
+  .panel { background: var(--panel); border: 1px solid var(--border); border-radius: 12px; padding: 16px 18px; margin-bottom: 18px; }
+  .panel h2 { margin: 0 0 14px; font-size: 14px; font-weight: 600; color: var(--muted); text-transform: uppercase; letter-spacing: .04em; }
+
+  .grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 12px 18px; }
+  .field { display: flex; flex-direction: column; gap: 4px; }
+  .field label { font-size: 12px; color: var(--muted); }
+  .field small { font-size: 11px; color: var(--grey); }
+  input[type=text], input[type=number], input[type=password], textarea {
+    background: var(--panel2); border: 1px solid var(--border); color: var(--text);
+    border-radius: 8px; padding: 8px 10px; font: inherit; width: 100%;
+  }
+  textarea { resize: vertical; min-height: 52px; }
+  /* custom-styled selects so their height matches the other inputs (no native chrome) */
+  select {
+    -webkit-appearance: none; appearance: none;
+    background-color: var(--panel2); color: var(--text);
+    border: 1px solid var(--border); border-radius: 8px;
+    padding: 8px 32px 8px 10px; font: inherit; width: 100%;
+    background-image: url("data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 24 24' fill='none' stroke='%239aa3b2' stroke-width='3' stroke-linecap='round' stroke-linejoin='round'><polyline points='6 9 12 15 18 9'/></svg>");
+    background-repeat: no-repeat; background-position: right 11px center;
+  }
+  .checks { display: flex; gap: 20px; align-items: center; margin-top: 4px; }
+  .checks label { display: flex; gap: 8px; align-items: center; color: var(--text); font-size: 13px; }
+
+  .actions { display: flex; gap: 10px; margin-top: 16px; flex-wrap: wrap; align-items: center; }
+  .scheduler-row { display: flex; align-items: center; gap: 14px; margin-bottom: 18px; flex-wrap: wrap; }
+  button {
+    background: var(--accent); color: #fff; border: none; border-radius: 8px;
+    padding: 8px 14px; font: inherit; font-weight: 600; cursor: pointer;
+  }
+  button:hover { background: var(--accent2); }
+  button.ghost { background: transparent; border: 1px solid var(--border); color: var(--text); font-weight: 500; }
+  button.ghost:hover { background: var(--panel2); }
+  button.danger { background: transparent; border: 1px solid rgba(255,92,92,.5); color: var(--red); font-weight: 500; }
+  button.danger:hover { background: rgba(255,92,92,.12); }
+  button.big { padding: 11px 24px; font-size: 15px; }
+  button:disabled { opacity: .4; cursor: not-allowed; }
+  button.pause { background: var(--amber); color: #1a1a1a; }
+  button.resume { background: var(--green); }
+
+  table { width: 100%; border-collapse: collapse; }
+  th, td { text-align: left; padding: 9px 12px; border-bottom: 1px solid var(--border); font-size: 13px; vertical-align: middle; }
+  th { color: var(--muted); font-weight: 600; font-size: 12px; text-transform: uppercase; letter-spacing: .03em; }
+  tr:hover td { background: rgba(255,255,255,.02); }
+  td.name { width: 240px; max-width: 240px; word-break: break-all; }
+  td.name b { font-weight: 600; }
+  td.acts { white-space: nowrap; width: 1%; }
+  td.info { width: 260px; max-width: 260px; }
+  .infobox { font-family: ui-monospace, Menlo, monospace; font-size: 11px; line-height: 1.35; white-space: pre-wrap; max-height: 66px; overflow: auto; color: var(--muted); }
+  .state { font-weight: 600; display: inline-flex; align-items: center; gap: 7px; white-space: nowrap; }
+  .state .dot { width: 9px; height: 9px; }
+  .s-running  { color: var(--green); }  .s-running .dot  { background: var(--green); }
+  .s-stopped  { color: var(--grey); }   .s-stopped .dot  { background: var(--grey); }
+  .s-starting { color: var(--amber); }  .s-starting .dot { background: var(--amber); animation: pulse 1s infinite; }
+  .s-stopping { color: var(--amber); }  .s-stopping .dot { background: var(--amber); animation: pulse 1s infinite; }
+  @keyframes pulse { 50% { opacity: .35; } }
+  .tag { font-size: 10px; padding: 1px 6px; border-radius: 5px; background: var(--panel2); color: var(--muted); border: 1px solid var(--border); margin-left: 6px; }
+  .tag.warn { color: var(--amber); border-color: rgba(255,183,77,.55); background: rgba(255,183,77,.10); }
+  .tags { display: flex; gap: 5px; flex-wrap: wrap; margin-top: 5px; }
+  .tags .tag { margin-left: 0; white-space: nowrap; }
+  .pill { font-size: 11px; padding: 1px 8px; border-radius: 20px; border: 1px solid var(--border); color: var(--muted); }
+  .pill.scheduler { color: var(--accent); border-color: rgba(79,140,255,.4); }
+  .pill.manual { color: var(--amber); border-color: rgba(255,183,77,.4); }
+  .row-actions { display: flex; gap: 5px; flex-wrap: nowrap; }
+  .row-actions button { padding: 5px 9px; font-size: 11.5px; font-weight: 500; }
+  .row-actions button.vnc { background: transparent; border: 1px solid rgba(79,140,255,.5); color: var(--accent); }
+  .row-actions button.vnc:hover:not(:disabled) { background: rgba(79,140,255,.12); }
+  .err { color: var(--red); font-size: 11px; }
+  .ip { font-family: ui-monospace, Menlo, monospace; color: var(--accent); }
+  .mono { font-family: ui-monospace, Menlo, monospace; }
+  .muted { color: var(--muted); }
+  .ssh-dot { display: inline-block; width: 10px; height: 10px; border-radius: 50%; }
+  .ssh-dot.green { background: var(--green); }
+  .ssh-dot.red { background: var(--red); }
+  .ssh-dot.amber { background: var(--amber); animation: pulse 1s infinite; }
+
+  .ssh-row { display: flex; gap: 10px; align-items: center; margin-bottom: 12px; flex-wrap: wrap; }
+  .ssh-row select { width: 280px; flex: none; }
+  .ssh-row input { flex: 1; }
+
+  #console {
+    background: #0b0d11; border: 1px solid var(--border); border-radius: 10px;
+    padding: 12px 14px; font-family: ui-monospace, Menlo, monospace; font-size: 12px;
+    white-space: pre-wrap; max-height: 240px; overflow: auto; color: #c8d0dc;
+  }
+  #console:empty::before { content: "No output yet. Pick a VM, type a command, and Run — or use the per-VM buttons below."; color: var(--grey); }
+  .clog { color: var(--muted); } .cok { color: var(--green); } .cbad { color: var(--red); }
+  .logbox {
+    margin: 0; background: #0b0d11; border: 1px solid var(--border); border-radius: 10px;
+    padding: 12px 14px; font-family: ui-monospace, Menlo, monospace; font-size: 11.5px;
+    white-space: pre-wrap; max-height: 280px; overflow: auto; color: #c8d0dc;
+  }
+  .logbox:empty::before { content: "No tart commands run yet."; color: var(--grey); }
+
+  .searchbar { margin-bottom: 14px; }
+  .searchbar input { max-width: 360px; }
+
+  /* toasts */
+  #toasts { position: fixed; top: 16px; right: 16px; display: flex; flex-direction: column; gap: 8px; z-index: 1000; }
+  .toast {
+    background: var(--panel2); border: 1px solid var(--border); border-left: 3px solid var(--amber);
+    color: var(--text); padding: 10px 14px; border-radius: 8px; max-width: 380px; font-size: 13px;
+    box-shadow: 0 6px 20px rgba(0,0,0,.45); animation: slidein .18s ease;
+  }
+  .toast.bad { border-left-color: var(--red); }
+  .toast b { display: block; margin-bottom: 2px; }
+  @keyframes slidein { from { transform: translateX(24px); opacity: 0; } }
+
+  /* tasks / activity */
+  .task { border: 1px solid var(--border); border-radius: 9px; padding: 10px 12px; margin-bottom: 10px; background: var(--panel2); }
+  .task-head { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+  .task-head b { font-weight: 600; }
+  .badge { font-size: 11px; padding: 2px 9px; border-radius: 20px; border: 1px solid var(--border); }
+  .badge.running { color: var(--amber); border-color: rgba(255,183,77,.5); }
+  .badge.success { color: var(--green); border-color: rgba(46,204,113,.5); }
+  .badge.error { color: var(--red); border-color: rgba(255,92,92,.5); }
+  .task pre { margin: 8px 0 0; background: #0b0d11; border: 1px solid var(--border); border-radius: 8px; padding: 8px 10px; font-size: 11.5px; max-height: 180px; overflow: auto; white-space: pre-wrap; color: #c8d0dc; }
+</style>
+</head>
+<body>
+<header>
+  <h1>🖥️ Tart Oven</h1>
+  <div class="hostbar">
+    <div class="stat"><span class="stat-label">CPU (5 min)</span><span id="statCpu" class="stat-val">—</span></div>
+    <div class="stat"><span class="stat-label">RAM</span><span id="statRam" class="stat-val">—</span></div>
+    <div class="stat"><span class="stat-label">VM disk</span><span id="statDisk" class="stat-val">—</span></div>
+    <div class="meta" id="hmeta">connecting…</div>
+  </div>
+</header>
+
+<div class="wrap">
+  <div id="tartBanner" class="banner bad" style="display:none">
+    <span class="dot bad"></span>
+    <span><b>Tart is not installed on this Mac.</b> Tart Oven can download it from tart.run and install it to /Applications.</span>
+    <button id="installTartBtn" style="margin-left:auto">Install Tart</button>
+  </div>
+
+  <div class="tabs">
+    <button class="tabbtn active" data-tab="dashboard">Dashboard</button>
+    <button class="tabbtn" data-tab="history">History</button>
+    <button class="tabbtn" data-tab="vmm">VM Management</button>
+    <button class="tabbtn" data-tab="config">Configuration</button>
+    <button class="tabbtn" data-tab="guide">Helper Guide</button>
+  </div>
+
+  <!-- ================= TAB 1: DASHBOARD ================= -->
+  <div id="tab-dashboard" class="tab active">
+    <div class="scheduler-row">
+      <button id="pauseBtn" class="big">…</button>
+      <button id="refreshBtn" class="ghost" title="Re-check all VMs against Tart and clear stuck statuses">⟳ Refresh VM status</button>
+      <span id="schedStatus" class="muted"></span>
+    </div>
+
+    <div class="panel">
+      <h2>Currently running</h2>
+      <table>
+        <thead><tr><th>Name</th><th>IP</th><th>SSH</th><th>Info</th><th>Time remaining</th><th>Actions</th></tr></thead>
+        <tbody id="runningRows"><tr><td colspan="6" class="muted">none running</td></tr></tbody>
+      </table>
+    </div>
+
+    <div class="panel">
+      <h2>SSH command</h2>
+      <div class="ssh-row">
+        <select id="sshTarget"></select>
+        <input type="text" id="sshCommand" placeholder="e.g. sw_vers; whoami" autocomplete="off">
+        <input type="password" id="sshSudoPw" placeholder="sudo password (only if needed)" autocomplete="off" style="width:220px;flex:none">
+        <button id="sshRun">Run</button>
+      </div>
+      <div id="console"></div>
+    </div>
+
+    <div class="panel">
+      <h2>Available VMs</h2>
+      <table>
+        <thead><tr><th>Name</th><th>State</th><th>IP</th><th>SSH</th><th>Info</th><th>Last run</th><th>Time remaining</th><th>Actions</th></tr></thead>
+        <tbody id="vmrows"><tr><td colspan="8" class="muted">loading…</td></tr></tbody>
+      </table>
+    </div>
+
+    <div class="panel">
+      <h2>Tart logs</h2>
+      <pre id="tartLogs" class="logbox"></pre>
+    </div>
+  </div>
+
+  <!-- ================= TAB 2: HISTORY ================= -->
+  <div id="tab-history" class="tab">
+    <div class="panel">
+      <h2>Run history</h2>
+      <div class="searchbar">
+        <input type="text" id="histSearch" placeholder="🔎 Search by VM name…" autocomplete="off">
+        <button class="ghost" id="histRefresh">Refresh</button>
+        <span id="histMeta" class="muted" style="margin-left:8px"></span>
+      </div>
+      <table>
+        <thead><tr><th>Started</th><th>Name</th><th>Duration</th><th>IP</th><th>Trigger</th></tr></thead>
+        <tbody id="histRows"><tr><td colspan="5" class="muted">loading…</td></tr></tbody>
+      </table>
+    </div>
+  </div>
+
+  <!-- ================= TAB 3: VM MANAGEMENT ================= -->
+  <div id="tab-vmm" class="tab">
+
+    <div class="panel">
+      <h2>Create / clone VMs</h2>
+      <div class="ssh-row" style="margin-bottom:14px">
+        <label class="radio"><input type="radio" name="createMode" value="clone" checked onchange="updateCreateMode()"> Clone from template</label>
+        <label class="radio"><input type="radio" name="createMode" value="ipsw" onchange="updateCreateMode()"> Create from IPSW</label>
+      </div>
+      <div class="grid">
+        <div class="field" id="cloneSourceField"><label>Source VM / template</label><select id="cloneSource"></select></div>
+        <div class="field" id="ipswField" style="display:none"><label>IPSW path or "latest"</label><input type="text" id="fromIpsw" value="latest"><small>Local .ipsw path or "latest"</small></div>
+        <div class="field" id="linuxField" style="display:none"><label>&nbsp;</label><label class="radio"><input type="checkbox" id="createLinux" onchange="updateCreateMode()"> Linux VM (no IPSW)</label></div>
+        <div class="field"><label>Name prefix</label><input type="text" id="createPrefix" value="macOS-Overview-"><small>Each VM gets a random 8-char suffix</small></div>
+        <div class="field"><label>How many to create</label><input type="number" id="createCount" min="1" max="20" value="1"></div>
+        <div class="field"><label>CPU cores</label><input type="number" id="createCpu" min="1" value="4"></div>
+        <div class="field"><label>Memory (MB)</label><input type="number" id="createMemory" min="512" step="512" value="4096"></div>
+        <div class="field"><label>Disk size (GB)</label><input type="number" id="createDisk" min="0" value="80"><small id="diskHint">For IPSW: initial size. For clone: grow only (blank = keep)</small></div>
+        <div class="field"><label>Display (WxH)</label><input type="text" id="createDisplay" value="1440x900"></div>
+      </div>
+      <div class="checks">
+        <label><input type="checkbox" id="createRandMac" checked> Random MAC</label>
+        <label><input type="checkbox" id="createRandSerial" checked> Random serial</label>
+      </div>
+      <div class="actions"><button id="createBtn">Create VMs</button><span class="muted">Progress shows in Activity below.</span></div>
+    </div>
+
+    <div class="panel">
+      <h2>Edit a VM</h2>
+      <div class="ssh-row">
+        <select id="editSelect" onchange="loadVMInfo()"></select>
+        <span id="editInfo" class="muted"></span>
+      </div>
+      <div class="grid">
+        <div class="field"><label>CPU cores</label><input type="number" id="editCpu" min="1"></div>
+        <div class="field"><label>Memory (MB)</label><input type="number" id="editMemory" min="512" step="512"></div>
+        <div class="field"><label>Disk size (GB) — grow only</label><input type="number" id="editDisk" min="0" placeholder="blank = unchanged"></div>
+        <div class="field"><label>Display (WxH)</label><input type="text" id="editDisplay"></div>
+      </div>
+      <div class="checks">
+        <label><input type="checkbox" id="editRandMac"> New random MAC</label>
+        <label><input type="checkbox" id="editRandSerial"> New random serial</label>
+      </div>
+      <div class="actions"><button id="editBtn">Apply changes</button><span class="muted">VM must be stopped.</span></div>
+    </div>
+
+    <div class="panel">
+      <h2>Rename / delete</h2>
+      <div class="grid">
+        <div class="field"><label>Rename — VM</label><select id="renameSelect"></select></div>
+        <div class="field"><label>New name</label><input type="text" id="renameNew" placeholder="new-vm-name"></div>
+        <div class="field"><label>&nbsp;</label><button id="renameBtn">Rename</button></div>
+      </div>
+      <div class="grid" style="margin-top:12px">
+        <div class="field"><label>Delete — VM</label><select id="deleteSelect"></select></div>
+        <div class="field"><label>&nbsp;</label><button id="deleteBtn" class="danger">Delete permanently</button></div>
+      </div>
+      <p class="muted" style="margin:10px 0 0">VMs must be stopped before renaming or deleting. Delete cannot be undone.</p>
+    </div>
+
+    <div class="panel">
+      <h2>Activity</h2>
+      <div id="tasks"><div class="muted">No recent create/clone operations.</div></div>
+    </div>
+  </div>
+
+  <!-- ================= TAB 4: CONFIGURATION ================= -->
+  <div id="tab-config" class="tab">
+    <div class="panel">
+      <h2>VM Scheduler</h2>
+      <div class="grid">
+        <div class="field"><label>Run interval (minutes)</label><input type="number" id="intervalMinutes" min="1"><small>How often the scheduler acts</small></div>
+        <div class="field"><label>Run window (minutes)</label><input type="number" id="windowMinutes" min="1"><small>How long each VM stays up</small></div>
+        <div class="field"><label>Max concurrent VMs</label><input type="number" id="maxConcurrent" min="1" max="2"><small>Host limit is 2 (Virtualization.framework)</small></div>
+        <div class="field"><label>History retention (days)</label><input type="number" id="historyDays" min="1"></div>
+        <div class="field"><label>Daily start time</label><input type="time" id="dailyStart"><small>Begin auto-running VMs</small></div>
+        <div class="field"><label>Daily stop time</label><input type="time" id="dailyStop"><small>Stop running VMs</small></div>
+        <div class="field"><label>&nbsp;</label><label class="radio"><input type="checkbox" id="dailyEnabled"> Limit scheduler to daily hours</label></div>
+        <div class="field" style="grid-column: 1 / -1;"><label>Excluded VM names (one per line or comma-separated)</label><textarea id="excluded"></textarea></div>
+      </div>
+    </div>
+
+    <div class="panel">
+      <h2>Tart Settings</h2>
+      <div id="banner" class="banner ok"><span class="dot ok"></span><span id="bannertext">checking storage…</span></div>
+      <div class="grid">
+        <div class="field"><label>VM storage path (TART_HOME)</label><input type="text" id="vmStoragePath"><small>Where Tart stores VMs</small></div>
+        <div class="field"><label>Shared dir (host_resources)</label><input type="text" id="sharedDir"></div>
+        <div class="field"><label>Tart binary path</label><input type="text" id="tartAppPath"><small>Full path to the tart binary</small></div>
+        <div class="field" style="grid-column: 1 / -1;"><label>Custom run arguments (appended to every <span class="mono">tart run</span>)</label><input type="text" id="runArgs" placeholder='e.g. --vnc --no-audio --net-host'><small>Quote values with spaces, e.g. --net-bridged="Wi-Fi"</small></div>
+      </div>
+      <div class="actions">
+        <button id="updateTartBtn" class="ghost">⇩ Update Tart</button>
+        <span id="tartVersionLabel" class="muted">Tart version: …</span>
+      </div>
+    </div>
+
+    <div class="panel">
+      <h2>SSH &amp; Commands</h2>
+      <div class="grid">
+        <div class="field"><label>SSH user</label><input type="text" id="sshUser"></div>
+        <div class="field"><label>SSH identity file (optional)</label><input type="text" id="sshKey"></div>
+        <div class="field"><label>SSH connect timeout (s)</label><input type="number" id="sshTimeoutSec" min="1"></div>
+        <div class="field"><label>Status command (Get info)</label><input type="text" id="statusCommand"></div>
+        <div class="field"><label>Shutdown command (SSH)</label><input type="text" id="shutdownCommand"><small>Clean guest shutdown; falls back to tart stop</small></div>
+        <div class="field"><label>Shutdown wait timeout (s)</label><input type="number" id="shutdownWaitSec" min="1"><small>Wait for SSH shutdown before tart stop</small></div>
+      </div>
+    </div>
+
+    <div class="panel">
+      <h2>Server Settings</h2>
+      <div class="grid">
+        <div class="field"><label>Listen (host:port — restart to apply)</label><input type="text" id="listen"></div>
+        <div class="field"><label>Bearer token (optional auth)</label><input type="password" id="bearerToken" placeholder="empty = no auth"></div>
+      </div>
+      <div class="actions">
+        <button id="srvRestart" class="ghost" title="Restart the Tart Oven server">⟳ Restart server</button>
+        <button id="srvStop" class="danger" title="Stop the Tart Oven server">■ Stop server</button>
+      </div>
+    </div>
+
+    <div class="actions" style="margin-bottom: 18px;">
+      <button id="saveBtn">Save configuration</button>
+      <span id="cfgStatus" class="muted"></span>
+    </div>
+
+    <div class="panel guide">
+      <h2>SSH setup guide</h2>
+      <p class="muted">Enable <b>Send command</b> / <b>Get info</b> by giving the Mac mini a key your VMs trust. Run these <b>on the Mac mini</b> (where Tart Oven runs) — the key stays on the mini. The commands below fill in from your SSH user/key settings above.</p>
+
+      <h3>1 · Generate a key (once)</h3>
+      <div class="cmd"><code id="cmdKeygen"></code><button onclick="copyCmd('cmdKeygen', this)">Copy</button></div>
+
+      <h3>2 · Send the public key to a VM</h3>
+      <div class="ssh-row">
+        <select id="sshGuideVm" onchange="updateSshGuide()"></select>
+        <span class="muted">pick a running VM, then run:</span>
+      </div>
+      <div class="cmd"><code id="cmdCopyKey"></code><button onclick="copyCmd('cmdCopyKey', this)">Copy</button></div>
+      <p class="muted">You'll enter the VM's password once. The VM must have <b>Remote Login</b> on (System Settings → General → Sharing). This command fixes the <span class="mono">~/.ssh</span> permissions that often block <span class="mono">ssh-copy-id</span>, and skips host-key fingerprint prompts / <span class="mono">known_hosts</span> entries (so reused VM IPs never cause conflicts — the same way Tart Oven connects).</p>
+
+      <h3>3 · Point Tart Oven at the key</h3>
+      <p class="muted">Set <b>SSH identity file</b> above to <span class="mono" id="guideKeyPath">~/.ssh/tart-oven</span>, then click <b>Save configuration</b>. Test it with <b>Get info</b> on a running VM.</p>
+
+      <h3>Tip · Do it once for the whole fleet</h3>
+      <p class="muted">Add the public key to your <b>TEMPLATE</b> VM's <span class="mono">~/.ssh/authorized_keys</span> before cloning — every clone inherits it, so you never repeat steps 1–2.</p>
+    </div>
+  </div>
+
+  <!-- ================= TAB 5: HELPER GUIDE ================= -->
+  <div id="tab-guide" class="tab">
+    <div class="panel">
+      <div id="readme" class="markdown muted">Loading guide…</div>
+    </div>
+  </div>
+</div>
+
+<div id="toasts"></div>
+
+<script>
+"use strict";
+
+let token = "";          // auth token, in-memory only
+let clockSkew = 0;       // serverNow - clientNow (ms)
+let latest = null;       // last state snapshot
+let activeTab = "dashboard";
+let histTimer = null;
+
+function authHeaders(extra) {
+  const h = extra || {};
+  if (token) h["Authorization"] = "Bearer " + token;
+  return h;
+}
+async function api(path, opts) {
+  opts = opts || {};
+  opts.headers = authHeaders(opts.headers);
+  const res = await fetch(path, opts);
+  if (res.status === 401) {
+    const t = prompt("Bearer token required:");
+    if (t) { token = t; return api(path, opts); }
+    throw new Error("unauthorized");
+  }
+  return res;
+}
+
+// ---- SSE ----
+function connect() {
+  const url = "/events" + (token ? ("?token=" + encodeURIComponent(token)) : "");
+  const es = new EventSource(url);
+  es.onmessage = (e) => { render(JSON.parse(e.data)); };
+  es.onerror = () => {
+    document.getElementById("hmeta").textContent = "reconnecting…";
+    es.close();
+    setTimeout(connect, 2000);
+  };
+}
+
+// ---- tabs ----
+function showTab(id) {
+  activeTab = id;
+  document.querySelectorAll(".tab").forEach(t => t.classList.toggle("active", t.id === "tab-" + id));
+  document.querySelectorAll(".tabbtn").forEach(b => b.classList.toggle("active", b.dataset.tab === id));
+  if (id === "history") loadHistory();
+  if (id === "guide") loadReadme();
+}
+document.querySelectorAll(".tabbtn").forEach(b => b.onclick = () => showTab(b.dataset.tab));
+
+// ---- config form ----
+let configLoaded = false;
+function fillConfig(c) {
+  const set = (id, v) => { document.getElementById(id).value = v; };
+  set("intervalMinutes", c.intervalMinutes);
+  set("windowMinutes", c.windowMinutes);
+  set("maxConcurrent", c.maxConcurrent);
+  set("historyDays", c.historyDays);
+  set("dailyStart", c.dailyStart || "08:00");
+  set("dailyStop", c.dailyStop || "22:00");
+  document.getElementById("dailyEnabled").checked = !!c.dailyEnabled;
+  set("vmStoragePath", c.vmStoragePath);
+  set("sharedDir", c.sharedDir);
+  set("tartAppPath", c.tartAppPath || "/Applications/tart.app/Contents/MacOS/tart");
+  set("sshUser", c.sshUser);
+  set("sshKey", c.sshKey || "");
+  set("sshTimeoutSec", c.sshTimeoutSec);
+  set("statusCommand", c.statusCommand);
+  set("shutdownCommand", c.shutdownCommand);
+  set("shutdownWaitSec", c.shutdownWaitSec);
+  set("listen", c.listen);
+  set("bearerToken", c.bearerToken || "");
+  set("runArgs", c.runArgs || "");
+  set("excluded", (c.excluded || []).join("\n"));
+  configLoaded = true;
+}
+function readConfig() {
+  const num = (id) => parseInt(document.getElementById(id).value, 10) || 0;
+  const str = (id) => document.getElementById(id).value.trim();
+  const excluded = str("excluded").split(/[\n,]+/).map(s => s.trim()).filter(Boolean);
+  return {
+    listen: str("listen"), vmStoragePath: str("vmStoragePath"), sharedDir: str("sharedDir"),
+    tartAppPath: str("tartAppPath"),
+    intervalMinutes: num("intervalMinutes"), windowMinutes: num("windowMinutes"),
+    maxConcurrent: num("maxConcurrent"), historyDays: num("historyDays"),
+    dailyEnabled: document.getElementById("dailyEnabled").checked,
+    dailyStart: str("dailyStart"), dailyStop: str("dailyStop"),
+    excluded,
+    paused: latest ? latest.config.paused : false,
+    sshUser: str("sshUser"), sshKey: str("sshKey"), sshTimeoutSec: num("sshTimeoutSec"),
+    statusCommand: str("statusCommand"), runArgs: str("runArgs"),
+    shutdownCommand: str("shutdownCommand"), shutdownWaitSec: num("shutdownWaitSec"),
+    bearerToken: document.getElementById("bearerToken").value
+  };
+}
+async function saveConfig(extra) {
+  const cfg = Object.assign(readConfig(), extra || {});
+  if (cfg.bearerToken) token = cfg.bearerToken;
+  const s = document.getElementById("cfgStatus");
+  try {
+    const res = await api("/api/config", {
+      method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(cfg)
+    });
+    if (s) { s.textContent = res.ok ? "saved ✓" : "save failed"; setTimeout(() => s.textContent = "", 2500); }
+  } catch (e) { if (s) s.textContent = "error: " + e.message; }
+}
+document.getElementById("saveBtn").onclick = () => saveConfig();
+document.getElementById("pauseBtn").onclick = () => saveConfig({ paused: !(latest && latest.config.paused) });
+document.getElementById("refreshBtn").onclick = async (e) => {
+  const btn = e.currentTarget;
+  btn.disabled = true; const o = btn.textContent; btn.textContent = "Refreshing…";
+  try {
+    await api("/api/refresh", { method: "POST" });
+    logLine("clog", "» refreshed VM status");
+  } catch (err) { toast("Refresh failed", err.message, "bad"); }
+  setTimeout(() => { btn.disabled = false; btn.textContent = o; }, 1500);
+};
+
+// ---- time helpers ----
+function fmtRemaining(stopAtISO) {
+  if (!stopAtISO || stopAtISO.startsWith("0001")) return "—";
+  const now = Date.now() + clockSkew;
+  let s = Math.round((new Date(stopAtISO).getTime() - now) / 1000);
+  if (s <= 0) return "expiring…";
+  const h = Math.floor(s / 3600); s -= h * 3600;
+  const m = Math.floor(s / 60); s -= m * 60;
+  return (h ? h + "h " : "") + m + "m " + s + "s";
+}
+function fmtAgo(iso) {
+  if (!iso || iso.startsWith("0001")) return "never";
+  const now = Date.now() + clockSkew;
+  let s = Math.round((now - new Date(iso).getTime()) / 1000);
+  if (s < 0) s = 0;
+  if (s < 60) return s + "s ago";
+  const m = Math.floor(s / 60); if (m < 60) return m + "m ago";
+  const h = Math.floor(m / 60); if (h < 24) return h + "h ago";
+  const d = Math.floor(h / 24); return d + "d ago";
+}
+function fmtDateTime(iso) {
+  if (!iso || iso.startsWith("0001")) return "—";
+  const d = new Date(iso);
+  return d.toLocaleString([], { year: "2-digit", month: "2-digit", day: "2-digit", hour: "2-digit", minute: "2-digit" });
+}
+function fmtDuration(startISO, stopISO) {
+  if (!stopISO || stopISO.startsWith("0001")) return '<span class="muted">running…</span>';
+  let s = Math.round((new Date(stopISO).getTime() - new Date(startISO).getTime()) / 1000);
+  if (s < 0) s = 0;
+  const h = Math.floor(s / 3600); s -= h * 3600;
+  const m = Math.floor(s / 60);
+  return (h ? h + "h " : "") + m + "m";
+}
+function esc(s) { return (s == null ? "" : String(s)).replace(/[&<>"]/g, c => ({ "&":"&amp;","<":"&lt;",">":"&gt;","\"":"&quot;" }[c])); }
+
+// SSH connectivity bubble for a VM. Shows the last known status even after the
+// VM has stopped (retained for reference).
+function sshCell(vm) {
+  const checked = vm.sshCheckedAt && !vm.sshCheckedAt.startsWith("0001");
+  if (checked) {
+    return vm.sshOk
+      ? '<span class="ssh-dot green" title="SSH OK"></span>'
+      : '<span class="ssh-dot red" title="SSH failed — see SSH setup guide in Configuration"></span>';
+  }
+  if (vm.state === "running") return '<span class="ssh-dot amber" title="checking SSH…"></span>';
+  return '<span class="muted">—</span>';
+}
+
+// Info column: last "Get info" output (may be multi-line).
+function infoCell(vm) {
+  if (!vm.info) return '<span class="muted">—</span>';
+  return '<div class="infobox" title="fetched ' + esc(fmtDateTime(vm.infoAt)) + '">' + esc(vm.info) + '</div>';
+}
+
+// ---- toasts ----
+function toast(title, msg, type) {
+  const c = document.getElementById("toasts");
+  const d = document.createElement("div");
+  d.className = "toast" + (type === "bad" ? " bad" : "");
+  d.innerHTML = "<b>" + esc(title) + "</b>" + esc(msg);
+  c.appendChild(d);
+  setTimeout(() => {
+    d.style.transition = "opacity .3s"; d.style.opacity = "0";
+    setTimeout(() => d.remove(), 300);
+  }, 6000);
+}
+
+// Toast whenever a VM's lastError transitions to a new value (e.g. a manual run
+// refused by the concurrency cap, or a boot failure). We seed prevErrors on the
+// first snapshot so pre-existing errors don't toast on page load.
+let prevErrors = {};
+let seenFirstSnapshot = false;
+function checkErrors(vms) {
+  vms.forEach(vm => {
+    const e = vm.lastError || "";
+    if (seenFirstSnapshot && e && e !== prevErrors[vm.name]) {
+      toast(vm.name, e, "bad");
+    }
+    prevErrors[vm.name] = e;
+  });
+  seenFirstSnapshot = true;
+}
+
+// ---- render (live) ----
+function render(state) {
+  latest = state;
+  clockSkew = new Date(state.now).getTime() - Date.now();
+
+  document.getElementById("hmeta").textContent =
+    "v" + state.version + " · " + state.vms.length + " VMs · tart json: " + (state.tartJSON ? "yes" : "table");
+
+  // host health stats (refreshed server-side ~once a minute)
+  const hs = state.hostStats || {};
+  const setStat = (id, text, ratio) => {
+    const el = document.getElementById(id);
+    el.textContent = text;
+    el.style.color = ratio >= 0.9 ? "var(--red)" : (ratio >= 0.75 ? "var(--amber)" : "var(--text)");
+  };
+  if (hs.updatedAt && !hs.updatedAt.startsWith("0001")) {
+    setStat("statCpu", (hs.cpuPercent || 0) + "%", (hs.cpuPercent || 0) / 100);
+    setStat("statRam", (hs.memUsedMB || 0) + "/" + (hs.memTotalMB || 0) + " MB", hs.memTotalMB ? hs.memUsedMB / hs.memTotalMB : 0);
+    setStat("statDisk", (hs.diskUsedGB || 0) + "/" + (hs.diskTotalGB || 0) + " GB", hs.diskTotalGB ? hs.diskUsedGB / hs.diskTotalGB : 0);
+  }
+
+  document.getElementById("tartBanner").style.display = state.tartInstalled ? "none" : "flex";
+  document.getElementById("tartVersionLabel").textContent =
+    "Tart version: " + (state.tartVersion ? state.tartVersion : (state.tartInstalled ? "unknown" : "not installed"));
+
+  const banner = document.getElementById("banner");
+  if (state.storageMounted) {
+    banner.className = "banner ok";
+    banner.innerHTML = '<span class="dot ok"></span><span>Storage mounted — ' + esc(state.storagePath) + '</span>';
+  } else {
+    banner.className = "banner bad";
+    banner.innerHTML = '<span class="dot bad"></span><span>⚠ Storage NOT mounted — ' + esc(state.storagePath) +
+      ' — automatic runs are PAUSED until it is available.</span>';
+  }
+
+  const pb = document.getElementById("pauseBtn");
+  const ss = document.getElementById("schedStatus");
+  if (state.config.paused) {
+    pb.textContent = "▶ Turn scheduler ON"; pb.className = "big resume";
+    ss.textContent = "Scheduler is OFF — no automatic runs.";
+  } else {
+    pb.textContent = "⏸ Turn scheduler OFF"; pb.className = "big pause";
+    let s = "Scheduler is ON — every " + state.config.intervalMinutes + " min, window " +
+      state.config.windowMinutes + " min, up to " + state.config.maxConcurrent + " at once.";
+    if (state.config.dailyEnabled) {
+      s += " Active " + state.config.dailyStart + "–" + state.config.dailyStop + ".";
+      if (!state.withinHours) s += " ⏰ Outside active hours — VMs are stopped.";
+    }
+    ss.textContent = s;
+  }
+
+  if (!configLoaded) fillConfig(state.config);
+
+  renderRunning(state.vms);
+  renderTable(state.vms);
+  fillSshTargets(state.vms);
+  fillMgmtSelects(state.vms);
+  fillSshGuide(state.vms);
+  renderTasks(state.tasks || []);
+  renderLogs(state.logs || []);
+  checkErrors(state.vms);
+
+  if (activeTab === "history") scheduleHistory();
+}
+
+function renderRunning(vms) {
+  const rows = vms.filter(v => v.state === "running" || v.state === "starting" || v.state === "stopping");
+  const tb = document.getElementById("runningRows");
+  if (!rows.length) { tb.innerHTML = '<tr><td colspan="6" class="muted">none running</td></tr>'; return; }
+  tb.innerHTML = rows.map(vm => {
+    const n = esc(vm.name);
+    const ip = vm.ip ? '<span class="ip">' + esc(vm.ip) + '</span>' : '<span class="muted">—</span>';
+    const rem = vm.state !== "running"
+      ? '<span class="muted">' + vm.state + '…</span>'
+      : (latest.config.paused ? "—" : fmtRemaining(vm.stopAt));
+    const noIP = vm.ip ? "" : " disabled";
+    const busy = vm.busy ? " disabled" : "";
+    return '<tr>' +
+      '<td class="name"><b>' + n + '</b></td>' +
+      '<td>' + ip + '</td>' +
+      '<td>' + sshCell(vm) + '</td>' +
+      '<td class="info">' + infoCell(vm) + '</td>' +
+      '<td class="mono" data-stop="' + (vm.stopAt || "") + '" data-state="' + vm.state + '">' + (typeof rem === "string" ? rem : "") + '</td>' +
+      '<td class="acts"><div class="row-actions">' +
+        '<button class="danger" onclick="act(\'stop\',\'' + n + '\')"' + busy + '>Stop</button>' +
+        '<button class="ghost" onclick="act(\'restart\',\'' + n + '\')"' + busy + '>Restart</button>' +
+        '<button class="ghost" onclick="getInfo(\'' + n + '\')">Get info</button>' +
+        '<button class="vnc" title="Open Screen Sharing from THIS computer" onclick="openVNC(\'' + esc(vm.ip) + '\')"' + noIP + '>Screen</button>' +
+      '</div></td></tr>';
+  }).join("");
+}
+
+function renderTable(vms) {
+  const tbody = document.getElementById("vmrows");
+  if (!vms.length) { tbody.innerHTML = '<tr><td colspan="8" class="muted">No VMs found at this storage path.</td></tr>'; return; }
+  tbody.innerHTML = vms.map(vm => {
+    const tagList = [];
+    if (vm.template) tagList.push('<span class="tag">TEMPLATE</span>');
+    if (vm.excluded) tagList.push('<span class="tag">excluded</span>');
+    if (vm.bootFailed) tagList.push('<span class="tag warn">boot failure</span>');
+    const tags = tagList.length ? '<div class="tags">' + tagList.join("") + '</div>' : "";
+    const busy = vm.busy ? " disabled" : "";
+    const rem = (vm.state === "running" && !latest.config.paused) ? fmtRemaining(vm.stopAt) : "—";
+    const ip = vm.ip ? '<span class="ip">' + esc(vm.ip) + '</span>' : '<span class="muted">—</span>';
+    const n = esc(vm.name);
+    // Screen Sharing only makes sense for a running VM (IP is retained after stop).
+    const noScreen = (vm.state === "running" && vm.ip) ? "" : " disabled";
+    return '<tr>' +
+      '<td class="name"><b>' + n + '</b>' + tags + '</td>' +
+      '<td><span class="state s-' + vm.state + '"><span class="dot"></span>' + vm.state + '</span></td>' +
+      '<td>' + ip + '</td>' +
+      '<td>' + sshCell(vm) + '</td>' +
+      '<td class="info">' + infoCell(vm) + '</td>' +
+      '<td class="muted" title="' + esc(fmtDateTime(vm.lastRun)) + '">' + fmtAgo(vm.lastRun) + '</td>' +
+      '<td class="mono" data-stop="' + (vm.stopAt || "") + '" data-state="' + vm.state + '">' + rem + '</td>' +
+      '<td class="acts"><div class="row-actions">' +
+        '<button onclick="act(\'run\',\'' + n + '\')"' + busy + '>Run</button>' +
+        '<button class="danger" onclick="act(\'stop\',\'' + n + '\')"' + busy + '>Stop</button>' +
+        '<button class="ghost" onclick="act(\'restart\',\'' + n + '\')"' + busy + '>Restart</button>' +
+        '<button class="ghost" onclick="getInfo(\'' + n + '\')">Get info</button>' +
+        '<button class="vnc" title="Open Screen Sharing from THIS computer" onclick="openVNC(\'' + esc(vm.ip) + '\')"' + noScreen + '>Screen</button>' +
+      '</div></td></tr>';
+  }).join("");
+}
+
+// keep "time remaining" ticking between server pushes (but not when the
+// scheduler is OFF — there is no auto-stop then, so no countdown)
+setInterval(() => {
+  if (latest && latest.config.paused) return;
+  document.querySelectorAll("td[data-stop]").forEach(td => {
+    if (td.dataset.state === "running") td.textContent = fmtRemaining(td.dataset.stop);
+  });
+}, 1000);
+
+// ---- SSH command panel ----
+function fillSshTargets(vms) {
+  const sel = document.getElementById("sshTarget");
+  const prev = sel.value;
+  const running = vms.filter(v => v.state === "running");
+  sel.innerHTML = running.length
+    ? running.map(v => '<option value="' + esc(v.name) + '">' + esc(v.name) + '</option>').join("")
+    : '<option value="">— no running VM —</option>';
+  if (prev && running.some(v => v.name === prev)) sel.value = prev;
+}
+document.getElementById("sshRun").onclick = sendCmd;
+document.getElementById("sshCommand").addEventListener("keydown", e => { if (e.key === "Enter") sendCmd(); });
+document.getElementById("sshSudoPw").addEventListener("keydown", e => { if (e.key === "Enter") sendCmd(); });
+
+async function sendCmd() {
+  const name = document.getElementById("sshTarget").value;
+  const command = document.getElementById("sshCommand").value.trim();
+  const pwEl = document.getElementById("sshSudoPw");
+  const sudoPassword = pwEl.value;
+  if (!name || !command) return;
+  logLine("clog", "$ [" + name + "] " + command + (sudoPassword ? "   (with sudo password)" : ""));
+  pwEl.value = ""; // transient: ask again every time
+  try {
+    const res = await api("/api/exec", {
+      method: "POST", headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ name, command, sudoPassword })
+    });
+    showResult(await res.json());
+  } catch (e) { logLine("cbad", "✗ " + e.message); }
+}
+async function getInfo(name) {
+  if (!name) return;
+  logLine("clog", "$ [" + name + "] (status command)");
+  try {
+    const res = await api("/api/info?name=" + encodeURIComponent(name));
+    showResult(await res.json());
+  } catch (e) { logLine("cbad", "✗ " + e.message); }
+}
+function showResult(r) {
+  if (r.error) { logLine("cbad", "error: " + r.error); return; }
+  if (r.stdout) logLine("", r.stdout.replace(/\n$/, ""));
+  if (r.stderr) logLine("cbad", r.stderr.replace(/\n$/, ""));
+  logLine(r.exitCode === 0 ? "cok" : "cbad", "[exit " + r.exitCode + "]");
+}
+function logLine(cls, text) {
+  const c = document.getElementById("console");
+  const div = document.createElement("div");
+  if (cls) div.className = cls;
+  div.textContent = text;
+  c.appendChild(div);
+  c.scrollTop = c.scrollHeight;
+}
+
+// ---- VM actions ----
+async function act(kind, name) {
+  // Instant client-side guard for the 2-VM host limit (the server enforces it
+  // too, but this gives immediate feedback on every click).
+  if ((kind === "run" || kind === "restart") && latest) {
+    const self = latest.vms.find(v => v.name === name);
+    const selfActive = self && (self.state === "running" || self.state === "starting");
+    const active = latest.vms.filter(v => v.state === "running" || v.state === "starting").length;
+    if (!selfActive && active >= 2) {
+      toast("Cannot start " + name, "Host limit reached — 2 VMs already running.", "bad");
+      return;
+    }
+  }
+  try {
+    await api("/api/" + kind, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ name }) });
+    logLine("clog", "» " + kind + " " + name);
+  } catch (e) { logLine("cbad", "✗ " + kind + " " + name + ": " + e.message); }
+}
+function openVNC(ip) {
+  if (!ip) return;
+  const a = document.createElement("a");
+  a.href = "vnc://admin@" + ip;
+  document.body.appendChild(a); a.click(); a.remove();
+  logLine("clog", "↗ opening Screen Sharing to admin@" + ip + " (on this computer)");
+}
+
+// ---- history ----
+let histData = [];
+function scheduleHistory() {
+  clearTimeout(histTimer);
+  histTimer = setTimeout(loadHistory, 600);
+}
+async function loadHistory() {
+  try {
+    const res = await api("/api/history");
+    const data = await res.json();
+    histData = data.events || [];
+    document.getElementById("histMeta").textContent =
+      histData.length + " runs · retention " + data.retentionDays + " days";
+    renderHistory();
+  } catch (e) {
+    document.getElementById("histRows").innerHTML = '<tr><td colspan="5" class="cbad">' + esc(e.message) + '</td></tr>';
+  }
+}
+function renderHistory() {
+  const q = document.getElementById("histSearch").value.trim().toLowerCase();
+  const rows = q ? histData.filter(e => e.name.toLowerCase().includes(q)) : histData;
+  const tb = document.getElementById("histRows");
+  if (!rows.length) { tb.innerHTML = '<tr><td colspan="5" class="muted">no matching runs</td></tr>'; return; }
+  tb.innerHTML = rows.map(e => {
+    const trig = e.trigger === "scheduler" ? '<span class="pill scheduler">scheduler</span>' : '<span class="pill manual">manual</span>';
+    const ip = e.ip ? '<span class="ip">' + esc(e.ip) + '</span>' : '<span class="muted">—</span>';
+    return '<tr>' +
+      '<td class="mono">' + esc(fmtDateTime(e.startedAt)) + '</td>' +
+      '<td class="name"><b>' + esc(e.name) + '</b></td>' +
+      '<td>' + fmtDuration(e.startedAt, e.stoppedAt) + '</td>' +
+      '<td>' + ip + '</td>' +
+      '<td>' + trig + '</td></tr>';
+  }).join("");
+}
+document.getElementById("histSearch").addEventListener("input", renderHistory);
+document.getElementById("histRefresh").onclick = loadHistory;
+
+// ---- VM management ----
+function fillOne(id, vms, opts) {
+  const sel = document.getElementById(id);
+  if (!sel) return;
+  const prev = sel.value;
+  sel.innerHTML = vms.map(v => {
+    const label = v.name + (v.template ? " (template)" : "") + (v.state === "running" ? " ● running" : "");
+    return '<option value="' + esc(v.name) + '">' + esc(label) + '</option>';
+  }).join("");
+  if (prev && vms.some(v => v.name === prev)) sel.value = prev;
+  else if (opts && opts.preferTemplate) {
+    const tpl = vms.find(v => v.template);
+    if (tpl) sel.value = tpl.name;
+  }
+}
+function fillMgmtSelects(vms) {
+  fillOne("cloneSource", vms, { preferTemplate: true });
+  fillOne("editSelect", vms);
+  fillOne("renameSelect", vms);
+  fillOne("deleteSelect", vms);
+}
+
+function updateCreateMode() {
+  const mode = document.querySelector('input[name="createMode"]:checked').value;
+  const clone = mode === "clone";
+  const linux = document.getElementById("createLinux").checked;
+  document.getElementById("cloneSourceField").style.display = clone ? "" : "none";
+  document.getElementById("ipswField").style.display = (!clone && !linux) ? "" : "none";
+  document.getElementById("linuxField").style.display = clone ? "none" : "";
+}
+
+document.getElementById("createBtn").onclick = async () => {
+  const mode = document.querySelector('input[name="createMode"]:checked').value;
+  const num = id => parseInt(document.getElementById(id).value, 10) || 0;
+  const str = id => document.getElementById(id).value.trim();
+  const body = {
+    mode,
+    source: str("cloneSource"),
+    fromIpsw: str("fromIpsw"),
+    linux: document.getElementById("createLinux").checked,
+    prefix: str("createPrefix"),
+    count: num("createCount"),
+    cpu: num("createCpu"),
+    memory: num("createMemory"),
+    diskSize: num("createDisk"),
+    display: str("createDisplay"),
+    randomMac: document.getElementById("createRandMac").checked,
+    randomSerial: document.getElementById("createRandSerial").checked
+  };
+  if (mode === "clone" && !body.source) { toast("Create", "Pick a source VM to clone.", "bad"); return; }
+  try {
+    const res = await api("/api/vm/create", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) });
+    if (res.ok) toast("Create", "Started creating " + body.count + " VM(s). Watch Activity.", "");
+  } catch (e) { toast("Create failed", e.message, "bad"); }
+};
+
+async function loadVMInfo() {
+  const name = document.getElementById("editSelect").value;
+  const info = document.getElementById("editInfo");
+  if (!name) { info.textContent = ""; return; }
+  info.textContent = "loading…";
+  try {
+    const res = await api("/api/vm/get?name=" + encodeURIComponent(name));
+    const d = await res.json();
+    if (d.error) { info.textContent = d.error; return; }
+    document.getElementById("editCpu").value = d.CPU || "";
+    document.getElementById("editMemory").value = d.Memory || "";
+    document.getElementById("editDisplay").value = d.Display || "";
+    document.getElementById("editDisk").value = "";
+    document.getElementById("editRandMac").checked = false;
+    document.getElementById("editRandSerial").checked = false;
+    info.textContent = "current: " + (d.OS || "?") + " · " + d.CPU + " CPU · " + d.Memory + " MB · disk " + d.Disk + " GB · " + (d.State || "?");
+  } catch (e) { info.textContent = "error: " + e.message; }
+}
+
+document.getElementById("editBtn").onclick = async () => {
+  const num = id => parseInt(document.getElementById(id).value, 10) || 0;
+  const body = {
+    name: document.getElementById("editSelect").value,
+    cpu: num("editCpu"), memory: num("editMemory"), diskSize: num("editDisk"),
+    display: document.getElementById("editDisplay").value.trim(),
+    randomMac: document.getElementById("editRandMac").checked,
+    randomSerial: document.getElementById("editRandSerial").checked
+  };
+  if (!body.name) return;
+  try {
+    const res = await api("/api/vm/set", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) });
+    const d = await res.json();
+    if (d.error) toast("Edit failed", d.error, "bad");
+    else { toast("Edit", body.name + " updated.", ""); loadVMInfo(); }
+  } catch (e) { toast("Edit failed", e.message, "bad"); }
+};
+
+document.getElementById("renameBtn").onclick = async () => {
+  const name = document.getElementById("renameSelect").value;
+  const newName = document.getElementById("renameNew").value.trim();
+  if (!name || !newName) { toast("Rename", "Pick a VM and enter a new name.", "bad"); return; }
+  try {
+    const res = await api("/api/vm/rename", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ name, newName }) });
+    const d = await res.json();
+    if (d.error) toast("Rename failed", d.error, "bad");
+    else { toast("Rename", name + " → " + newName, ""); document.getElementById("renameNew").value = ""; }
+  } catch (e) { toast("Rename failed", e.message, "bad"); }
+};
+
+document.getElementById("deleteBtn").onclick = async () => {
+  const name = document.getElementById("deleteSelect").value;
+  if (!name) return;
+  if (!confirm("Permanently delete VM \"" + name + "\"? This cannot be undone.")) return;
+  try {
+    const res = await api("/api/vm/delete", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ name }) });
+    const d = await res.json();
+    if (d.error) toast("Delete failed", d.error, "bad");
+    else toast("Delete", name + " deleted.", "");
+  } catch (e) { toast("Delete failed", e.message, "bad"); }
+};
+
+function renderLogs(logs) {
+  const el = document.getElementById("tartLogs");
+  const atBottom = el.scrollHeight - el.scrollTop - el.clientHeight < 30;
+  el.textContent = logs.join("\n");
+  if (atBottom) el.scrollTop = el.scrollHeight;
+}
+
+function renderTasks(tasks) {
+  const c = document.getElementById("tasks");
+  if (!tasks.length) { c.innerHTML = '<div class="muted">No recent create/clone operations.</div>'; return; }
+  c.innerHTML = tasks.slice().reverse().map(t => {
+    const out = t.output ? '<pre>' + esc(t.output) + '</pre>' : "";
+    const when = fmtDateTime(t.startedAt);
+    return '<div class="task"><div class="task-head">' +
+      '<span class="badge ' + t.status + '">' + t.status + '</span>' +
+      '<b>' + esc(t.kind) + '</b> → <span class="mono">' + esc(t.target) + '</span>' +
+      '<span class="muted">' + esc(when) + '</span>' +
+      (t.error ? '<span class="err">' + esc(t.error) + '</span>' : "") +
+      '</div>' + out + '</div>';
+  }).join("");
+}
+
+document.getElementById("installTartBtn").onclick = async (e) => {
+  const btn = e.currentTarget;
+  btn.disabled = true; btn.textContent = "Installing…";
+  try {
+    const res = await api("/api/install-tart", { method: "POST" });
+    const d = await res.json();
+    if (d.error) toast("Install Tart", d.error, "bad");
+    else { toast("Install Tart", "Downloading & installing… progress in VM Management → Activity.", ""); showTab("vmm"); }
+  } catch (err) { toast("Install failed", err.message, "bad"); }
+  setTimeout(() => { btn.disabled = false; btn.textContent = "Install Tart"; }, 4000);
+};
+
+document.getElementById("updateTartBtn").onclick = async (e) => {
+  if (!confirm("Download and install the latest Tart version?")) return;
+  const btn = e.currentTarget;
+  btn.disabled = true; btn.textContent = "Updating…";
+  try {
+    const res = await api("/api/install-tart", { method: "POST" });
+    const d = await res.json();
+    if (d.error) toast("Update Tart", d.error, "bad");
+    else { toast("Update Tart", "Downloading & installing latest… progress in VM Management → Activity.", ""); showTab("vmm"); }
+  } catch (err) { toast("Update failed", err.message, "bad"); }
+  setTimeout(() => { btn.disabled = false; btn.textContent = "⇩ Update Tart"; }, 4000);
+};
+
+// ---- SSH setup guide ----
+function sshGuideKey() { return (document.getElementById("sshKey").value.trim() || "~/.ssh/tart-oven"); }
+function sshGuideUser() { return (document.getElementById("sshUser").value.trim() || "admin"); }
+function updateSshGuide() {
+  const key = sshGuideKey(), user = sshGuideUser();
+  const ip = document.getElementById("sshGuideVm").value || "<vm-ip>";
+  document.getElementById("guideKeyPath").textContent = key;
+  document.getElementById("cmdKeygen").textContent = 'ssh-keygen -t ed25519 -f ' + key + ' -N ""';
+  document.getElementById("cmdCopyKey").textContent =
+    'cat ' + key + '.pub | ssh -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null -o LogLevel=ERROR ' +
+    user + '@' + ip +
+    ' "mkdir -p ~/.ssh && chmod 700 ~/.ssh && cat >> ~/.ssh/authorized_keys && chmod 600 ~/.ssh/authorized_keys"';
+}
+function fillSshGuide(vms) {
+  const sel = document.getElementById("sshGuideVm");
+  const withIp = vms.filter(v => v.ip);
+  const prev = sel.value;
+  sel.innerHTML = withIp.length
+    ? withIp.map(v => '<option value="' + esc(v.ip) + '">' + esc(v.name) + ' (' + esc(v.ip) + ')</option>').join("")
+    : '<option value="">— no running VM with an IP —</option>';
+  if (prev && withIp.some(v => v.ip === prev)) sel.value = prev;
+  updateSshGuide();
+}
+function copyCmd(id, btn) {
+  navigator.clipboard.writeText(document.getElementById(id).textContent).then(() => {
+    const o = btn.textContent; btn.textContent = "Copied ✓";
+    setTimeout(() => btn.textContent = o, 1500);
+  });
+}
+["sshUser", "sshKey"].forEach(id => document.getElementById(id).addEventListener("input", updateSshGuide));
+
+// ---- server control ----
+document.getElementById("srvRestart").onclick = async () => {
+  if (!confirm("Restart the Tart Oven server? The dashboard will reconnect automatically.")) return;
+  try {
+    await api("/api/server/restart", { method: "POST" });
+    toast("Server", "Restarting… reconnecting shortly.", "");
+    document.getElementById("hmeta").textContent = "restarting…";
+  } catch (e) { toast("Restart failed", e.message, "bad"); }
+};
+document.getElementById("srvStop").onclick = async () => {
+  if (!confirm("Stop the Tart Oven server? It will no longer be reachable until you start it again on the Mac.")) return;
+  try {
+    await api("/api/server/stop", { method: "POST" });
+    toast("Server", "Stopping…", "bad");
+    document.getElementById("hmeta").textContent = "server stopped";
+  } catch (e) { toast("Stop failed", e.message, "bad"); }
+};
+
+// ---- Helper Guide (render embedded README.md) ----
+async function loadReadme() {
+  const el = document.getElementById("readme");
+  if (el.dataset.loaded) return;
+  try {
+    const res = await api("/api/readme");
+    el.classList.remove("muted");
+    el.innerHTML = renderMarkdown(await res.text());
+    el.dataset.loaded = "1";
+  } catch (e) { el.textContent = "Failed to load guide: " + e.message; }
+}
+
+// Compact Markdown → HTML renderer (headings, code fences, inline code, bold,
+// links, lists, tables, paragraphs) — enough for the README, no dependencies.
+function renderMarkdown(md) {
+  const esc = s => s.replace(/[&<>]/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;" }[c]));
+  const inline = t => esc(t)
+    .replace(/`([^`]+)`/g, "<code>$1</code>")
+    .replace(/\*\*([^*]+)\*\*/g, "<strong>$1</strong>")
+    .replace(/\[([^\]]+)\]\(([^)]+)\)/g, '<a href="$2" target="_blank" rel="noopener">$1</a>');
+  const lines = md.replace(/\r\n/g, "\n").split("\n");
+  let out = "", i = 0;
+  while (i < lines.length) {
+    const line = lines[i];
+    if (/^```/.test(line)) {
+      i++; let code = "";
+      while (i < lines.length && !/^```/.test(lines[i])) { code += lines[i] + "\n"; i++; }
+      i++;
+      out += '<pre class="md-code">' + esc(code.replace(/\n$/, "")) + "</pre>"; continue;
+    }
+    if (line.includes("|") && i + 1 < lines.length && /^\s*\|?[\s:|-]*-[\s:|-]*$/.test(lines[i + 1])) {
+      const row = r => r.replace(/^\s*\|/, "").replace(/\|\s*$/, "").split("|").map(c => c.trim());
+      const head = row(line); i += 2; const body = [];
+      while (i < lines.length && lines[i].includes("|") && lines[i].trim() !== "") { body.push(row(lines[i])); i++; }
+      out += '<table class="md-table"><thead><tr>' + head.map(h => "<th>" + inline(h) + "</th>").join("") + "</tr></thead><tbody>" +
+        body.map(r => "<tr>" + r.map(c => "<td>" + inline(c) + "</td>").join("") + "</tr>").join("") + "</tbody></table>";
+      continue;
+    }
+    const h = line.match(/^(#{1,6})\s+(.*)$/);
+    if (h) { const n = h[1].length; out += "<h" + n + ">" + inline(h[2]) + "</h" + n + ">"; i++; continue; }
+    if (/^\s*[-*]\s+/.test(line)) {
+      out += "<ul>";
+      while (i < lines.length && /^\s*[-*]\s+/.test(lines[i])) { out += "<li>" + inline(lines[i].replace(/^\s*[-*]\s+/, "")) + "</li>"; i++; }
+      out += "</ul>"; continue;
+    }
+    if (/^\s*\d+\.\s+/.test(line)) {
+      out += "<ol>";
+      while (i < lines.length && /^\s*\d+\.\s+/.test(lines[i])) { out += "<li>" + inline(lines[i].replace(/^\s*\d+\.\s+/, "")) + "</li>"; i++; }
+      out += "</ol>"; continue;
+    }
+    if (line.trim() === "") { i++; continue; }
+    let p = line; i++;
+    while (i < lines.length && lines[i].trim() !== "" && !/^(#{1,6})\s|^```|^\s*[-*]\s+|^\s*\d+\.\s+/.test(lines[i]) && !lines[i].includes("|")) { p += " " + lines[i]; i++; }
+    out += "<p>" + inline(p) + "</p>";
+  }
+  return out;
+}
+
+updateCreateMode();
+updateSshGuide();
+
+connect();
+</script>
+</body>
+</html>

@@ -1,0 +1,42 @@
+#!/bin/bash
+# Runs as root after the payload is laid down. Loads the LaunchAgent into the
+# logged-in user's GUI session and opens the dashboard.
+set -u
+
+PLIST="/Library/LaunchAgents/com.tartoven.agent.plist"
+BIN="/Library/Application Support/Tart Oven/tart-oven"
+LABEL="com.tartoven.agent"
+URL="http://127.0.0.1:8080"
+
+# Make sure permissions are sane regardless of how the payload was built.
+chmod 755 "$BIN" 2>/dev/null || true
+chown root:wheel "$PLIST" 2>/dev/null || true
+chmod 644 "$PLIST" 2>/dev/null || true
+
+# Pre-create world-writable logs so the (non-root) agent can write them.
+for f in /Users/Shared/tart-oven.out.log /Users/Shared/tart-oven.err.log; do
+    touch "$f" 2>/dev/null || true
+    chmod 666 "$f" 2>/dev/null || true
+done
+
+# Identify the logged-in console user (if any).
+consoleUser=$(stat -f%Su /dev/console 2>/dev/null)
+if [ -z "$consoleUser" ] || [ "$consoleUser" = "root" ] || [ "$consoleUser" = "loginwindow" ]; then
+    # No GUI user right now (e.g. Jamf at the login window). The agent will load
+    # automatically the next time a user logs in (RunAtLoad).
+    exit 0
+fi
+uid=$(id -u "$consoleUser")
+
+# (Re)load the agent in the user's GUI domain. bootout first so upgrades work.
+launchctl bootout "gui/${uid}" "$PLIST" 2>/dev/null || true
+launchctl bootstrap "gui/${uid}" "$PLIST" 2>/dev/null || true
+launchctl enable "gui/${uid}/${LABEL}" 2>/dev/null || true
+launchctl kickstart -k "gui/${uid}/${LABEL}" 2>/dev/null || true
+
+# Give the server a moment to start listening, then open the dashboard as the
+# user (not root) in their GUI session.
+sleep 5
+launchctl asuser "$uid" sudo -u "$consoleUser" open "$URL" 2>/dev/null || true
+
+exit 0

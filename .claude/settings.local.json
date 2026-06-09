@@ -1,0 +1,28 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(go version *)",
+      "Bash(go mod *)",
+      "Bash(go build *)",
+      "Bash(go vet *)",
+      "Bash(perl -pi -e 's/tartdash/tart-oven/g' main.go README.md go.mod com.user.tartdash.plist)",
+      "Bash(perl -pi -e 's/Tart Fleet Manager/Tart Oven/g' index.html)",
+      "Bash(git mv *)",
+      "Bash(mv com.user.tartdash.plist com.user.tart-oven.plist)",
+      "Bash(rm -f tartdash)",
+      "WebFetch(domain:raw.githubusercontent.com)",
+      "Bash(cd \"/Users/vincent.bonnin/kDrive/Documents/VS Code Projects/tart-oven-manager\")",
+      "Bash(echo \"BUILD OK\")",
+      "Bash(mktemp -d)",
+      "Bash(./tart-oven -listen 127.0.0.1:8070 -state __TRACKED_VAR__/state.json)",
+      "Bash(sleep 1)",
+      "Bash(curl -s http://127.0.0.1:8070/)",
+      "Bash(curl -s http://127.0.0.1:8070/api/readme)",
+      "Bash(pkill -f \"tart-oven -listen 127.0.0.1:8070\")",
+      "Bash(./tart-oven -listen 127.0.0.1:8069 -state __TRACKED_VAR__/state.json)",
+      "Bash(echo \"=== sshInfo button gone? \\(expect 0\\) ===\")",
+      "Bash(curl -s http://127.0.0.1:8069/)",
+      "Bash(pkill -f \"tart-oven -listen 127.0.0.1:8069\")"
+    ]
+  }
+}
