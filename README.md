@@ -4,34 +4,23 @@ A single Go binary that manages, monitors and schedule macOS VMs running
 under [Tart](https://tart.run) on a host Mac computer and serves a live web dashboard to
 control and monitor them.
 
+This VM orchestration server fully relies on Tart and Apple's virtualization framework.
+
 ## What it does
 
-- **Scheduler** — every *interval* minutes: stop any VM whose *run window*
-  expired, then if running count < *max concurrent*, start a random stopped VM
-  that isn't a `TEMPLATE` and isn't excluded, for the configured window.
-- **Daily active hours** — optionally gate auto-runs to a window (default
-  **08:00–22:00**). Outside it the scheduler stops all running VMs and starts
-  none; the dashboard shows "Outside active hours". Windows may wrap midnight.
+- **Scheduler** — Run random VMs for XX minutes following a schedule and daily working hours.Outside it the scheduler stops all running VMs and starts
+  none.
 - **SSH status & Info** — on start, after getting an IP, tart-oven runs the
   status command (Get info) over SSH: a green/red bubble shows reachability and
   the **Info** column shows the (multi-line) output. Clicking **Get info**
-  refreshes both. Red usually means the key isn't set up — see the guide.
-- **Tart logs** — every tart command (and its stderr on failure) is captured in
-  a rolling log shown on the Dashboard. `tart run` output is captured too, so a
-  boot failure shows tart's actual error in the log, the VM's "boot failure"
-  tooltip, and a toast — instead of just "no IP".
-- **Live UI** — `/events` (SSE) pushes the whole state on every change; no
-  polling. A 10s monitor keeps states/timers fresh and reconciles against
-  `tart list` (Tart is the source of truth), so a VM that tart stopped on its
-  own shows as stopped within ~10s. It also heals ops stuck "busy" (a hung tart
-  or a daemon restart mid-op) after ~2 min, and tart commands have hard timeouts
-  so they can't wedge a VM in "starting"/"stopping". The Dashboard's **Refresh
-  VM status** button forces this check on demand.
+  refreshes both. Red usually means the key isn't set up.
+- **History logs** — every vm run is captured in
+  a rolling log for beter visibility.
 - **Per-VM actions** — Run, Stop, Restart, Send command (SSH), Get info (SSH
   status command, on demand only), and Screen (open macOS Screen Sharing).
-- **Custom run arguments** — a config field appended to every `tart run`
-  (e.g. `--vnc --no-audio --net-host`). Quote values with spaces, e.g.
-  `--net-bridged="Wi-Fi"`. See `tart run --help` for the full list.
+- **VM management** — this server detects Tart installations and can automatically install Tart when missing. It also lets you create/clone/edit/delete VMs.
+
+<img width="1617" height="934" alt="Screenshot 2026-06-09 at 11 54 44" src="https://github.com/user-attachments/assets/d6f0a95e-23e1-4d5a-a058-f93906290b62" />
 
 ## WebUI tabs
 
