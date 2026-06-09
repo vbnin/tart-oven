@@ -35,7 +35,7 @@ import (
 //go:embed index.html README.md
 var content embed.FS
 
-const version = "1.15"
+const version = "1.16"
 
 // ---------------------------------------------------------------------------
 // Editable constants.
@@ -493,7 +493,7 @@ const maxOpAge = 2 * time.Minute
 // Caller must hold m.mu.
 func (m *Manager) setBusy(name string, b bool) {
 	if b {
-		m.setBusy(name, true)
+		m.busy[name] = true
 		m.opStart[name] = time.Now()
 	} else {
 		delete(m.busy, name)

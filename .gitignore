@@ -31,8 +31,9 @@ settings.local.json
 # Package files
 *.pkg
 
-# env file
+# env files
 .env
+.DS_Store
 
 # Editor/IDE
 # .idea/
