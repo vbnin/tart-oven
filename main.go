@@ -35,7 +35,7 @@ import (
 //go:embed index.html README.md
 var content embed.FS
 
-const version = "1.17"
+const version = "1.18"
 
 // ---------------------------------------------------------------------------
 // Editable constants.
@@ -492,8 +492,9 @@ func (m *Manager) tartOutputTimeout(d time.Duration, home string, args ...string
 
 // maxOpAge is how long a start/stop op may stay "busy" before we consider it
 // stuck (e.g. tart hung or the daemon was restarted mid-op) and clear it so the
-// VM's real state can be reconciled.
-const maxOpAge = 2 * time.Minute
+// VM's real state can be reconciled. It is comfortably above the worst-case
+// bounded duration of a stop (SSH shutdown + waits + tart-stop fallback).
+const maxOpAge = 4 * time.Minute
 
 // setBusy marks/unmarks a VM as having an op in flight, tracking when it began.
 // Caller must hold m.mu.
@@ -846,7 +847,7 @@ func (m *Manager) doRun(name, trigger string) {
 	}
 
 	// Resolve the IP (blocks up to 30s).
-	ip, ipErr := m.tartOutput(home, "ip", name, "--wait", "30", "--resolver", "arp")
+	ip, ipErr := m.tartOutputTimeout(45*time.Second, home, "ip", name, "--wait", "30", "--resolver", "arp")
 	ip = strings.TrimSpace(ip)
 
 	// Boot failure: the VM came up but never handed us an IP. Stop it so it
@@ -1192,7 +1193,7 @@ func (m *Manager) sshExec(name, command, sudoPassword string) execResult {
 
 	if ip == "" {
 		// Resolve on demand if we don't have a cached IP.
-		out, err := m.tartOutput(home, "ip", name, "--wait", "10", "--resolver", "arp")
+		out, err := m.tartOutputTimeout(20*time.Second, home, "ip", name, "--wait", "10", "--resolver", "arp")
 		if err != nil {
 			return execResult{Error: "could not resolve IP: " + err.Error()}
 		}
@@ -1208,6 +1209,12 @@ func (m *Manager) sshExec(name, command, sudoPassword string) execResult {
 		"-o", "UserKnownHostsFile=/dev/null", // VMs change IPs; don't record/verify host keys
 		"-o", "LogLevel=ERROR", // suppress the harmless "Permanently added ..." notice
 		"-o", fmt.Sprintf("ConnectTimeout=%d", timeout),
+		// Detect a dead connection (e.g. the guest powering off mid-`shutdown`)
+		// and disconnect in ~15s instead of hanging forever — this keeps a stop
+		// from wedging the scheduler goroutine. Live hosts keep responding to
+		// keepalives, so legitimately long commands are unaffected.
+		"-o", "ServerAliveInterval=5",
+		"-o", "ServerAliveCountMax=3",
 	}
 	if key != "" {
 		args = append(args, "-i", key)
