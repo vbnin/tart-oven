@@ -35,7 +35,7 @@ import (
 //go:embed index.html README.md
 var content embed.FS
 
-const version = "1.18"
+const version = "1.19"
 
 // ---------------------------------------------------------------------------
 // Editable constants.
@@ -418,6 +418,15 @@ func (m *Manager) load() {
 		m.history = p.History
 	}
 	m.pruneHistory()
+	// Seed the sequential cursor from the most recently run VM so sequential
+	// scheduling continues from where it left off across restarts.
+	var latest time.Time
+	for name, vm := range m.vms {
+		if vm.LastRun.After(latest) {
+			latest = vm.LastRun
+			m.lastSequential = name
+		}
+	}
 }
 
 // pruneHistory drops events older than the retention window. Caller MUST hold mu.
@@ -780,6 +789,9 @@ func (m *Manager) doRun(name, trigger string) {
 	vm.State = "starting"
 	vm.LastError = ""
 	vm.LastRun = now
+	// Advance the sequential-scheduler cursor on every start (manual or
+	// scheduler) so the next sequential pick continues after whatever last ran.
+	m.lastSequential = name
 	// Log this run to the history; keep the pointer so we can fill in the IP
 	// once it resolves and the StoppedAt when it later stops.
 	ev := &RunEvent{Name: name, StartedAt: now, Trigger: trigger}
@@ -1125,12 +1137,10 @@ func (m *Manager) tick() {
 		var pick string
 		if mode == "sequential" {
 			// Walk the eligible VMs in alphabetical order, advancing past the
-			// last one we started so we cycle through the whole list.
+			// last VM that ran so we cycle through the whole list. (doRun updates
+			// the cursor for both manual and scheduled starts.)
 			sort.Strings(candidates)
 			pick = nextSequential(candidates, lastSeq)
-			m.mu.Lock()
-			m.lastSequential = pick
-			m.mu.Unlock()
 		} else {
 			pick = candidates[rand.Intn(len(candidates))]
 		}
