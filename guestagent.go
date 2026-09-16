@@ -20,10 +20,21 @@ const (
 // its two launchd jobs: a root daemon (disk resize) and a per-session agent that
 // serves the RPC endpoint `tart exec` and `tart ip --resolver agent` rely on.
 //
-// Every step needing root is wrapped in a SINGLE sudo invocation on purpose. The
-// SSH transport feeds the sudo password once on stdin, and sudo's credential cache
-// is not shared between separate calls in a non-interactive session, so a second
-// `sudo` in this script would hang or fail. Homebrew must NOT run under sudo.
+// The openai/tools tart-guest-agent formula runs its own bare `sudo` internally
+// during `brew install` (observed failing with "sudo: a password is required" in
+// this non-interactive, tty-less SSH session). That inner sudo call is invisible
+// to us — it happens inside brew's own process, not in this script's text — so it
+// can't be fixed by rewriting our own sudo calls. Instead this exports SUDO_ASKPASS
+// pointing at a one-line helper that echoes the password: sudo automatically uses
+// an askpass helper instead of a tty when one is configured, which covers brew's
+// internal call as well as our own below. The helper file only ever holds the
+// password locally (mode 700, removed on exit) and it's never in argv or logs.
+//
+// The password is read from stdin once, up front. Our own sudo call is invoked
+// through a variable ($SUDOCMD) rather than the literal word "sudo" so the SSH
+// transport's blanket sudo->`sudo -S -p ”` rewrite (which reads a second time
+// from stdin) doesn't also match it — -S and -A are mutually exclusive in sudo,
+// and stdin only has the one line to give out.
 func guestAgentInstallScript(guestUser string) string {
 	guestUser = strings.TrimSpace(guestUser)
 	if guestUser == "" {
@@ -35,6 +46,16 @@ func guestAgentInstallScript(guestUser string) string {
 		"/Users/"+guestUser, "/tmp/tart-guest-agent.log", true)
 	return `
 set -e
+IFS= read -r SUDOPASS
+ASKPASS_DIR="$(mktemp -d)"
+trap 'rm -rf "$ASKPASS_DIR"' EXIT
+ASKPASS="$ASKPASS_DIR/askpass.sh"
+cat > "$ASKPASS" << ASKPASSEOF
+#!/bin/sh
+echo "$SUDOPASS"
+ASKPASSEOF
+chmod 700 "$ASKPASS"
+export SUDO_ASKPASS="$ASKPASS"
 # A non-interactive SSH session gets PATH=/usr/bin:/bin:/usr/sbin:/sbin, which omits
 # every Homebrew prefix. Without this, the check below reports "not installed" on a
 # guest that has Homebrew sitting right there.
@@ -51,7 +72,8 @@ if [ -z "$BIN" ]; then
   exit 1
 fi
 echo "==> installing launchd jobs (binary at $BIN)"
-sudo sh -c '
+SUDOCMD=sudo
+"$SUDOCMD" -A sh -c '
 set -e
 cat > /Library/LaunchDaemons/` + guestAgentDaemonLabel + `.plist <<'"'"'PLIST'"'"'
 ` + daemonPlist + `
@@ -168,6 +190,11 @@ func (m *Manager) installGuestAgent(name string) {
 	m.appendTaskOutput(t, "==> verifying the agent responds\n")
 	verifyCtx, cancelVerify := context.WithTimeout(context.Background(), 90*time.Second)
 	defer cancelVerify()
+	// Clear the "known unavailable this boot" cache regardless of outcome —
+	// we just did a fresh, authoritative check right here (see execInGuest).
+	m.mu.Lock()
+	delete(m.agentProbedSinceBoot, name)
+	m.mu.Unlock()
 	if _, handled := m.execViaAgent(verifyCtx, name, "true", ""); !handled {
 		m.setAgentOK(name, false)
 		m.finishTask(t, errors.New("the agent was installed but did not respond; a reboot of the guest may be required"))

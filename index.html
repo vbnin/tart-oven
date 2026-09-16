@@ -589,7 +589,7 @@
   .badge.success { color: var(--green); border-color: rgba(16, 185, 129, 0.35); background: rgba(16, 185, 129, 0.08); }
   .badge.error { color: var(--red); border-color: rgba(244, 63, 94, 0.35); background: rgba(244, 63, 94, 0.08); }
   .badge.cancelled { color: var(--muted); border-color: var(--border); }
-  .task pre { margin: 8px 0 0; background: var(--code-bg); border: 1px solid var(--border); border-radius: 6px; padding: 9px 12px; font-size: 12px; max-height: 180px; overflow: auto; white-space: pre-wrap; color: var(--text); }
+  .task pre { margin: 8px 0 0; background: var(--code-bg); border: 1px solid var(--border); border-radius: 6px; padding: 9px 12px; font-size: 12px; overflow: visible; resize: none; white-space: pre-wrap; color: var(--text); }
   button.tiny { font-size: 12px; padding: 4px 10px; margin-left: auto; border-radius: 4px; }
 
   /* Modal (shadcn dialog style) */
@@ -832,6 +832,18 @@
         <label><input type="checkbox" id="createRandSerial" checked> Random serial</label>
         <label id="createAutoEnrollField"><input type="checkbox" id="createAutoEnroll" title="Random serial gives the clone a hardware identity macOS has never seen, so it re-runs Setup Assistant on first boot — the auto-enroll script handles that automatically before installing the MDM profile."> Auto enroll at first boot (experimental, requires compatible base VM)</label>
       </div>
+      <div id="provisioningCreateSection" style="display:none;">
+        <h3 style="margin: 18px 0 10px 0; font-size: 13px; text-transform: uppercase; letter-spacing: 0.05em; color: var(--muted);">Guest provisioning (macOS 27+)</h3>
+        <div id="provisioningHint" class="banner bad" style="display:none;"><span class="dot bad"></span><span>Requires host macOS 27+ and a tart build with --provisioning-opts support.</span></div>
+        <div id="provisioningFields" class="grid">
+          <div class="field"><label>&nbsp;</label><label class="radio"><span class="toggle"><input type="checkbox" id="provisioningEnabled"><span class="slider"></span></span> Provision this VM automatically</label></div>
+          <div class="field"><label for="provisioningFullName">Full name</label><input type="text" id="provisioningFullName" autocomplete="off"></div>
+          <div class="field"><label for="provisioningUsername">Username</label><input type="text" id="provisioningUsername" autocomplete="off"></div>
+          <div class="field"><label for="provisioningPassword">Password</label><input type="password" id="provisioningPassword" autocomplete="new-password"></div>
+          <div class="field"><label>&nbsp;</label><label class="radio"><span class="toggle"><input type="checkbox" id="provisioningAutoLogin"><span class="slider"></span></span> Log in automatically</label></div>
+          <div class="field"><label>&nbsp;</label><label class="radio"><span class="toggle"><input type="checkbox" id="provisioningRemoteLogin"><span class="slider"></span></span> Enable remote login (SSH)</label></div>
+        </div>
+      </div>
       <div class="actions"><button id="createBtn">Create VMs</button><span class="muted">Progress shows in Activity below.</span></div>
     </div>
 
@@ -929,7 +941,17 @@
       <div id="mdmCopyStatus" class="muted" style="margin-top: 6px;"></div>
 
       <h3 style="margin: 22px 0 10px 0; font-size: 13px; text-transform: uppercase; letter-spacing: 0.05em; color: var(--muted);">Enable Auto-Enrollment Capabilities on Base VM</h3>
-      <p class="muted" style="margin: 0 0 10px 0;">Primes a base VM so <b>Auto Enroll VM</b> and <b>Auto enroll at boot</b> actions work on every clone made from it afterward. This script does <b>not</b> enable autologin — set that yourself first (System Settings &gt; Users &amp; Groups &gt; Login Options), and note FileVault must be off on the VM for that option to even be available. Keep Screen Sharing open to the VM while this script runs as it triggers a one-time TCC permission prompt to enable "sshd-keygen-wrapper" in Privacy settings.</p>
+      <p class="muted" style="margin: 0 0 10px 0;">This script prepares a base VM so <b>Auto Enroll VM</b> and <b>Auto enroll at boot</b> actions work on every clone made from it afterward.</p>
+      <p class="muted" style="margin: 0 0 4px 0;">Prior to execute this script, complete the following requirements:</p>
+      <ol class="muted" style="margin: 0 0 10px 0; padding-left: 20px;">
+        <li>Create a clean base VM from an IPSW file or OCI source</li>
+        <li>Complete Setup Assistant if needed</li>
+        <li>Ensure FileVault is OFF</li>
+        <li>Enable autologin for the main user</li>
+        <li>Enable key-based SSH access or install Tart guest agent (see SSH setup guide below)</li>
+        <li>Deploy an enrollment profile on the VM's desktop</li>
+      </ol>
+      <p class="muted" style="margin: 0 0 10px 0;">Keep Screen Sharing open to the VM while this script runs as it triggers a one-time TCC permission prompt to enable "sshd-keygen-wrapper" in Privacy settings. The script completes once a confirmation popup displays on the VM.</p>
       <div class="grid grid-compact" style="margin-bottom: 12px;">
         <div class="field">
           <label>Target Running VM</label>
@@ -987,7 +1009,7 @@
       <div class="grid">
         <div class="field"><label>Run interval (minutes)</label><input type="number" id="intervalMinutes" min="1"><small>How often the scheduler acts</small></div>
         <div class="field"><label>Run window (minutes)</label><input type="number" id="windowMinutes" min="1"><small>How long each VM stays up</small></div>
-        <div class="field"><label>Max concurrent VMs</label><input type="number" id="maxConcurrent" min="1" max="2"><small>Host limit is 2 (Virtualization.framework)</small></div>
+        <div class="field"><label>Max concurrent VMs</label><input type="number" id="maxConcurrent" min="1" max="2"><small>Host limit is 2</small></div>
         <div class="field"><label>Selection mode</label><select id="schedulerMode"><option value="random">Random</option><option value="sequential">Sequential (A→Z)</option></select><small>How the scheduler picks the next VM</small></div>
         <div class="field"><label>Daily start time</label><input type="time" id="dailyStart"><small>Begin auto-running VMs</small></div>
         <div class="field"><label>Daily stop time</label><input type="time" id="dailyStop"><small>Stop running VMs</small></div>
@@ -1060,7 +1082,7 @@
 
     <div class="panel" id="panel-activity">
       <h2>Activity</h2>
-      <div id="tasks" style="max-height:200px;overflow:auto"><div class="muted">No recent create/clone operations.</div></div>
+      <div id="tasks" style="max-height:280px;overflow:auto"><div class="muted">No recent create/clone operations.</div></div>
     </div>
 
     <div class="panel" id="panel-history">
@@ -2246,6 +2268,15 @@ function applySSHFallbackVisibility(enabled) {
   if (keyField) keyField.style.display = enabled ? "" : "none";
 }
 
+function applyProvisioningAvailability(supported) {
+  const hint = document.getElementById("provisioningHint");
+  if (hint) hint.style.display = supported ? "none" : "flex";
+  const fields = document.getElementById("provisioningFields");
+  if (!fields) return;
+  fields.style.opacity = supported ? "" : "0.5";
+  fields.querySelectorAll("input").forEach((input) => { input.disabled = !supported; });
+}
+
 function renderHeaderStats(sample) {
   const gb = (bytes) => ((bytes || 0) / (1 << 30)).toFixed(1);
   if (sample.cpuAvailable) {
@@ -2279,6 +2310,7 @@ function render(state) {
   // With the SSH fallback off, everything SSH-only is dead UI: hide it rather than
   // leaving instructions on screen for a path that can no longer run.
   applySSHFallbackVisibility(state.config.sshFallbackEnabled !== false);
+  applyProvisioningAvailability(!!state.supportsProvisioning);
 
   document.getElementById("tartBanner").style.display = state.tartInstalled ? "none" : "flex";
   document.getElementById("tartVersionLabel").textContent =
@@ -3019,7 +3051,6 @@ async function prepGoldenImage() {
       body: JSON.stringify({ name })
     });
     if (!res.ok) throw new Error("request failed (" + res.status + ")");
-    status.textContent = "Running for " + name + " — progress and result show in the Logs tab; a banner also appears here once it finishes.";
   } catch (err) {
     status.textContent = "Failed to start — " + err.message;
   } finally {
@@ -3075,6 +3106,7 @@ function updateCreateMode() {
   document.getElementById("cloneSourceField").style.display = clone ? "" : "none";
   document.getElementById("ipswField").style.display = (!clone && !linux) ? "" : "none";
   document.getElementById("linuxField").style.display = clone ? "none" : "";
+  document.getElementById("provisioningCreateSection").style.display = (!clone && !oci && !linux) ? "" : "none";
   document.getElementById("createFieldsGrid").style.display = oci ? "none" : "";
   document.getElementById("createChecks").style.display = oci ? "none" : "";
   document.getElementById("createAutoEnrollField").style.display = clone ? "" : "none";
@@ -3108,12 +3140,21 @@ el("createBtn").onclick = async () => {
     display: str("createDisplay"),
     randomMac: document.getElementById("createRandMac").checked,
     randomSerial: document.getElementById("createRandSerial").checked,
-    autoEnroll: mode === "clone" && document.getElementById("createAutoEnroll").checked
+    autoEnroll: mode === "clone" && document.getElementById("createAutoEnroll").checked,
+    provisioningEnabled: mode !== "clone" && !document.getElementById("createLinux").checked && document.getElementById("provisioningEnabled").checked,
+    provisioningFullName: str("provisioningFullName"),
+    provisioningUsername: str("provisioningUsername"),
+    provisioningPassword: document.getElementById("provisioningPassword").value,
+    provisioningAutoLogin: document.getElementById("provisioningAutoLogin").checked,
+    provisioningRemoteLogin: document.getElementById("provisioningRemoteLogin").checked
   };
   if (mode === "clone" && !body.source) { toast("Create", "Pick a source VM to clone.", "bad"); return; }
   try {
     const res = await api("/api/vm/create", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) });
-    if (res.ok) toast("Create", "Started creating " + body.count + " VM(s).", "", "panel-activity");
+    if (res.ok) {
+      toast("Create", "Started creating " + body.count + " VM(s).", "", "panel-activity");
+      document.getElementById("provisioningPassword").value = "";
+    }
   } catch (e) { toast("Create failed", e.message, "bad"); }
 };
 
@@ -3243,6 +3284,7 @@ function renderTasks(tasks) {
   notifyFinishedAutoEnrollTasks(tasks);
   const c = document.getElementById("tasks");
   if (c) {
+    const savedScrollTop = c.scrollTop;
     if (!tasks || !tasks.length) { c.innerHTML = '<div class="muted">No recent create/clone operations.</div>'; }
     else {
       c.innerHTML = tasks.slice().reverse().map(t => {
@@ -3260,6 +3302,7 @@ function renderTasks(tasks) {
           '</div>' + out + '</div>';
       }).join("");
     }
+    c.scrollTop = savedScrollTop;
   }
 
   const modal = document.getElementById("pullOciModal");

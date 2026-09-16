@@ -41,7 +41,7 @@ import (
 //go:embed index.html README.md CHANGELOG.md
 var content embed.FS
 
-const version = "1.52"
+const version = "1.53"
 
 // ---------------------------------------------------------------------------
 // Editable constants.
@@ -459,6 +459,8 @@ type VM struct {
 
 	AutoEnroll bool `json:"autoEnroll,omitempty"` // set at clone time; next boot (manual or scheduler) runs the MDM auto-enroll script once
 
+	PendingProvisioning string `json:"pendingProvisioning,omitempty"` // set at create time (fresh --from-ipsw only); rendered `key=value,...` consumed by the next `tart run` and cleared once it boots successfully
+
 	Notes       string   `json:"notes,omitempty"`       // user-entered notes for tracking/inventory
 	Tags        []string `json:"tags,omitempty"`        // user-defined tags for grouping/filtering
 	SSHUser     string   `json:"sshUser,omitempty"`     // custom SSH user (overrides default)
@@ -516,9 +518,11 @@ type Manager struct {
 	busy                 map[string]bool      // VMs with an op in flight (start/stop)
 	opStart              map[string]time.Time // when each busy op started (to detect stuck ops)
 	runningCmds          map[string]*exec.Cmd // live `tart run` processes
+	agentProbedSinceBoot map[string]bool      // whether execViaAgent has been tried since this VM last (re)started
 	subs                 map[chan []byte]struct{}
 	storageMounted       bool
 	tartJSON             bool // whether `tart list --format json` is supported
+	supportsProvisioning bool // whether the host (macOS 27+) and tart build support `run --provisioning-opts`
 	statePath            string
 	reload               chan struct{} // poke the scheduler when interval changes
 	mdmCopier            mdmProfileCopier
@@ -537,20 +541,21 @@ type persisted struct {
 
 // stateSnapshot is what we send to the dashboard (GET /api/vms and SSE).
 type stateSnapshot struct {
-	VMs            []*VM             `json:"vms"`
-	Config         configView        `json:"config"`
-	StorageMounted bool              `json:"storageMounted"`
-	StoragePath    string            `json:"storagePath"`
-	WithinHours    bool              `json:"withinHours"` // currently inside the daily window
-	Now            time.Time         `json:"now"`
-	Version        string            `json:"version"`
-	TartJSON       bool              `json:"tartJSON"`
-	TartInstalled  bool              `json:"tartInstalled"`
-	TartVersion    string            `json:"tartVersion"`
-	Tasks          []*Task           `json:"tasks"`
-	Performance    PerformanceSample `json:"performance"`
-	HostIP         string            `json:"hostIP"`
-	Logs           []string          `json:"logs"`
+	VMs                  []*VM             `json:"vms"`
+	Config               configView        `json:"config"`
+	StorageMounted       bool              `json:"storageMounted"`
+	StoragePath          string            `json:"storagePath"`
+	WithinHours          bool              `json:"withinHours"` // currently inside the daily window
+	Now                  time.Time         `json:"now"`
+	Version              string            `json:"version"`
+	TartJSON             bool              `json:"tartJSON"`
+	TartInstalled        bool              `json:"tartInstalled"`
+	TartVersion          string            `json:"tartVersion"`
+	SupportsProvisioning bool              `json:"supportsProvisioning"`
+	Tasks                []*Task           `json:"tasks"`
+	Performance          PerformanceSample `json:"performance"`
+	HostIP               string            `json:"hostIP"`
+	Logs                 []string          `json:"logs"`
 }
 
 // tartVM matches the JSON emitted by `tart list --format json`.
@@ -1055,6 +1060,75 @@ func (m *Manager) detectTartJSON() {
 	m.tartJSON = json.Unmarshal([]byte(out), &v) == nil
 }
 
+// hostMacOSMajorVersion returns the host's macOS major version (e.g. 27 for
+// "27.0.1"), or 0 if it can't be determined.
+func hostMacOSMajorVersion() int {
+	out, err := exec.Command("sw_vers", "-productVersion").Output()
+	if err != nil {
+		return 0
+	}
+	major := strings.SplitN(strings.TrimSpace(string(out)), ".", 2)[0]
+	n, err := strconv.Atoi(major)
+	if err != nil {
+		return 0
+	}
+	return n
+}
+
+// detectProvisioningSupport probes once whether this host + tart build can
+// accept `run --provisioning-opts`. macOS 27 added the underlying guest
+// provisioning API, but tart itself gates the flag behind a host OS-version
+// check *and* a toolchain check (it's compiled out on older Swift toolchains),
+// so checking the tart version number alone isn't enough — grep `--help`.
+func (m *Manager) detectProvisioningSupport() {
+	supported := false
+	if hostMacOSMajorVersion() >= 27 {
+		out, err := m.tartCmd(m.storage(), "run", "--help").CombinedOutput()
+		if err == nil && strings.Contains(string(out), "--provisioning-opts") {
+			supported = true
+		}
+	}
+	m.supportsProvisioning = supported
+}
+
+// renderProvisioningOpts builds the `key=value,...` string tart expects for
+// `run --provisioning-opts`, from the options given at create time. String
+// fields are only included when actually set; the boolean toggles are always
+// included since both false and true are meaningful choices.
+func renderProvisioningOpts(fullName, username, password string, autoLogin, remoteLogin bool) string {
+	var parts []string
+	if fullName != "" {
+		parts = append(parts, "fullName="+fullName)
+	}
+	if username != "" {
+		parts = append(parts, "username="+username)
+	}
+	if password != "" {
+		parts = append(parts, "password="+password)
+	}
+	parts = append(parts, fmt.Sprintf("logsInAutomatically=%t", autoLogin))
+	parts = append(parts, fmt.Sprintf("enablesRemoteLogin=%t", remoteLogin))
+	return strings.Join(parts, ",")
+}
+
+// redactProvisioningOpts masks the cleartext password inside a
+// `--provisioning-opts=...` argument before it's written to the log, so the
+// guest password never lands in ~/Library/Logs/tart-oven.log. Any other
+// argument is returned unchanged.
+func redactProvisioningOpts(arg string) string {
+	const prefix = "--provisioning-opts="
+	if !strings.HasPrefix(arg, prefix) {
+		return arg
+	}
+	parts := strings.Split(strings.TrimPrefix(arg, prefix), ",")
+	for i, p := range parts {
+		if strings.HasPrefix(p, "password=") {
+			parts[i] = "password=***REDACTED***"
+		}
+	}
+	return prefix + strings.Join(parts, ",")
+}
+
 // listTart returns the current VMs straight from tart (the source of truth).
 // It uses a hard timeout so a hung `tart list` can't stall the monitor loop.
 func (m *Manager) listTart() ([]tartVM, error) {
@@ -1368,6 +1442,8 @@ func (m *Manager) doRun(name, trigger string) {
 	vm.State = "starting"
 	vm.LastError = ""
 	vm.LastRun = now
+	// A fresh boot deserves a fresh guest-agent probe (see execInGuest).
+	delete(m.agentProbedSinceBoot, name)
 	// Advance the sequential-scheduler cursor on every start (manual or
 	// scheduler) so the next sequential pick continues after whatever last ran.
 	m.lastSequential = name
@@ -1384,6 +1460,8 @@ func (m *Manager) doRun(name, trigger string) {
 	window := time.Duration(m.cfg.WindowMinutes) * time.Minute
 	bootTimeout := m.cfg.BootTimeoutSec
 	netPriority := m.cfg.NetPriority
+	pendingProvisioning := vm.PendingProvisioning
+	supportsProvisioning := m.supportsProvisioning
 	m.save()
 	m.mu.Unlock()
 	m.broadcast()
@@ -1409,7 +1487,14 @@ func (m *Manager) doRun(name, trigger string) {
 		runArgs = append(runArgs, "--no-audio")
 	}
 	runArgs = append(runArgs, extra...)
-	m.logln("$ tart %s", strings.Join(runArgs, " "))
+	if pendingProvisioning != "" && supportsProvisioning {
+		runArgs = append(runArgs, "--provisioning-opts="+pendingProvisioning)
+	}
+	logArgs := make([]string, len(runArgs))
+	for i, a := range runArgs {
+		logArgs[i] = redactProvisioningOpts(a) // never let the guest password reach the log file
+	}
+	m.logln("$ tart %s", strings.Join(logArgs, " "))
 	runLog := &boundedBuffer{max: 8192}
 	cmd := m.tartCmd(home, runArgs...)
 	cmd.Stdout = runLog
@@ -1501,6 +1586,11 @@ func (m *Manager) doRun(name, trigger string) {
 	vm.SSHOK = false              // pending check; UI shows "checking…"
 	vm.SSHCheckedAt = time.Time{} //
 	ev.IP = ip
+	if pendingProvisioning != "" {
+		// First boot resolved an IP, so the guest applied the provisioning
+		// options — don't reapply them on the next start.
+		vm.PendingProvisioning = ""
+	}
 	m.setBusy(name, false)
 	m.save()
 	m.mu.Unlock()
@@ -2129,7 +2219,7 @@ func (m *Manager) installTart() {
 
 	archive := filepath.Join(tmp, "tart.tar.gz")
 	steps := [][]string{
-		{"curl", "-fsSL", "-o", archive, "https://github.com/cirruslabs/tart/releases/latest/download/tart.tar.gz"},
+		{"curl", "-fsSL", "-o", archive, "https://github.com/openai/tart/releases/latest/download/tart.tar.gz"},
 		{"tar", "-xzf", archive, "-C", tmp},
 		{"rm", "-rf", dest},
 		{"cp", "-R", filepath.Join(tmp, "tart.app"), dest},
@@ -2141,6 +2231,7 @@ func (m *Manager) installTart() {
 	}
 	if err == nil {
 		m.detectTartJSON() // re-probe now that tart exists / changed
+		m.detectProvisioningSupport()
 		m.updateTartVersion()
 		m.mu.Lock()
 		ver := m.tartVersion
@@ -2167,6 +2258,14 @@ type createReq struct {
 	RandomMac    bool   `json:"randomMac"`
 	RandomSerial bool   `json:"randomSerial"`
 	AutoEnroll   bool   `json:"autoEnroll"` // clone-only: flag the VM so its next boot runs the MDM auto-enroll script
+
+	// Guest provisioning (macOS 27+, IPSW creates only — see createVMs).
+	ProvisioningEnabled     bool   `json:"provisioningEnabled"`
+	ProvisioningFullName    string `json:"provisioningFullName"`
+	ProvisioningUsername    string `json:"provisioningUsername"`
+	ProvisioningPassword    string `json:"provisioningPassword"`
+	ProvisioningAutoLogin   bool   `json:"provisioningAutoLogin"`
+	ProvisioningRemoteLogin bool   `json:"provisioningRemoteLogin"`
 }
 
 // buildSetArgs assembles `tart set` args, omitting anything not provided.
@@ -2234,6 +2333,24 @@ func (m *Manager) createVMs(req createReq) {
 			}
 			vm.AutoEnroll = true
 			m.save()
+			m.mu.Unlock()
+		}
+		// Guest provisioning only applies to a fresh --from-ipsw create: it's
+		// consumed on the guest's first boot, and a clone's guest has already
+		// had its first boot. Linux guests don't support it either.
+		if err == nil && req.Mode != "clone" && !req.Linux && req.ProvisioningEnabled {
+			m.mu.Lock()
+			if m.supportsProvisioning {
+				vm := m.vms[name]
+				if vm == nil {
+					vm = &VM{Name: name}
+					m.vms[name] = vm
+				}
+				vm.PendingProvisioning = renderProvisioningOpts(
+					req.ProvisioningFullName, req.ProvisioningUsername, req.ProvisioningPassword,
+					req.ProvisioningAutoLogin, req.ProvisioningRemoteLogin)
+				m.save()
+			}
 			m.mu.Unlock()
 		}
 		m.finishTask(t, err)
@@ -2387,20 +2504,21 @@ func (m *Manager) snapshot() stateSnapshot {
 	}
 
 	return stateSnapshot{
-		VMs:            vms,
-		Config:         newConfigView(m.cfg),
-		StorageMounted: m.storageMounted,
-		StoragePath:    m.cfg.VMStoragePath,
-		WithinHours:    !m.cfg.DailyEnabled || inDailyWindow(time.Now(), m.cfg.DailyStart, m.cfg.DailyStop),
-		Now:            time.Now(),
-		Version:        version,
-		TartJSON:       m.tartJSON,
-		TartInstalled:  tartInstalledAt(m.cfg.TartAppPath),
-		TartVersion:    m.tartVersion,
-		Tasks:          tasks,
-		Performance:    latestSample,
-		HostIP:         m.hostIP,
-		Logs:           logs,
+		VMs:                  vms,
+		Config:               newConfigView(m.cfg),
+		StorageMounted:       m.storageMounted,
+		StoragePath:          m.cfg.VMStoragePath,
+		WithinHours:          !m.cfg.DailyEnabled || inDailyWindow(time.Now(), m.cfg.DailyStart, m.cfg.DailyStop),
+		Now:                  time.Now(),
+		Version:              version,
+		TartJSON:             m.tartJSON,
+		TartInstalled:        tartInstalledAt(m.cfg.TartAppPath),
+		TartVersion:          m.tartVersion,
+		SupportsProvisioning: m.supportsProvisioning,
+		Tasks:                tasks,
+		Performance:          latestSample,
+		HostIP:               m.hostIP,
+		Logs:                 logs,
 	}
 }
 
@@ -3556,6 +3674,7 @@ func main() {
 		busy:                 map[string]bool{},
 		opStart:              map[string]time.Time{},
 		runningCmds:          map[string]*exec.Cmd{},
+		agentProbedSinceBoot: map[string]bool{},
 		subs:                 map[chan []byte]struct{}{},
 		statePath:            *stateFlag,
 		reload:               make(chan struct{}, 1),
@@ -3573,6 +3692,7 @@ func main() {
 
 	// Reconcile reality at startup: detect JSON support, check storage, sync.
 	m.detectTartJSON()
+	m.detectProvisioningSupport()
 	m.updateTartVersion()
 	m.checkStorage()
 	m.ensureSharedDir()

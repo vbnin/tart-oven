@@ -7,29 +7,51 @@ import (
 	"testing"
 )
 
-// The SSH transport feeds the sudo password once on stdin, and sudo's credential
-// cache is not shared between separate calls in a non-interactive session. A second
-// sudo in the install script would therefore hang waiting for a password that is
-// already consumed, so the single-invocation shape is an invariant, not a style.
-func TestInstallScriptUsesExactlyOneSudoInvocation(t *testing.T) {
-	rewritten := rewriteSudoForStdin(guestAgentInstallScript("admin"))
-	if n := strings.Count(rewritten, "sudo -S -p ''"); n != 1 {
-		t.Fatalf("rewritten sudo count = %d, want exactly 1", n)
+// The literal word "sudo " must never appear in this script: the SSH transport's
+// rewriteSudoForStdin rewrites any such occurrence to "sudo -S -p ”", which reads
+// a second time from stdin (already consumed once for the SUDOPASS/askpass setup)
+// and conflicts outright with -A ("the -A and -S options may not be used
+// together"). Our own sudo call is therefore invoked through $SUDOCMD so the
+// transport's blanket rewrite can't touch it — it must keep using -A (askpass),
+// which is also what covers the Homebrew formula's own internal sudo call (see
+// guestAgentInstallScript's doc comment).
+func TestInstallScriptNeverUsesTheLiteralSudoWordSoTheTransportCannotRewriteIt(t *testing.T) {
+	script := guestAgentInstallScript("admin")
+	if strings.Contains(script, "sudo ") {
+		t.Fatal(`script must not contain the literal "sudo " — it would get rewritten to "sudo -S -p ''" by the SSH transport and collide with -A`)
 	}
-	if n := strings.Count(rewritten, "sudo "); n != 1 {
-		t.Fatalf("total sudo count = %d, want exactly 1", n)
+	if rewritten := rewriteSudoForStdin(script); rewritten != script {
+		t.Fatal("rewriteSudoForStdin must be a no-op on this script; it should have nothing to rewrite")
+	}
+	if !strings.Contains(script, `"$SUDOCMD" -A`) {
+		t.Fatal(`script must invoke sudo via "$SUDOCMD" -A (askpass), not the literal word`)
 	}
 }
 
 func TestInstallScriptRefusesToRunHomebrewAsRoot(t *testing.T) {
 	script := guestAgentInstallScript("admin")
 	brew := strings.Index(script, "brew install")
-	sudo := strings.Index(script, "sudo ")
-	if brew < 0 || sudo < 0 {
+	sudoCmd := strings.Index(script, `"$SUDOCMD" -A`)
+	if brew < 0 || sudoCmd < 0 {
 		t.Fatal("script is missing its brew install or sudo stage")
 	}
-	if brew > sudo {
+	if brew > sudoCmd {
 		t.Fatal("brew install must run before the sudo block; Homebrew refuses to run as root")
+	}
+}
+
+// The askpass helper is the only place the password touches disk; it must be
+// created with owner-only permissions and removed on exit regardless of outcome.
+func TestInstallScriptAskpassHelperIsPrivateAndCleanedUp(t *testing.T) {
+	script := guestAgentInstallScript("admin")
+	if !strings.Contains(script, `IFS= read -r SUDOPASS`) {
+		t.Fatal("script must read the sudo password from stdin exactly once, into SUDOPASS")
+	}
+	if !strings.Contains(script, "chmod 700") {
+		t.Fatal("askpass helper must be created with owner-only permissions")
+	}
+	if !strings.Contains(script, `trap 'rm -rf "$ASKPASS_DIR"' EXIT`) {
+		t.Fatal("askpass helper directory must be removed on exit")
 	}
 }
 

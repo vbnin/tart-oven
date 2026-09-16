@@ -4,7 +4,7 @@ Tart Oven is a local web console for managing [Tart](https://github.com/openai/t
 
 Tart Oven runs on macOS. Its guests can run macOS or Linux.
 
-Current release: **1.52** · [Changelog](CHANGELOG.md)
+Current release: **1.53** · [Changelog](CHANGELOG.md)
 
 ## Prerequisites
 
@@ -24,13 +24,13 @@ Tart Oven limits the host to two running VMs at a time. Apple's macOS license al
 
 ### 1. Install Tart Oven
 
-Download `TartOven-1.52.pkg` from the [release page](https://github.com/vbnin/tart-oven/releases).
+Download `TartOven-1.53.pkg` from the [release page](https://github.com/vbnin/tart-oven/releases).
 
 Open the package in Finder or install it from Terminal:
 
 ```sh
 cd "$HOME/Downloads"
-sudo installer -pkg "./TartOven-1.52.pkg" -target /
+sudo installer -pkg "./TartOven-1.53.pkg" -target /
 ```
 
 The package installs:
@@ -161,6 +161,10 @@ The scheduler is off until you start it. When running, it stops VMs whose config
 
 Keep **Exclude OCI images from scheduler** enabled so registry cache entries remain clone sources.
 
+### Guest provisioning (macOS 27+)
+
+**VM Management → Create from IPSW** has a "Guest provisioning" section that can seed a fresh guest's account (full name, username, password, auto-login, remote login) automatically, using Tart's `--provisioning-opts`. It only applies to that specific new VM's creation — the options are entered per create, not saved, and are consumed on the guest's very first boot, so cloning or pulling an OCI image always skips it, as does a Linux guest. This needs both the Tart Oven host and the new guest running macOS 27 or later, plus a tart build that supports `--provisioning-opts`; the section is greyed out with an explanatory hint until both are detected. Leave it off (the default) if you don't need it.
+
 ## Jamf and MDM
 
 Tart Oven can generate a Jamf enrollment profile and copy it to a running base VM over SFTP.
@@ -191,7 +195,20 @@ Copying the profile by hand still works, but Tart Oven can also drive System Set
 
 ### Priming a base VM
 
-The automation drives the guest's UI through AppleScript over SSH, which needs two one-time permissions a base VM's disk doesn't have by default. **VM Management → Prepare base VM for Jamf → Enable Auto-Enrollment Capabilities on Base VM** sets them up:
+This script prepares a base VM so **Auto Enroll VM** and **Auto enroll at boot** actions work on every clone made from it afterward.
+
+Prior to execute this script, complete the following requirements:
+
+1. Create a clean base VM from an IPSW file or OCI source
+2. Complete Setup Assistant if needed
+3. Ensure FileVault is OFF
+4. Enable autologin for the main user
+5. Enable key-based SSH access or install Tart guest agent (see SSH setup guide below)
+6. Deploy an enrollment profile on the VM's desktop
+
+Keep Screen Sharing open to the VM while this script runs as it triggers a one-time TCC permission prompt to enable "sshd-keygen-wrapper" in Privacy settings. The script completes once a confirmation popup displays on the VM.
+
+**VM Management → Prepare base VM for Jamf → Enable Auto-Enrollment Capabilities on Base VM** runs it:
 
 1. Enable autologin on the base VM yourself first (**System Settings → Users & Groups → Login Options**). FileVault must be off for that option to be available.
 2. Start the base VM and keep Screen Sharing open to it.

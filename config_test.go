@@ -52,14 +52,15 @@ func TestEffectiveSSHCredentials(t *testing.T) {
 func newTestManager(t *testing.T) *Manager {
 	t.Helper()
 	return &Manager{
-		cfg:         defaultConfig(),
-		vms:         make(map[string]*VM),
-		busy:        make(map[string]bool),
-		opStart:     make(map[string]time.Time),
-		runningCmds: make(map[string]*exec.Cmd),
-		subs:        make(map[chan []byte]struct{}),
-		statePath:   filepath.Join(t.TempDir(), "state.json"),
-		reload:      make(chan struct{}, 1),
+		cfg:                  defaultConfig(),
+		vms:                  make(map[string]*VM),
+		busy:                 make(map[string]bool),
+		opStart:              make(map[string]time.Time),
+		runningCmds:          make(map[string]*exec.Cmd),
+		agentProbedSinceBoot: make(map[string]bool),
+		subs:                 make(map[chan []byte]struct{}),
+		statePath:            filepath.Join(t.TempDir(), "state.json"),
+		reload:               make(chan struct{}, 1),
 	}
 }
 
@@ -322,7 +323,6 @@ func TestHasArg(t *testing.T) {
 		t.Error("did not expect --no-audio to be found")
 	}
 }
-
 
 func TestFirstRunCompletedConfig(t *testing.T) {
 	m := newTestManager(t)

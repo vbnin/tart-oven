@@ -12,6 +12,42 @@ A few terms appear throughout:
 - **MDM / Jamf Pro** — the system that manages enrolled Macs. Tart Oven can prepare
   a VM for enrollment and report whether a guest is enrolled.
 
+## 1.53 (2026-09-16)
+
+### Added
+
+- Guest provisioning for macOS 27+ in Create from IPSW. Seeds a fresh guest's
+  account (full name, username, password, auto login, remote login) on first
+  boot using `--provisioning-opts`. Per create only, not saved. Skipped for
+  clones, OCI pulls, and Linux guests. Requires host macOS 27+ and a tart
+  build that supports the flag.
+
+### Fixed
+
+- Auto enroll script failing on macOS 27. The redesigned System Settings
+  sidebar broke the click used to find the "+" (add profile) button. Now
+  located by on screen position instead of click order, which works on both
+  macOS 26 and 27. Also fixed the Enroll/Cancel prompt clicking the wrong
+  button.
+- Guest agent install failing with "sudo: a password is required". The
+  Homebrew formula runs its own internal `sudo` call with no way to supply a
+  password. Fixed with a scoped `SUDO_ASKPASS` helper.
+- Guest commands taking up to 30 extra seconds to run. Every command tried
+  the guest agent first and waited out its connection timeout before falling
+  back to SSH. Now checked once per VM boot instead of on every command.
+- Auto enroll silently enrolling into the wrong Jamf server. It always pushed
+  a brand new profile, defaulting to whichever server was first in
+  Configuration, ignoring the profile already deployed on the base VM. Now
+  reuses an existing profile on the guest's Desktop if one is present.
+
+### Changed
+
+- Activity log now scrolls as a single list and keeps its scroll position
+  between refreshes.
+- Guest provisioning fields moved into the Create from IPSW form.
+- Cleaned up several outdated helper texts in Configuration and the base VM
+  prep flow.
+
 ## 1.52 — 2026-09-04
 
 ### Auto-enrolling VMs at boot (experimental)

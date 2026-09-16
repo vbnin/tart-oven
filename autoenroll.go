@@ -263,6 +263,96 @@ on run argv
 end run
 EOF
 
+# Clicks the "+" (add profile) button under General > Device Management.
+# macOS 26/27's redesigned System Settings sidebar renders its ~30 nav rows
+# as anonymous AXButtons (no name, description "button") — the same shape
+# clickgeneric.scpt matches on — so an unscoped "click generic #1" now hits a
+# sidebar row instead of "+". Addressing the sidebar/detail split by AXGroup
+# class (e.g. "group 1 of splitter group 1 of ...") turned out unreliable —
+# it intermittently reports empty groups depending on window/render state —
+# so this filters by on-screen position instead: the sidebar's anonymous
+# buttons sit within ~220px of the window's left edge; "+"/"-" sit well to
+# the right of that, in the detail pane. Falls back to the old unscoped
+# whole-window search if position data isn't available for some reason.
+cat > /tmp/ae/clickaddprofile.scpt << 'EOF'
+on run argv
+  set procName to item 1 of argv
+  tell application "System Events"
+    tell process procName
+      set candidates to {}
+      -- The window's position/geometry can be momentarily unavailable right
+      -- after System Settings launches or navigates (its AX tree is still
+      -- settling), which would otherwise make the position filter below spuriously
+      -- see zero candidates on a "cold" call. Give it a few short retries before
+      -- falling back to the unscoped (less reliable, ordinal-only) search.
+      repeat with attempt from 1 to 4
+        try
+          -- Splitting the property-get from the indexing matters here:
+          -- "item 1 of (position of window 1)" throws "can't make ... into
+          -- type specifier" (-1700) because System Events hands back a live
+          -- property reference, not a plain list, until it's captured into a
+          -- variable first. Combining them in one expression silently aborts
+          -- this whole try block on every call, which is what was actually
+          -- causing the permanent fallback to the unscoped ordinal search.
+          set winPos to position of window 1
+          set winX to item 1 of winPos
+          set allEls to entire contents of window 1
+          repeat with el in allEls
+            set r to ""
+            set d to ""
+            set n to "x"
+            try
+              set r to (role of el) as string
+            end try
+            try
+              set d to (description of el) as string
+            end try
+            try
+              set n to (name of el) as string
+            end try
+            if r is "AXButton" and d is "button" and (n is "missing value" or n is "") then
+              try
+                set elPos to position of el
+                set elX to item 1 of elPos
+                if elX > (winX + 220) then
+                  set end of candidates to el
+                end if
+              end try
+            end if
+          end repeat
+        end try
+        if (count of candidates) > 0 then exit repeat
+        delay 1
+      end repeat
+      if (count of candidates) is 0 then
+        set allEls to entire contents of window 1
+        repeat with el in allEls
+          set r to ""
+          set d to ""
+          set n to "x"
+          try
+            set r to (role of el) as string
+          end try
+          try
+            set d to (description of el) as string
+          end try
+          try
+            set n to (name of el) as string
+          end try
+          if r is "AXButton" and d is "button" and (n is "missing value" or n is "") then
+            set end of candidates to el
+          end if
+        end repeat
+      end if
+      set c to count of candidates
+      if c is 0 then return "no candidates"
+      click (item 1 of candidates)
+      return "clicked add-profile button (" & c & " candidates in scope)"
+    end tell
+  end tell
+end run
+EOF
+
 # Last-resort fallback for a pane with exactly one enabled button, whatever
 # it's called (e.g. a single "Continue" on an informational pane we don't
 # otherwise recognize, such as "Software Update Complete").
@@ -400,7 +490,7 @@ osascript -e 'tell application "System Settings" to activate' >/dev/null 2>&1
 sleep 1
 
 log "Clicking + (add profile)"
-osascript /tmp/ae/clickgeneric.scpt 1 "System Settings" | tee -a "$LOG"
+osascript /tmp/ae/clickaddprofile.scpt "System Settings" | tee -a "$LOG"
 sleep 2
 
 log "Go to Folder -> mdm_enroll.mobileconfig"
@@ -454,7 +544,20 @@ if [ "$GOT_PROMPT" = "1" ]; then
   ESCPASS=$(printf '%s' "$VMPASS" | sed 's/\\/\\\\/g; s/"/\\"/g')
   osascript -e "tell application \"System Events\" to keystroke \"$ESCPASS\"" >>"$LOG" 2>&1
   sleep 1
-  osascript /tmp/ae/clickexact.scpt "Enroll" "SecurityAgent" | tee -a "$LOG"
+  # "Enroll" is a named button on some macOS versions, but on macOS 27 this
+  # dialog's buttons (Cancel/Enroll) are both anonymous AXButtons like the
+  # Device Management "+" button above — fall back to clicking the first one
+  # when the exact-name lookup finds nothing. Confirmed empirically: unlike
+  # the sheet buttons elsewhere in this script (where the last/rightmost
+  # anonymous button is always the primary action), this dialog's first
+  # anonymous button is Enroll and the last is Cancel — clicking "last" here
+  # silently cancels enrollment instead of completing it.
+  RES=$(osascript /tmp/ae/clickexact.scpt "Enroll" "SecurityAgent" 2>&1)
+  echo "$RES" | tee -a "$LOG"
+  case "$RES" in
+    clicked*) ;;
+    *) osascript /tmp/ae/clickgeneric.scpt 1 "SecurityAgent" | tee -a "$LOG" ;;
+  esac
 else
   log "No password prompt appeared - profile may have failed to install earlier"
 fi
@@ -523,9 +626,20 @@ func (m *Manager) autoEnroll(t *Task, name string) error {
 		return fmt.Errorf("SSH never became reachable")
 	}
 
-	m.appendTaskOutput(t, "Pushing a fresh enrollment profile to the guest Desktop\n")
-	if _, _, err := m.copyMDMProfileToVM(t.ctx, name, "", "", ""); err != nil {
-		return fmt.Errorf("could not push enrollment profile: %v", err)
+	// Reuse whatever profile is already on the Desktop rather than always
+	// overwriting it: copyMDMProfileToVM with no profileID falls back to
+	// whichever Jamf Server Profile is first in Config.JamfProfiles, which
+	// silently discards a profile the user deployed by hand for a specific
+	// server (e.g. from the golden VM this was cloned from) in favor of
+	// whatever happens to be first in the list.
+	existsRes := m.sshExecContext(t.ctx, name, `test -f "$HOME/Desktop/mdm_enroll.mobileconfig" && echo yes || echo no`, "")
+	if existsRes.Error == "" && existsRes.ExitCode == 0 && strings.TrimSpace(existsRes.Stdout) == "yes" {
+		m.appendTaskOutput(t, "Reusing the enrollment profile already on the guest Desktop\n")
+	} else {
+		m.appendTaskOutput(t, "No enrollment profile found on the guest Desktop — pushing a fresh one\n")
+		if _, _, err := m.copyMDMProfileToVM(t.ctx, name, "", "", ""); err != nil {
+			return fmt.Errorf("could not push enrollment profile: %v", err)
+		}
 	}
 
 	m.mu.Lock()

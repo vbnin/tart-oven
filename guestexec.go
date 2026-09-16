@@ -94,12 +94,28 @@ func (m *Manager) execViaAgent(ctx context.Context, name, command, sudoPassword 
 // execInGuest is the single way to run a command inside a guest. It prefers the
 // Tart guest agent (no SSH, no key, no guest network) and falls back to SSH for
 // images that do not ship the agent.
+//
+// When the guest has no agent, `tart exec` still spends ~30s on its own internal
+// gRPC connection timeout before giving up — tolerable once, but it made every
+// single guest command (even "whoami") pay that tax, since it was retried on
+// every call. agentProbedSinceBoot caches "already tried and it's not there" for
+// the life of the current boot, so only the first command after a (re)start pays
+// it; installGuestAgent and a fresh boot both clear the cache to force a retry.
 func (m *Manager) execInGuest(ctx context.Context, name, command, sudoPassword string) execResult {
-	if res, handled := m.execViaAgent(ctx, name, command, sudoPassword); handled {
-		m.setAgentOK(name, true)
-		return res
+	m.mu.Lock()
+	knownUnavailable := m.agentProbedSinceBoot[name]
+	m.mu.Unlock()
+
+	if !knownUnavailable {
+		if res, handled := m.execViaAgent(ctx, name, command, sudoPassword); handled {
+			m.setAgentOK(name, true)
+			return res
+		}
+		m.setAgentOK(name, false)
+		m.mu.Lock()
+		m.agentProbedSinceBoot[name] = true
+		m.mu.Unlock()
 	}
-	m.setAgentOK(name, false)
 
 	m.mu.Lock()
 	fallback := m.cfg.SSHFallbackEnabled
