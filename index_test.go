@@ -158,7 +158,7 @@ func TestManagementActionsOnlyTargetLocalVMs(t *testing.T) {
 	if !strings.Contains(section, `const local = vms.filter(v => !isOCI(v.source));`) {
 		t.Fatal("VM management selectors do not filter edit/delete/MDM actions to local VMs")
 	}
-	for _, want := range []string{`fillOne("editSelect", local)`, `fillOne("deleteSelect", local)`, `const running = local.filter`} {
+	for _, want := range []string{`fillOne("editSelect", local)`, `const running = local.filter`} {
 		if !strings.Contains(section, want) {
 			t.Errorf("local-only management selector missing %q", want)
 		}

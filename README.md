@@ -4,7 +4,7 @@ Tart Oven is a local web console for managing [Tart](https://github.com/openai/t
 
 Tart Oven runs on macOS. Its guests can run macOS or Linux.
 
-Current release: **1.54** · [Changelog](CHANGELOG.md)
+Current release: **1.55-dev4** · [Changelog](CHANGELOG.md)
 
 ## Prerequisites
 
@@ -24,13 +24,13 @@ Tart Oven limits the host to two running VMs at a time. Apple's macOS license al
 
 ### 1. Install Tart Oven
 
-Download `TartOven-1.54.pkg` from the [release page](https://github.com/vbnin/tart-oven/releases).
+Download `TartOven-1.55-dev4.pkg` from the [release page](https://github.com/vbnin/tart-oven/releases).
 
 Open the package in Finder or install it from Terminal:
 
 ```sh
 cd "$HOME/Downloads"
-sudo installer -pkg "./TartOven-1.54.pkg" -target /
+sudo installer -pkg "./TartOven-1.55-dev4.pkg" -target /
 ```
 
 The package installs:

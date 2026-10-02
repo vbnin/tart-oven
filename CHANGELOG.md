@@ -12,6 +12,25 @@ A few terms appear throughout:
 - **MDM / Jamf Pro** — the system that manages enrolled Macs. Tart Oven can prepare
   a VM for enrollment and report whether a guest is enrolled.
 
+## 1.55-dev4 (in progress)
+
+### Changed
+
+- Notification banners (top right) are now colour-coded — green for success,
+  red for errors, blue for information — and have a ✕ button to dismiss them.
+  Errors stay on screen for 12 seconds instead of 6.
+- Sections in VM Management and Configuration can be collapsed by clicking
+  their title. Each section remembers whether it was open or closed.
+- **+ Create VM** button on the Dashboard jumps straight to Create / clone VMs.
+- Shorter Network interface hint in Configuration.
+
+### Removed
+
+- The Delete a VM section in VM Management. Delete a VM from its **⋯** menu
+  on the Dashboard instead.
+- Leftover "progress shows in Activity below" hints. Progress now appears in a
+  notification banner with a link to the Logs tab.
+
 ## 1.54 (2026-09-20)
 
 ### Added

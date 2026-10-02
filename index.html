@@ -446,7 +446,6 @@
   .checks label { display: flex; gap: 8px; align-items: center; color: var(--text); font-size: 14.5px; font-weight: 500; }
 
   .actions { display: flex; gap: 10px; margin-top: 18px; flex-wrap: wrap; align-items: center; }
-  .scheduler-row { display: flex; align-items: center; gap: 12px; margin-bottom: 18px; flex-wrap: wrap; }
   button {
     display: inline-flex; align-items: center; justify-content: center; gap: 6px;
     background: var(--accent); color: #fff; border: 1px solid transparent; border-radius: 6px;
@@ -570,14 +569,20 @@
   /* toasts */
   #toasts { position: fixed; top: 16px; right: 16px; display: flex; flex-direction: column; gap: 8px; z-index: 1000; }
   .toast {
-    background: var(--panel); border: 1px solid var(--border); border-left: 3px solid var(--amber);
-    color: var(--text); padding: 12px 18px; border-radius: 8px; max-width: 380px; font-size: 13.5px;
+    background: color-mix(in srgb, var(--accent) 22%, var(--panel)); border: 1px solid var(--accent);
+    color: var(--text); padding: 12px 48px 12px 18px; border-radius: 8px; max-width: 380px; font-size: 13.5px; position: relative;
     box-shadow: 0 10px 15px -3px rgba(0,0,0,.3), 0 4px 6px -4px rgba(0,0,0,.2); animation: slidein .18s cubic-bezier(0.16, 1, 0.3, 1);
   }
-  .toast.bad { border-left-color: var(--red); }
+  .toast.ok { background: color-mix(in srgb, var(--green) 22%, var(--panel)); border-color: var(--green); }
+  .toast.bad { background: color-mix(in srgb, var(--red) 22%, var(--panel)); border-color: var(--red); }
   .toast b { display: block; margin-bottom: 2px; }
   .toast .log-link { margin-left: 8px; color: var(--cyan); text-decoration: none; font-size: 12.5px; }
   .toast .log-link:hover { text-decoration: underline; }
+  .toast .close-btn {
+    position: absolute; top: 8px; right: 8px; background: none; border: none; color: var(--text);
+    cursor: pointer; padding: 4px 8px; font-size: 16px; line-height: 1; opacity: 0.6;
+  }
+  .toast .close-btn:hover { opacity: 1; }
   @keyframes slidein { from { transform: translateX(24px); opacity: 0; } to { transform: translateX(0); opacity: 1; } }
 
   /* tasks / activity */
@@ -591,6 +596,14 @@
   .badge.cancelled { color: var(--muted); border-color: var(--border); }
   .task pre { margin: 8px 0 0; background: var(--code-bg); border: 1px solid var(--border); border-radius: 6px; padding: 9px 12px; font-size: 12px; overflow: visible; resize: none; white-space: pre-wrap; color: var(--text); }
   button.tiny { font-size: 12px; padding: 4px 10px; margin-left: auto; border-radius: 4px; }
+
+  /* collapsible panels */
+  .panel.collapsible > h2, .panel.collapsible > div > h2 { cursor: pointer; user-select: none; display: flex; align-items: center; gap: 8px; }
+  .panel.collapsible > h2::before, .panel.collapsible > div > h2::before { content: '▾'; font-size: 22px; line-height: 1; width: 22px; text-align: center; transition: transform 0.2s; display: inline-block; }
+  .panel.collapsible.collapsed > h2::before, .panel.collapsible.collapsed > div > h2::before { transform: rotate(-90deg); }
+  .panel.collapsible.collapsed > *:not(h2):not(div:has(> h2)) { display: none !important; }
+  .panel.collapsible.collapsed > div:has(> h2) > *:not(h2) { display: none !important; }
+  .panel.collapsible.collapsed > div:has(> h2) { margin-bottom: 0 !important; }
 
   /* Modal (shadcn dialog style) */
   .modal { position: fixed; inset: 0; z-index: 1000; display: flex; align-items: center; justify-content: center; }
@@ -643,11 +656,6 @@
 
   <!-- ================= TAB 1: DASHBOARD ================= -->
   <div id="tab-dashboard" class="tab active">
-    <div class="scheduler-row">
-      <button id="pauseBtn" class="big">…</button>
-      <button id="refreshBtn" class="ghost" title="Re-check all VMs against Tart and clear stuck statuses">⟳ Refresh</button>
-    </div>
-
     <div id="emptyDashboardHero" class="panel hero-card" style="display: none; border: 1px dashed var(--accent); background: rgba(79, 140, 255, 0.05); padding: 28px; text-align: center; margin-bottom: 20px; border-radius: 8px;">
       <div style="font-size: 36px; margin-bottom: 10px;">🚀</div>
       <h2 style="margin: 0 0 8px; font-size: 20px; font-weight: 600;">Welcome to Tart Oven!</h2>
@@ -662,11 +670,14 @@
     </div>
 
     <div class="panel">
-      <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:14px">
+      <div style="display:flex;align-items:center;justify-content:space-between;gap:12px;flex-wrap:wrap;margin-bottom:14px">
         <h2 style="margin:0">Local VMs</h2>
-        <div style="display:flex;align-items:center;gap:16px">
+        <div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap">
+          <button type="button" onclick="goToCreatePanel()">+ Create VM</button>
+          <button type="button" id="pauseBtn">…</button>
+          <button type="button" id="refreshBtn" class="ghost" title="Re-check all VMs against Tart and clear stuck statuses">⟳ Refresh</button>
+          <button type="button" id="showRunningOnly" class="ghost" aria-pressed="false">Show All</button>
           <input type="text" id="vmSearch" placeholder="Search VMs…" style="width:200px" autocomplete="off">
-          <label class="radio"><span class="toggle"><input type="checkbox" id="showRunningOnly"><span class="slider"></span></span> Show running only</label>
         </div>
       </div>
       <div class="table-wrap">
@@ -791,7 +802,7 @@
   <!-- ================= TAB 3: VM MANAGEMENT ================= -->
   <div id="tab-vmm" class="tab">
 
-    <div class="panel">
+    <div class="panel" id="panel-create">
       <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:14px">
         <h2 style="margin:0">Create / clone VMs</h2>
       </div>
@@ -844,10 +855,10 @@
           <div class="field"><label>&nbsp;</label><label class="radio"><span class="toggle"><input type="checkbox" id="provisioningRemoteLogin"><span class="slider"></span></span> Enable remote login (SSH)</label></div>
         </div>
       </div>
-      <div class="actions"><button id="createBtn">Create VMs</button><span class="muted">Progress shows in Activity below.</span></div>
+      <div class="actions"><button id="createBtn">Create VMs</button></div>
     </div>
 
-    <div class="panel">
+    <div class="panel" id="panel-edit-vm">
       <h2>Edit a VM</h2>
       <div class="ssh-row">
         <select id="editSelect" onchange="loadVMInfo()"></select>
@@ -872,16 +883,7 @@
       <div class="actions"><button id="editBtn">Apply changes</button><span class="muted">VM must be stopped.</span></div>
     </div>
 
-    <div class="panel">
-      <h2>Delete a VM</h2>
-      <div class="grid grid-compact">
-        <div class="field"><label>VM to delete</label><select id="deleteSelect"></select></div>
-        <div class="field"><label>&nbsp;</label><button id="deleteBtn" class="danger">Delete permanently</button></div>
-      </div>
-      <p class="muted" style="margin:10px 0 0">VM must be stopped. Delete cannot be undone.</p>
-    </div>
-
-    <div class="panel">
+    <div class="panel" id="panel-prep-jamf">
       <h2>Prepare base VM for Jamf</h2>
       <p class="muted">Prepare one running base VM by copying the Jamf enrollment profile to its Desktop. Do not install or enroll the base VM; stop it and clone it so every clone starts with the profile ready. Install the profile separately inside each clone. Configure one or more Jamf Pro server profiles (e.g. Production, Staging, Sandbox), then deploy the chosen profile to any running base VM.</p>
 
@@ -996,7 +998,7 @@
 
   <!-- ================= TAB 3: CONFIGURATION ================= -->
   <div id="tab-config" class="tab">
-    <div class="panel">
+    <div class="panel" id="panel-setup-wizard">
       <h2>🚀 Setup Wizard</h2>
       <p class="muted">Re-run the interactive first-run onboarding wizard to check environment status, configure base images, or apply role presets.</p>
       <div class="actions">
@@ -1004,7 +1006,7 @@
       </div>
     </div>
 
-    <div class="panel">
+    <div class="panel" id="panel-scheduler">
       <h2>VM Scheduler</h2>
       <div class="grid">
         <div class="field"><label>Run interval (minutes)</label><input type="number" id="intervalMinutes" min="1"><small>How often the scheduler acts</small></div>
@@ -1021,7 +1023,7 @@
       </div>
     </div>
 
-    <div class="panel">
+    <div class="panel" id="panel-tart-settings">
       <h2>Tart Settings</h2>
       <div id="banner" class="banner ok"><span class="dot ok"></span><span id="bannertext">checking storage…</span></div>
       <div class="grid">
@@ -1030,7 +1032,7 @@
         <div class="field"><label>Tart binary path</label><input type="text" id="tartAppPath"><small>Full path to the tart binary</small></div>
         <div class="field" style="grid-column: 1 / -1;"><label>Custom run arguments (appended to every <span class="mono">tart run</span>)</label><input type="text" id="runArgs" placeholder='e.g. --vnc --no-audio --net-host'><small>--net-bridged is already set automatically from Network interface below; only add it here to override that. Quote values with spaces, e.g. --dir="~/My Shared Folder"</small></div>
         <div class="field"><label>Boot timeout (s)</label><input type="number" id="bootTimeoutSec" min="10"><small>Wait for IP before declaring boot failure</small></div>
-        <div class="field"><label>Network interface</label><select id="netPriority"><option value="auto">Auto (first available)</option><option value="wifi">Prioritize Wi-Fi</option><option value="ethernet">Prioritize Ethernet</option><option value="shared">Shared (NAT) — no bridging</option></select><small>Which network to use for VM bridging. Guests get their own LAN IP. Use Shared (NAT) if guests get a DHCP lease but no gateway/internet — common on enterprise Wi-Fi with client/MAC isolation; guests then route out through the host instead of appearing as a separate device on the network.</small></div>
+        <div class="field"><label>Network interface</label><select id="netPriority"><option value="auto">Auto (first available)</option><option value="wifi">Prioritize Wi-Fi</option><option value="ethernet">Prioritize Ethernet</option><option value="shared">Shared (NAT) — no bridging</option></select><small>Which network to use for VM bridging.</small></div>
       </div>
       <div class="actions">
         <button id="updateTartBtn" class="ghost">⇩ Update Tart</button>
@@ -1038,7 +1040,7 @@
       </div>
     </div>
 
-    <div class="panel">
+    <div class="panel" id="panel-ssh-commands">
       <h2>SSH &amp; Commands</h2>
       <div class="grid">
         <div class="field"><label for="sshUser">Default SSH username</label><input type="text" id="sshUser" value="admin" autocomplete="username"><small>Used unless a VM-specific username is configured</small></div>
@@ -1051,7 +1053,7 @@
       </div>
     </div>
 
-    <div class="panel">
+    <div class="panel" id="panel-server-settings">
       <h2>Server Settings</h2>
       <div class="grid">
         <div class="field"><label>Server label</label><input type="text" id="serverLabel" maxlength="100" placeholder="e.g. Mac Mini #1"></div>
@@ -1760,7 +1762,7 @@ function fillConfig(c) {
   set("excluded", (c.excluded || []).join("\n"));
   set("serverLabel", c.serverLabel || "");
   set("logPath", c.logPath || "");
-  chk("showRunningOnly", c.showRunningOnly);
+  setRunningOnly(!!c.showRunningOnly);
   chk("sshFallbackEnabled", c.sshFallbackEnabled !== false);
   chk("prioritizeSshShutdown", c.prioritizeSshShutdown);
   renderJamfProfiles();
@@ -2106,27 +2108,34 @@ function tagsHtml(vm) {
 // ---- toasts ----
 // logPanel: optional panel ID to link to (e.g. "panel-tart-logs", "panel-activity", "panel-history")
 function toast(title, msg, type, logPanel) {
+  const normalizedType = (type === "good" || type === "ok") ? "ok" : (type === "bad" ? "bad" : "info");
   const c = document.getElementById("toasts");
   const d = document.createElement("div");
-  d.className = "toast" + (type === "bad" ? " bad" : "");
-  let html = "<b>" + esc(title) + "</b>" + esc(msg);
+  d.className = "toast" + (normalizedType === "ok" ? " ok" : normalizedType === "bad" ? " bad" : "");
+  let html = '<button class="close-btn" aria-label="Dismiss">✕</button>';
+  html += "<b>" + esc(title) + "</b>" + esc(msg);
   if (logPanel) {
     html += ' <a href="#" class="log-link" data-panel="' + logPanel + '">See logs</a>';
   }
   d.innerHTML = html;
+  const closeBtn = d.querySelector(".close-btn");
+  closeBtn.onclick = () => {
+    d.style.transition = "opacity .3s"; d.style.opacity = "0";
+    setTimeout(() => d.remove(), 300);
+  };
   if (logPanel) {
     d.querySelector(".log-link").onclick = (e) => {
       e.preventDefault();
       showTab("logs");
-      const panel = document.getElementById(logPanel);
-      if (panel) panel.scrollIntoView({ behavior: "smooth", block: "start" });
+      scrollToPanel(logPanel);
     };
   }
   c.appendChild(d);
+  const timeout = normalizedType === "bad" ? 12000 : 6000;
   setTimeout(() => {
     d.style.transition = "opacity .3s"; d.style.opacity = "0";
     setTimeout(() => d.remove(), 300);
-  }, 6000);
+  }, timeout);
 }
 
 // Toast whenever a VM's lastError transitions to a new value (e.g. a manual run
@@ -2221,7 +2230,7 @@ async function autoEnrollVM(name) {
       body: JSON.stringify({ name })
     });
     if (!res.ok) throw new Error("request failed (" + res.status + ")");
-    toast("Auto enroll", "Started for " + name + " — progress and result show in the Logs tab; a banner also appears here once it finishes.", "ok");
+    toast("Auto enroll", "Started for " + name + ". A banner appears when it finishes.", "ok", "panel-activity");
   } catch (err) {
     toast("Auto enroll", err.message, "bad");
   }
@@ -2254,7 +2263,7 @@ async function installAgent(name) {
       body: JSON.stringify({ name })
     });
     if (!res.ok) throw new Error(await res.text());
-    toast(name, "Installing the guest agent — see Activity for progress", "ok");
+    toast(name, "Installing the guest agent.", "ok", "panel-activity");
     showTab("logs");
   } catch (err) {
     toast("Install failed", err.message, "bad");
@@ -2328,9 +2337,9 @@ function render(state) {
 
   const pb = document.getElementById("pauseBtn");
   if (state.config.paused) {
-    pb.textContent = "⏸ Scheduler OFF"; pb.className = "big pause";
+    pb.textContent = "⏸ Scheduler OFF"; pb.className = "pause";
   } else {
-    pb.textContent = "▶ Scheduler ON"; pb.className = "big resume";
+    pb.textContent = "▶ Scheduler ON"; pb.className = "resume";
   }
 
   if (!configLoaded) fillConfig(state.config);
@@ -2515,10 +2524,8 @@ async function startWizardPull() {
       body: JSON.stringify({ image, insecure: false })
     });
     if (res.ok) {
-      if (statusEl) {
-        statusEl.style.color = "var(--green)";
-        statusEl.textContent = "✓ Image pull started in background. Monitor progress in Activity.";
-      }
+      toast("OCI Pull", "Image pull started in background.", "ok", "panel-activity");
+      if (statusEl) statusEl.textContent = "";
     } else {
       if (statusEl) {
         statusEl.style.color = "var(--red)";
@@ -2622,7 +2629,7 @@ async function submitOciPull(opts) {
       } catch (_) {}
       throw new Error(errText || "Failed to start OCI pull");
     }
-    toast("OCI Pull", "Pull task started for " + image, "good");
+    toast("OCI Pull", "Pull task started for " + image, "ok");
     const logContainer = document.getElementById(logContainerId);
     if (logContainer) logContainer.classList.remove("hidden");
     if (submitBtn) submitBtn.textContent = "Pulling...";
@@ -2664,7 +2671,7 @@ function renderOCIImages(images, runningOnly, query) {
 
 function renderTable(vms) {
   const tbody = document.getElementById("localVmRows");
-  const runningOnly = document.getElementById("showRunningOnly").checked;
+  const runningOnly = isRunningOnly();
   const query = (document.getElementById("vmSearch").value || "").toLowerCase().trim();
   const local = vms.filter(v => !isOCI(v.source));
   const images = vms.filter(v => isOCI(v.source));
@@ -2979,7 +2986,6 @@ function fillMgmtSelects(vms) {
   fillOne("cloneSource", vms, { preferTemplate: true });
   const local = vms.filter(v => !isOCI(v.source));
   fillOne("editSelect", local);
-  fillOne("deleteSelect", local);
   const running = local.filter(v => v.state === "running");
   fillOne("mdmTarget", running);
   if (!running.length) {
@@ -3236,18 +3242,6 @@ el("editBtn").onclick = async () => {
     });
   } catch (_) {}
   loadVMInfo();
-};
-
-el("deleteBtn").onclick = async () => {
-  const name = document.getElementById("deleteSelect").value;
-  if (!name) return;
-  if (!confirm("Permanently delete VM \"" + name + "\"? This cannot be undone.")) return;
-  try {
-    const res = await api("/api/vm/delete", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ name }) });
-    const d = await res.json();
-    if (d.error) toast("Delete failed", d.error, "bad");
-    else toast("Delete", name + " deleted.", "", "panel-tart-logs");
-  } catch (e) { toast("Delete failed", e.message, "bad"); }
 };
 
 function renderLogs(logs) {
@@ -3797,14 +3791,26 @@ updateCreateMode();
 updateSshGuide();
 
 // Re-render VM table when filter toggle or search changes
-el("showRunningOnly").onchange = async (e) => {
+function isRunningOnly() {
+  return el("showRunningOnly").getAttribute("aria-pressed") === "true";
+}
+function setRunningOnly(on) {
+  const b = el("showRunningOnly");
+  b.setAttribute("aria-pressed", on ? "true" : "false");
+  b.textContent = on ? "Show Running" : "Show All";
+  b.className = on ? "resume" : "ghost";
+  b.title = on ? "Showing running VMs only — click to show all" : "Showing all VMs — click to show running only";
+}
+el("showRunningOnly").onclick = async () => {
+  const on = !isRunningOnly();
+  setRunningOnly(on);
   if (latest) renderTable(latest.vms);
   try {
     // Send only the field this toggle owns; posting the whole config form here
     // would commit any half-edited Settings fields the user hasn't saved.
     await api("/api/config", {
       method: "POST", headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ showRunningOnly: e.target.checked })
+      body: JSON.stringify({ showRunningOnly: on })
     });
   } catch (_) {}
 };
@@ -3860,6 +3866,92 @@ document.addEventListener("keydown", (e) => {
     closeOnboardingWizard(false);
   }
 });
+
+// ---- collapsible panels ----
+function initCollapsiblePanels() {
+  const vmmTab = document.getElementById("tab-vmm");
+  const configTab = document.getElementById("tab-config");
+  const panels = [...(vmmTab ? vmmTab.querySelectorAll(".panel") : []), ...(configTab ? configTab.querySelectorAll(".panel") : [])];
+
+  panels.forEach(panel => {
+    if (!panel.id) return;
+    panel.classList.add("collapsible");
+    const h2 = panel.querySelector("h2");
+    if (!h2) return;
+
+    const savedState = localStorage.getItem("panel-collapsed-" + panel.id);
+    if (savedState === "true") panel.classList.add("collapsed");
+
+    h2.setAttribute("role", "button");
+    h2.setAttribute("tabindex", "0");
+    h2.setAttribute("aria-expanded", !panel.classList.contains("collapsed"));
+
+    const togglePanel = () => {
+      panel.classList.toggle("collapsed");
+      const isCollapsed = panel.classList.contains("collapsed");
+      h2.setAttribute("aria-expanded", !isCollapsed);
+      localStorage.setItem("panel-collapsed-" + panel.id, isCollapsed);
+    };
+
+    h2.addEventListener("click", (e) => {
+      if (e.target === h2 || e.target.closest("h2") === h2) {
+        const clickedInsideControl = e.target.closest("button, select, input, a, .segmented-control");
+        if (!clickedInsideControl) togglePanel();
+      }
+    });
+    h2.addEventListener("keydown", (e) => {
+      if (e.key === "Enter" || e.key === " ") {
+        e.preventDefault();
+        togglePanel();
+      }
+    });
+  });
+}
+
+function expandPanel(id) {
+  const panel = document.getElementById(id);
+  if (panel && panel.classList.contains("collapsed")) {
+    panel.classList.remove("collapsed");
+    const h2 = panel.querySelector("h2");
+    if (h2) h2.setAttribute("aria-expanded", "true");
+    localStorage.setItem("panel-collapsed-" + id, "false");
+  }
+}
+
+// The sticky header would cover a plain scrollIntoView target, hiding the title.
+// Hand-animated because native smooth scrolling has no adjustable duration.
+function scrollToPanel(id, duration = 1000) {
+  requestAnimationFrame(() => {
+    const panel = document.getElementById(id);
+    if (!panel) return;
+    const header = document.querySelector("header");
+    const offset = (header ? header.offsetHeight : 0) + 16;
+    const start = window.scrollY;
+    const maxTop = document.documentElement.scrollHeight - window.innerHeight;
+    const target = Math.max(0, Math.min(maxTop, panel.getBoundingClientRect().top + start - offset));
+    const distance = target - start;
+    if (Math.abs(distance) < 2 || window.matchMedia("(prefers-reduced-motion: reduce)").matches) {
+      window.scrollTo(0, target);
+      return;
+    }
+    const t0 = performance.now();
+    const ease = t => t < 0.5 ? 4 * t * t * t : 1 - Math.pow(-2 * t + 2, 3) / 2;
+    const step = now => {
+      const p = Math.min(1, (now - t0) / duration);
+      window.scrollTo(0, start + distance * ease(p));
+      if (p < 1) requestAnimationFrame(step);
+    };
+    requestAnimationFrame(step);
+  });
+}
+
+function goToCreatePanel() {
+  showTab("vmm");
+  expandPanel("panel-create");
+  scrollToPanel("panel-create");
+}
+
+initCollapsiblePanels();
 
 connect();
 </script>
