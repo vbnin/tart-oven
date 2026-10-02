@@ -4,7 +4,7 @@ Tart Oven is a local web console for managing [Tart](https://github.com/openai/t
 
 Tart Oven runs on macOS. Its guests can run macOS or Linux.
 
-Current release: **1.53** · [Changelog](CHANGELOG.md)
+Current release: **1.54** · [Changelog](CHANGELOG.md)
 
 ## Prerequisites
 
@@ -24,13 +24,13 @@ Tart Oven limits the host to two running VMs at a time. Apple's macOS license al
 
 ### 1. Install Tart Oven
 
-Download `TartOven-1.53.pkg` from the [release page](https://github.com/vbnin/tart-oven/releases).
+Download `TartOven-1.54.pkg` from the [release page](https://github.com/vbnin/tart-oven/releases).
 
 Open the package in Finder or install it from Terminal:
 
 ```sh
 cd "$HOME/Downloads"
-sudo installer -pkg "./TartOven-1.53.pkg" -target /
+sudo installer -pkg "./TartOven-1.54.pkg" -target /
 ```
 
 The package installs:
@@ -318,7 +318,7 @@ Tart Oven requires at least 25 GiB free on the filesystem containing **VM storag
 
 ### A VM starts but gets no IP
 
-Tart Oven uses bridged networking.
+Tart Oven uses bridged networking by default.
 
 Check that:
 
@@ -326,6 +326,25 @@ Check that:
 - The LAN has a working DHCP server.
 - **Configuration → Tart Settings → Network interface** matches the connected interface.
 - **Boot timeout (s)** is long enough for the guest.
+
+### A VM gets an IP but has no internet access
+
+The guest picks up a DHCP lease and looks configured (check inside the
+guest: an active interface with a valid IP/DNS), but it can't reach its own
+gateway — `ping`/`curl` to the gateway or anything beyond it fails with
+"Host is down" or "No route to host". This is typically an enterprise
+Wi-Fi network enforcing client or MAC isolation: the access point accepts
+the host Mac's own MAC address but silently drops traffic from the guest's
+second (bridged) MAC, since to the network it looks like a second device.
+Home networks and most wired switches don't do this, which is why the same
+VM can work fine on one network and fail on another.
+
+There's no Mac-side fix for this — it's enforced by the network. Switch
+**Configuration → Tart Settings → Network interface** to **Shared (NAT)**:
+guest traffic then routes out through the host's own already-connected
+interface instead of appearing as a separate device on the wire. The
+guest loses its own LAN-reachable IP in this mode (no direct SSH/MDM
+reachability from other devices), but gets full outbound internet access.
 
 ### Guest commands fail
 

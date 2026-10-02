@@ -12,6 +12,33 @@ A few terms appear throughout:
 - **MDM / Jamf Pro** — the system that manages enrolled Macs. Tart Oven can prepare
   a VM for enrollment and report whether a guest is enrolled.
 
+## 1.54 (2026-09-20)
+
+### Added
+
+- **Shared (NAT)** option for **Configuration → Tart Settings → Network
+  interface**. Some networks — typically enterprise Wi-Fi enforcing
+  client/MAC isolation — let a bridged guest pull a DHCP lease but then
+  silently drop its traffic at the access point (confirmed via a guest with
+  an active `en0`, a correct IP/DNS config, and `ping`/`curl` to its own
+  gateway failing with "Host is down" / "No route to host"). Selecting
+  Shared (NAT) skips `--net-bridged` entirely so the guest falls back to
+  tart's own default shared networking, routed out through the host instead
+  of appearing as a second device on the wire. Guests lose their own
+  LAN-reachable IP in this mode.
+
+### Fixed
+
+- Duplicate `--net-bridged` breaking guest networking. `tart run` treats
+  `--net-bridged` as a repeatable flag, so a user-supplied `--net-bridged=...`
+  in Custom run arguments was being applied *in addition to* the interface
+  Tart Oven already auto-detects from **Network priority**, bridging the
+  guest onto the same physical interface twice and leaving it without
+  internet access. Tart Oven now skips its own auto-detected `--net-bridged`
+  whenever Custom run arguments already supplies one. Also fixed the
+  Configuration hint that suggested adding `--net-bridged="Wi-Fi"` there in
+  the first place.
+
 ## 1.53 (2026-09-16)
 
 ### Added
