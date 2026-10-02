@@ -5,12 +5,17 @@
 #
 # Signing is auto-detected from Developer ID certs in Keychain, or forced with
 # SIGN_PKG=true / APP_SIGN_IDENTITY+PKG_SIGN_IDENTITY. Whenever signing ends up
-# enabled — by any of those paths — notarization is asked about (or read from
-# env vars TEAM_ID, APPLE_EMAIL, APP_PASSWORD; set NOTARIZE=true to force it
-# non-interactively once those three are set). Interactively, you'll be asked:
+# enabled — by any of those paths — notarization is asked about (or forced
+# non-interactively with NOTARIZE=true). Interactively, you'll be asked:
 #   - Whether to sign (skipped if certs are auto-detected or SIGN_PKG is set)
-#   - Whether to notarize, then for any of Team ID / Apple ID email /
-#     app-specific password not already supplied via env var
+#   - Whether to notarize
+#
+# Notarization credentials (Apple ID + team ID + app-specific password) are
+# stored once in the keychain under the "TartOvenNotarize" notarytool profile
+# (see `xcrun notarytool store-credentials`) — same pattern as Armada's
+# release.sh. First run prompts for them (or reads TEAM_ID, APPLE_EMAIL,
+# APP_PASSWORD); every run after that reuses the stored profile silently.
+# Nothing is ever printed or written to disk in plain text.
 #
 # The resulting TartOven-<version>.pkg installs:
 #   /Library/Application Support/Tart Oven/tart-oven   (the binary)
@@ -80,38 +85,58 @@ if [ "$DO_SIGN" = true ]; then
     echo "    Installer:  $PKG_SIGN_IDENTITY"
 fi
 
-# Notarization credentials: same env-var-first, prompt-only-for-missing-fields
-# pattern as signing above, resolved independently of *how* signing was
+# Notarization credentials, resolved independently of *how* signing was
 # enabled (env var, an auto-detected Keychain identity, or the prompt above).
 # Auto-detection alone used to short-circuit past the old notarization prompt
 # entirely on any Mac that already had Developer ID certs installed, since
 # that prompt only lived inside the interactive-signing branch above.
-if [ "$DO_SIGN" = true ]; then
-    TEAM_ID="${TEAM_ID:-}"
-    APPLE_EMAIL="${APPLE_EMAIL:-}"
-    APP_PASSWORD="${APP_PASSWORD:-}"
+NOTARY_PROFILE="TartOvenNotarize"
 
+if [ "$DO_SIGN" = true ]; then
     if [ -n "${NOTARIZE:-}" ] && [ "$NOTARIZE" = "true" ]; then
-        DO_NOTARIZE=true
-    elif [ -n "$TEAM_ID" ] && [ -n "$APPLE_EMAIL" ] && [ -n "$APP_PASSWORD" ]; then
         DO_NOTARIZE=true
     elif [ -t 0 ]; then
         echo ""
         read -p "Do you also want to submit for Apple Notarization? [y/N] " NOTARIZE_ANSWER
         NOTARIZE_ANSWER=${NOTARIZE_ANSWER:-n}
         if [[ "$NOTARIZE_ANSWER" =~ ^[Yy]$ ]]; then
-            [ -z "$TEAM_ID" ] && read -p "  Team ID: " TEAM_ID
-            [ -z "$APPLE_EMAIL" ] && read -p "  Apple ID email: " APPLE_EMAIL
-            if [ -z "$APP_PASSWORD" ]; then
-                read -s -p "  App-specific password: " APP_PASSWORD
-                echo ""
-            fi
             DO_NOTARIZE=true
         fi
     fi
 
     if [ "$DO_NOTARIZE" = true ]; then
-        echo "==> Notarization enabled (Team ID: $TEAM_ID, Apple ID: $APPLE_EMAIL)"
+        # One-time setup: store Apple ID + team ID + app-specific password in
+        # the keychain under $NOTARY_PROFILE. Every later run finds the
+        # profile already there and skips straight to notarizing with it.
+        if ! xcrun notarytool history --keychain-profile "$NOTARY_PROFILE" >/dev/null 2>&1; then
+            TEAM_ID="${TEAM_ID:-}"
+            APPLE_EMAIL="${APPLE_EMAIL:-}"
+            APP_PASSWORD="${APP_PASSWORD:-}"
+            if [ -z "$TEAM_ID" ] || [ -z "$APPLE_EMAIL" ] || [ -z "$APP_PASSWORD" ]; then
+                if [ ! -t 0 ]; then
+                    echo "No stored notarization credentials (keychain profile \"$NOTARY_PROFILE\") and TEAM_ID/APPLE_EMAIL/APP_PASSWORD aren't all set for non-interactive setup." >&2
+                    exit 1
+                fi
+                echo "No stored notarization credentials found (keychain profile \"$NOTARY_PROFILE\")."
+                echo "This is a one-time setup — after this, future runs won't ask again."
+                echo ""
+                [ -z "$TEAM_ID" ] && read -p "  Team ID: " TEAM_ID
+                [ -z "$APPLE_EMAIL" ] && read -p "  Apple ID email: " APPLE_EMAIL
+                if [ -z "$APP_PASSWORD" ]; then
+                    echo "  App-specific password (generate one at https://appleid.apple.com/account/manage):"
+                    read -s -p "  Password: " APP_PASSWORD
+                    echo ""
+                fi
+            fi
+            xcrun notarytool store-credentials "$NOTARY_PROFILE" \
+                --apple-id "$APPLE_EMAIL" \
+                --team-id "$TEAM_ID" \
+                --password "$APP_PASSWORD"
+            unset APP_PASSWORD
+            echo "Credentials stored in the keychain under profile \"$NOTARY_PROFILE\"."
+            echo ""
+        fi
+        echo "==> Notarization enabled (keychain profile: $NOTARY_PROFILE)"
     fi
 fi
 
@@ -204,11 +229,7 @@ echo "==> PKG built: $OUT"
 if [ "$DO_NOTARIZE" = true ]; then
     echo ""
     echo "==> Submitting for notarization…"
-    xcrun notarytool submit "$OUT" \
-        --apple-id "$APPLE_EMAIL" \
-        --team-id "$TEAM_ID" \
-        --password "$APP_PASSWORD" \
-        --wait
+    xcrun notarytool submit "$OUT" --keychain-profile "$NOTARY_PROFILE" --wait
 
     echo ""
     echo "==> Stapling notarization ticket…"

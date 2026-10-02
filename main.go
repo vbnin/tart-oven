@@ -41,7 +41,7 @@ import (
 //go:embed index.html README.md CHANGELOG.md
 var content embed.FS
 
-const version = "1.53"
+const version = "1.54"
 
 // ---------------------------------------------------------------------------
 // Editable constants.
@@ -267,7 +267,7 @@ type Config struct {
 	SSHTimeoutSec           int           `json:"sshTimeoutSec"`         // ssh connect timeout
 	StatusCommand           string        `json:"statusCommand"`         // command for "Get info"
 	RunArgs                 string        `json:"runArgs"`               // extra args appended to every `tart run`
-	NetPriority             string        `json:"netPriority"`           // "auto" | "wifi" | "ethernet"
+	NetPriority             string        `json:"netPriority"`           // "auto" | "wifi" | "ethernet" | "shared"
 	BootTimeoutSec          int           `json:"bootTimeoutSec"`        // wait for IP before declaring boot failure
 	HistoryDays             int           `json:"historyDays"`           // run-history retention in days
 	LogPath                 string        `json:"logPath"`               // path to log file (rotation at 5MB)
@@ -660,7 +660,7 @@ func (m *Manager) load() {
 	if m.cfg.BootTimeoutSec < 10 {
 		m.cfg.BootTimeoutSec = d.BootTimeoutSec
 	}
-	if m.cfg.NetPriority != "wifi" && m.cfg.NetPriority != "ethernet" {
+	if m.cfg.NetPriority != "wifi" && m.cfg.NetPriority != "ethernet" && m.cfg.NetPriority != "shared" {
 		m.cfg.NetPriority = "auto"
 	}
 	// Older state files predate the daily window; seed it (enabled) on upgrade.
@@ -1466,11 +1466,20 @@ func (m *Manager) doRun(name, trigger string) {
 	m.mu.Unlock()
 	m.broadcast()
 
-	iface, err := activeInterface(netPriority)
-	if err != nil {
-		m.logln("run %s: no active network interface: %v", name, err)
-		m.failOp(name, err)
-		return
+	// "shared" opts out of bridged networking entirely (tart's own default:
+	// shared/NAT through the host), for networks — typically enterprise
+	// Wi-Fi with client/MAC isolation — that silently drop a bridged VM's
+	// second MAC address at the access point, leaving the guest with a
+	// DHCP lease but no route to its gateway.
+	var iface string
+	if netPriority != "shared" {
+		var err error
+		iface, err = activeInterface(netPriority)
+		if err != nil {
+			m.logln("run %s: no active network interface: %v", name, err)
+			m.failOp(name, err)
+			return
+		}
 	}
 
 	// tart run blocks for the life of the VM, so start it detached and reap it
@@ -1478,8 +1487,14 @@ func (m *Manager) doRun(name, trigger string) {
 	// (e.g. --vnc, --no-audio) are appended last. We capture its stdout/stderr
 	// into runLog so a boot failure surfaces tart's actual error message.
 	runArgs := []string{"run", name,
-		"--net-bridged=" + iface,
 		"--dir=host_resources:" + shared}
+	if netPriority != "shared" && !hasArg(extra, "--net-bridged") {
+		// Only auto-inject the detected interface if the user hasn't already
+		// supplied their own --net-bridged in Custom run arguments — tart
+		// treats --net-bridged as a repeatable flag, so both would apply and
+		// bridge the guest onto the same physical interface twice.
+		runArgs = append(runArgs, "--net-bridged="+iface)
+	}
 	if m.cfg.NoGraphics && !hasArg(extra, "--no-graphics") {
 		runArgs = append(runArgs, "--no-graphics")
 	}
@@ -3518,7 +3533,7 @@ func (m *Manager) handleConfig(w http.ResponseWriter, r *http.Request) {
 	}
 	if raw, ok := fields["netPriority"]; ok {
 		var v string
-		if json.Unmarshal(raw, &v) == nil && (v == "wifi" || v == "ethernet" || v == "auto") {
+		if json.Unmarshal(raw, &v) == nil && (v == "wifi" || v == "ethernet" || v == "auto" || v == "shared") {
 			m.cfg.NetPriority = v
 		}
 	}

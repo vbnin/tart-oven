@@ -1028,9 +1028,9 @@
         <div class="field"><label>VM storage path (TART_HOME)</label><input type="text" id="vmStoragePath"><small>Where Tart stores VMs</small></div>
         <div class="field"><label>Shared dir (host_resources)</label><input type="text" id="sharedDir"></div>
         <div class="field"><label>Tart binary path</label><input type="text" id="tartAppPath"><small>Full path to the tart binary</small></div>
-        <div class="field" style="grid-column: 1 / -1;"><label>Custom run arguments (appended to every <span class="mono">tart run</span>)</label><input type="text" id="runArgs" placeholder='e.g. --vnc --no-audio --net-host'><small>Quote values with spaces, e.g. --net-bridged="Wi-Fi"</small></div>
+        <div class="field" style="grid-column: 1 / -1;"><label>Custom run arguments (appended to every <span class="mono">tart run</span>)</label><input type="text" id="runArgs" placeholder='e.g. --vnc --no-audio --net-host'><small>--net-bridged is already set automatically from Network interface below; only add it here to override that. Quote values with spaces, e.g. --dir="~/My Shared Folder"</small></div>
         <div class="field"><label>Boot timeout (s)</label><input type="number" id="bootTimeoutSec" min="10"><small>Wait for IP before declaring boot failure</small></div>
-        <div class="field"><label>Network interface</label><select id="netPriority"><option value="auto">Auto (first available)</option><option value="wifi">Prioritize Wi-Fi</option><option value="ethernet">Prioritize Ethernet</option></select><small>Which network to use for VM bridging</small></div>
+        <div class="field"><label>Network interface</label><select id="netPriority"><option value="auto">Auto (first available)</option><option value="wifi">Prioritize Wi-Fi</option><option value="ethernet">Prioritize Ethernet</option><option value="shared">Shared (NAT) — no bridging</option></select><small>Which network to use for VM bridging. Guests get their own LAN IP. Use Shared (NAT) if guests get a DHCP lease but no gateway/internet — common on enterprise Wi-Fi with client/MAC isolation; guests then route out through the host instead of appearing as a separate device on the network.</small></div>
       </div>
       <div class="actions">
         <button id="updateTartBtn" class="ghost">⇩ Update Tart</button>
