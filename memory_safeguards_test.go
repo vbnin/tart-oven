@@ -73,7 +73,7 @@ func TestDoRunDefersStartDuringCriticalMemoryPressure(t *testing.T) {
 		PressureAvailable: true,
 	}}
 
-	m.doRun("base", "manual")
+	m.doRun("base", "manual", false)
 
 	vm := m.vms["base"]
 	if vm.State != "stopped" {

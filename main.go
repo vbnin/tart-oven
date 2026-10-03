@@ -41,7 +41,7 @@ import (
 //go:embed index.html README.md CHANGELOG.md
 var content embed.FS
 
-const version = "1.55-dev4"
+const version = "1.55-dev8"
 
 // ---------------------------------------------------------------------------
 // Editable constants.
@@ -447,11 +447,15 @@ type VM struct {
 	StartedAt    time.Time `json:"startedAt,omitempty"`
 	StopAt       time.Time `json:"stopAt,omitempty"`
 	LastRun      time.Time `json:"lastRun,omitempty"`      // last time this VM was started
+	Headless     bool      `json:"headless,omitempty"`     // current run is using --no-graphics
 	BootFailed   bool      `json:"bootFailed,omitempty"`   // started but never got an IP
 	SSHOK        bool      `json:"sshOk,omitempty"`        // last SSH connectivity check passed
 	SSHCheckedAt time.Time `json:"sshCheckedAt,omitempty"` // when SSH was last checked
-	Info         string    `json:"info,omitempty"`         // last "Get info" (status command) output
-	InfoAt       time.Time `json:"infoAt,omitempty"`       // when Info was last fetched
+
+	AgentOK        bool      `json:"agentOk"`                  // guest agent answered the last probe
+	AgentCheckedAt time.Time `json:"agentCheckedAt,omitempty"` // zero means never probed
+	Info           string    `json:"info,omitempty"`           // last "Get info" (status command) output
+	InfoAt         time.Time `json:"infoAt,omitempty"`         // when Info was last fetched
 
 	MDMEnrolled  bool      `json:"mdmEnrolled,omitempty"`  // guest reports an active MDM enrollment
 	MDMServer    string    `json:"mdmServer,omitempty"`    // raw MDM check-in URL from the guest
@@ -469,7 +473,6 @@ type VM struct {
 	LastError string `json:"lastError,omitempty"`
 
 	// Computed for the UI in stateSnapshot (not persisted meaningfully).
-	AgentOK  bool `json:"agentOk"` // guest agent answered the last command
 	Template bool `json:"template"`
 	Excluded bool `json:"excluded"`
 	Busy     bool `json:"busy"`
@@ -483,6 +486,10 @@ type RunEvent struct {
 	StoppedAt time.Time `json:"stoppedAt,omitempty"`
 	IP        string    `json:"ip,omitempty"`
 	Trigger   string    `json:"trigger"` // "scheduler" | "manual"
+	// StopUnknown marks a run whose stop was never recorded (the server went
+	// away while it ran); StoppedAt is then set to StartedAt only so that no
+	// later stop gets attributed to this stale entry.
+	StopUnknown bool `json:"stopUnknown,omitempty"`
 }
 
 // Task tracks a long-running management operation (create / clone) so the UI
@@ -537,6 +544,46 @@ type persisted struct {
 	Config  Config         `json:"config"`
 	VMs     map[string]*VM `json:"vms"`
 	History []*RunEvent    `json:"history"`
+}
+
+// closeStaleHistory closes run-history entries left open by a server that
+// stopped or crashed while their VM ran. Must run after the startup reconcile
+// so VM states reflect tart. A VM that is still running keeps its newest open
+// entry; every other open entry is marked StopUnknown.
+func (m *Manager) closeStaleHistory() int {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	keep := map[*RunEvent]bool{}
+	for i := len(m.history) - 1; i >= 0; i-- {
+		ev := m.history[i]
+		if !ev.StoppedAt.IsZero() {
+			continue
+		}
+		vm := m.vms[ev.Name]
+		active := vm != nil && (vm.State == "running" || vm.State == "starting")
+		if !active {
+			continue
+		}
+		claimed := false
+		for k := range keep {
+			if k.Name == ev.Name {
+				claimed = true
+				break
+			}
+		}
+		if !claimed {
+			keep[ev] = true
+		}
+	}
+	closed := 0
+	for _, ev := range m.history {
+		if ev.StoppedAt.IsZero() && !keep[ev] {
+			ev.StoppedAt = ev.StartedAt
+			ev.StopUnknown = true
+			closed++
+		}
+	}
+	return closed
 }
 
 // stateSnapshot is what we send to the dashboard (GET /api/vms and SSE).
@@ -1334,6 +1381,7 @@ func (m *Manager) reconcile() {
 			// status / Info for reference after the VM stops.
 			vm.StartedAt = time.Time{}
 			vm.StopAt = time.Time{}
+			vm.Headless = false
 		}
 	}
 	// Drop VMs that no longer exist in tart (and aren't mid-operation).
@@ -1401,7 +1449,7 @@ func (m *Manager) failOp(name string, err error) {
 	m.broadcast()
 }
 
-func (m *Manager) doRun(name, trigger string) {
+func (m *Manager) doRun(name, trigger string, headless bool) {
 	m.mu.Lock()
 	if m.busy[name] {
 		m.mu.Unlock()
@@ -1495,7 +1543,8 @@ func (m *Manager) doRun(name, trigger string) {
 		// bridge the guest onto the same physical interface twice.
 		runArgs = append(runArgs, "--net-bridged="+iface)
 	}
-	if m.cfg.NoGraphics && !hasArg(extra, "--no-graphics") {
+	noGraphics := headless || m.cfg.NoGraphics || hasArg(extra, "--no-graphics")
+	if noGraphics && !hasArg(extra, "--no-graphics") {
 		runArgs = append(runArgs, "--no-graphics")
 	}
 	if m.cfg.NoAudio && !hasArg(extra, "--no-audio") {
@@ -1581,6 +1630,7 @@ func (m *Manager) doRun(name, trigger string) {
 		vm.IP = ""
 		vm.StartedAt = time.Time{}
 		vm.StopAt = time.Time{}
+		vm.Headless = false
 		vm.BootFailed = true
 		vm.LastError = detail
 		ev.StoppedAt = time.Now() // close the history entry
@@ -1596,10 +1646,13 @@ func (m *Manager) doRun(name, trigger string) {
 	vm.IP = ip
 	vm.StartedAt = time.Now()
 	vm.StopAt = time.Now().Add(window)
+	vm.Headless = noGraphics
 	vm.BootFailed = false // a clean boot clears any previous failure flag
 	vm.LastError = ""
-	vm.SSHOK = false              // pending check; UI shows "checking…"
-	vm.SSHCheckedAt = time.Time{} //
+	vm.SSHOK = false // pending check; UI shows "checking…"
+	vm.SSHCheckedAt = time.Time{}
+	vm.AgentOK = false
+	vm.AgentCheckedAt = time.Time{}
 	ev.IP = ip
 	if pendingProvisioning != "" {
 		// First boot resolved an IP, so the guest applied the provisioning
@@ -1742,6 +1795,7 @@ func (m *Manager) doStop(name string) {
 	vm.State = "stopped"
 	vm.StartedAt = time.Time{}
 	vm.StopAt = time.Time{}
+	vm.Headless = false
 	// Keep last known IP, SSH status, and Info as a reference after the VM stops.
 	// Close the most recent open history event for this VM.
 	for i := len(m.history) - 1; i >= 0; i-- {
@@ -1777,6 +1831,7 @@ func (m *Manager) finishVMRun(name, state string) {
 		vm.State = state
 		vm.StartedAt = time.Time{}
 		vm.StopAt = time.Time{}
+		vm.Headless = false
 		vm.LastError = ""
 	}
 	for i := len(m.history) - 1; i >= 0; i-- {
@@ -1917,7 +1972,7 @@ func (m *Manager) tick() {
 		} else {
 			pick = candidates[rand.Intn(len(candidates))]
 		}
-		m.doRun(pick, "scheduler")
+		m.doRun(pick, "scheduler", false)
 	}
 }
 
@@ -2855,12 +2910,19 @@ func (m *Manager) routes() *http.ServeMux {
 	})
 
 	mux.HandleFunc("/api/run", func(w http.ResponseWriter, r *http.Request) {
-		name, err := decodeName(r)
-		if err != nil {
+		var body struct {
+			Name     string `json:"name"`
+			Headless bool   `json:"headless,omitempty"`
+		}
+		if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
 			http.Error(w, err.Error(), http.StatusBadRequest)
 			return
 		}
-		go m.doRun(name, "manual")
+		if strings.TrimSpace(body.Name) == "" {
+			http.Error(w, "missing name", http.StatusBadRequest)
+			return
+		}
+		go m.doRun(body.Name, "manual", body.Headless)
 		writeJSON(w, map[string]bool{"ok": true})
 	})
 
@@ -2880,9 +2942,13 @@ func (m *Manager) routes() *http.ServeMux {
 			http.Error(w, err.Error(), http.StatusBadRequest)
 			return
 		}
+		m.mu.Lock()
+		vm := m.vms[name]
+		headless := vm != nil && vm.Headless
+		m.mu.Unlock()
 		go func() {
 			m.doStop(name)
-			m.doRun(name, "manual")
+			m.doRun(name, "manual", headless)
 		}()
 		writeJSON(w, map[string]bool{"ok": true})
 	})
@@ -3712,6 +3778,12 @@ func main() {
 	m.checkStorage()
 	m.ensureSharedDir()
 	m.reconcile()
+	if n := m.closeStaleHistory(); n > 0 {
+		m.mu.Lock()
+		m.save()
+		m.mu.Unlock()
+		log.Printf("history: closed %d run(s) whose stop was never recorded", n)
+	}
 	m.updatePerformance(time.Now())
 	m.hostIP = localIP()
 

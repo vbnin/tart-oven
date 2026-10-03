@@ -544,6 +544,7 @@
   .ssh-status-label { font-size: 11px; font-weight: 700; letter-spacing: .03em; margin-left: 6px; vertical-align: middle; }
   .ssh-status-label.ok { color: var(--green); }
   .ssh-status-label.bad { color: var(--red); }
+  .last-known { opacity: .45; }
 
   .ssh-row { display: flex; gap: 10px; align-items: center; margin-bottom: 14px; flex-wrap: wrap; }
   .ssh-row select { width: 280px; flex: none; }
@@ -604,6 +605,17 @@
   .panel.collapsible.collapsed > *:not(h2):not(div:has(> h2)) { display: none !important; }
   .panel.collapsible.collapsed > div:has(> h2) > *:not(h2) { display: none !important; }
   .panel.collapsible.collapsed > div:has(> h2) { margin-bottom: 0 !important; }
+
+  /* VM details (inspector-style key/value list) */
+  #vmInfoModalBody { display: flex; flex-direction: column; gap: 20px; max-height: 70vh; overflow-y: auto; }
+  .kv-title { font-size: 12px; text-transform: uppercase; letter-spacing: .05em; color: var(--muted); font-weight: 600; margin-bottom: 6px; }
+  .kv-list { display: flex; flex-direction: column; }
+  .kv-row { display: flex; justify-content: space-between; align-items: baseline; gap: 16px; padding: 4px 0; }
+  .kv-val { color: var(--muted); text-align: right; overflow-wrap: anywhere; }
+  .kv-row.kv-block { flex-direction: column; align-items: stretch; gap: 4px; }
+  .kv-row.kv-block .kv-val { text-align: left; }
+  .kv-pre { margin: 0; padding: 8px 10px; background: var(--code-bg); border: 1px solid var(--border); border-radius: 6px; font-size: 12px; white-space: pre-wrap; overflow-wrap: anywhere; color: var(--text); }
+  .kv-note { font-size: 11.5px; }
 
   /* Modal (shadcn dialog style) */
   .modal { position: fixed; inset: 0; z-index: 1000; display: flex; align-items: center; justify-content: center; }
@@ -858,31 +870,6 @@
       <div class="actions"><button id="createBtn">Create VMs</button></div>
     </div>
 
-    <div class="panel" id="panel-edit-vm">
-      <h2>Edit a VM</h2>
-      <div class="ssh-row">
-        <select id="editSelect" onchange="loadVMInfo()"></select>
-        <span id="editInfo" class="muted"></span>
-      </div>
-      <div class="grid">
-        <div class="field"><label>CPU cores</label><input type="number" id="editCpu" min="1"></div>
-        <div class="field"><label>Memory (MB)</label><input type="number" id="editMemory" min="512" step="512"></div>
-        <div class="field"><label>Disk size (GB) — grow only</label><input type="number" id="editDisk" min="0" placeholder="blank = unchanged"></div>
-        <div class="field"><label>Display (WxH)</label><input type="text" id="editDisplay"></div>
-        <div class="field"><label>Rename to</label><input type="text" id="renameNew" placeholder="blank = keep name"></div>
-        <div class="field"><label>Custom SSH user</label><input type="text" id="editSshUser" placeholder="blank = use default"></div>
-        <div class="field"><label>Custom SSH password</label><input type="password" id="editSshPassword" autocomplete="new-password" placeholder="blank = use default / keep current"></div>
-        <div class="field"><label>Tags</label><input type="text" id="editTags" placeholder="comma-separated tags"></div>
-        <div class="field" style="grid-column: span 2"><label>Notes</label><textarea id="editNotes" rows="2" placeholder="Notes about this VM"></textarea></div>
-      </div>
-      <div class="checks">
-        <label><input type="checkbox" id="editRandMac"> New random MAC</label>
-        <label><input type="checkbox" id="editRandSerial"> New random serial</label>
-      </div>
-      <p id="memorySuggestion" class="muted" style="margin:10px 0 0"></p>
-      <div class="actions"><button id="editBtn">Apply changes</button><span class="muted">VM must be stopped.</span></div>
-    </div>
-
     <div class="panel" id="panel-prep-jamf">
       <h2>Prepare base VM for Jamf</h2>
       <p class="muted">Prepare one running base VM by copying the Jamf enrollment profile to its Desktop. Do not install or enroll the base VM; stop it and clone it so every clone starts with the profile ready. Install the profile separately inside each clone. Configure one or more Jamf Pro server profiles (e.g. Production, Staging, Sandbox), then deploy the chosen profile to any running base VM.</p>
@@ -1121,23 +1108,45 @@
     </div>
   </div>
 
-  <!-- VM details edit modal (notes + tags) -->
-<div id="notesModal" class="modal hidden">
+  <!-- Edit VM modal (replaces both the Edit a VM panel and the old notes modal) -->
+<div id="editVmModal" class="modal hidden">
   <div class="modal-backdrop"></div>
-  <div class="modal-content">
-    <h3>Edit <span id="notesVmName"></span></h3>
-    <div class="field" style="margin-bottom:12px">
-      <label>Tags (comma-separated)</label>
-      <input type="text" id="tagsInput" placeholder="e.g. demo, production, test">
+  <div class="modal-content" style="width: 680px; max-width: 92vw;">
+    <h3>Edit <span id="editVmModalName"></span></h3>
+    <div id="editVmModalInfo" class="muted" style="margin-bottom: 12px; font-size: 13px;"></div>
+    <p id="editVmModalHint" class="muted" style="margin-bottom: 12px; font-size: 12.5px; display: none;">Stop the VM to change hardware or rename it.</p>
+    <div class="grid">
+      <div class="field"><label>CPU cores</label><input type="number" id="editVmCpu" min="1"></div>
+      <div class="field"><label>Memory (MB)</label><input type="number" id="editVmMemory" min="512" step="512"></div>
+      <div class="field"><label>Disk size (GB) — grow only</label><input type="number" id="editVmDisk" min="0" placeholder="blank = unchanged"></div>
+      <div class="field"><label>Display (WxH)</label><input type="text" id="editVmDisplay"></div>
+      <div class="field"><label>Rename to</label><input type="text" id="editVmRenameNew" placeholder="blank = keep name"></div>
+      <div class="field"><label>Custom SSH user</label><input type="text" id="editVmSshUser" placeholder="blank = use default"></div>
+      <div class="field"><label>Custom SSH password</label><input type="password" id="editVmSshPassword" autocomplete="new-password" placeholder="blank = keep current"></div>
+      <div class="field"><label>Tags (comma-separated)</label><input type="text" id="editVmTags" placeholder="e.g. demo, production, test"></div>
+      <div class="field" style="grid-column: span 2"><label>Notes</label><textarea id="editVmNotes" rows="2" placeholder="Notes about this VM"></textarea></div>
     </div>
-    <div class="field">
-      <label>Notes</label>
-      <textarea id="notesText" rows="4" placeholder="Enter notes for this VM…"></textarea>
+    <div class="checks" style="margin-top: 8px;">
+      <label><input type="checkbox" id="editVmRandMac"> New random MAC</label>
+      <label><input type="checkbox" id="editVmRandSerial"> New random serial</label>
     </div>
-    <div class="modal-actions">
-      <button id="notesSave">Save</button>
-      <button id="notesCancel" class="ghost">Cancel</button>
+    <p id="editVmMemorySuggestion" class="muted" style="margin: 10px 0 0; font-size: 12.5px;"></p>
+    <div class="modal-actions" style="margin-top: 14px;">
+      <button id="editVmSaveBtn">Save</button>
+      <button id="editVmCancelBtn" class="ghost">Cancel</button>
     </div>
+  </div>
+</div>
+
+<!-- VM Info modal (read-only details) -->
+<div id="vmInfoModal" class="modal hidden">
+  <div class="modal-backdrop"></div>
+  <div class="modal-content" style="width: 680px; max-width: 92vw;">
+    <div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 16px;">
+      <h3 id="vmInfoModalName" style="margin: 0; font-size: 16px; font-weight: 600;"></h3>
+      <button type="button" class="ghost" onclick="closeVmInfoModal()" style="padding: 4px 10px; font-size: 16px; line-height: 1;" title="Close">✕</button>
+    </div>
+    <div id="vmInfoModalBody" style="font-size: 13px;"></div>
   </div>
 </div>
 
@@ -2049,7 +2058,12 @@ function esc(s) { return (s == null ? "" : String(s)).replace(/[&<>"]/g, c => ({
 // SSH connectivity bubble for a VM.
 function sshCell(vm) {
   if (vm.state === "stopped") {
-    return '<span class="ssh-dot grey" title="VM stopped"></span>';
+    const known = vm.sshCheckedAt && !vm.sshCheckedAt.startsWith("0001");
+    if (!known) return '<span class="ssh-dot grey" title="VM stopped — never checked"></span>';
+    const tip = 'last known while running (checked ' + esc(fmtDateTime(vm.sshCheckedAt)) + ')';
+    return '<span class="last-known" title="' + tip + '">' + (vm.sshOk
+      ? '<span class="ssh-dot green"></span><span class="ssh-status-label ok">OK</span>'
+      : '<span class="ssh-dot red"></span><span class="ssh-status-label bad">KO</span>') + '</span>';
   }
   if (vm.state === "running") {
     const checked = vm.sshCheckedAt && !vm.sshCheckedAt.startsWith("0001");
@@ -2236,13 +2250,6 @@ async function autoEnrollVM(name) {
   }
 }
 
-// Jumps to VM Management's "Edit a VM" section with this VM preselected.
-function editVMShortcut(name) {
-  showTab("vmm");
-  document.getElementById("editSelect").value = name;
-  loadVMInfo();
-}
-
 // Same confirm()+delete flow as the "Delete a VM" panel's button, just
 // reachable straight from a row instead of via a select first.
 async function deleteVMFromRow(name) {
@@ -2360,6 +2367,9 @@ function render(state) {
   renderTasks(state.tasks || []);
   renderLogs(state.logs || []);
   checkErrors(state.vms);
+  if (vmInfoModalName && !document.getElementById("vmInfoModal").classList.contains("hidden")) {
+    renderVmInfoModalBody();
+  }
 
   if (!wizardAutoOpened && state && state.config && !state.config.firstRunCompleted && Array.isArray(state.vms) && state.vms.filter(v => !isOCI(v.source)).length === 0) {
     wizardAutoOpened = true;
@@ -2492,10 +2502,6 @@ function applyRolePreset(role) {
     if (crs) crs.checked = true;
     const crm = document.getElementById("createRandMac");
     if (crm) crm.checked = true;
-    const ers = document.getElementById("editRandSerial");
-    if (ers) ers.checked = true;
-    const erm = document.getElementById("editRandMac");
-    if (erm) erm.checked = true;
     if (typeof switchCmdTab === "function") switchCmdTab("jamf");
   } else if (role === "qa") {
     const ng = document.getElementById("noGraphics");
@@ -2730,15 +2736,16 @@ function renderTable(vms) {
         '<div class="row-menu" id="rowmenu-' + n + '">' +
           '<button class="ghost row-menu-btn" onclick="toggleRowMenu(event,\'' + n + '\')" title="More actions">⋯</button>' +
           '<div class="row-menu-list">' +
+            '<button onclick="closeRowMenus();runHeadless(\'' + n + '\')"' + (busy || vm.state !== "stopped" ? ' disabled' : '') + ' title="Start VM without graphics">Run headless</button>' +
             '<button onclick="closeRowMenus();getInfo(\'' + n + '\')"' + notRunning + '>Get info</button>' +
             agentInstallButton(n, notRunning) +
             '<button onclick="closeRowMenus();openVNC(\'' + esc(vm.ip) + '\',\'' + esc(effUser) + '\')"' + noScreen + '>Start Screen Sharing</button>' +
-            '<button onclick="closeRowMenus();openEditModal(\'' + n + '\')" title="Edit notes and tags">Edit Tags</button>' +
-            '<button onclick="closeRowMenus();editVMShortcut(\'' + n + '\')" title="Go to Edit a VM in VM Management">Edit VM</button>' +
+            '<button onclick="closeRowMenus();openEditModal(\'' + n + '\')" title="Edit VM settings, tags, and notes">Edit VM</button>' +
             '<button onclick="closeRowMenus();autoEnrollVM(\'' + n + '\')" title="Run (if stopped), install the MDM profile, and enroll">Auto Enroll VM (experimental)</button>' +
             '<button class="danger" onclick="closeRowMenus();deleteVMFromRow(\'' + n + '\')" title="Permanently delete this VM">Delete VM</button>' +
           '</div>' +
         '</div>' +
+        '<button class="ghost" onclick="openVmInfoModal(\'' + n + '\')" title="VM details for ' + esc(n) + '" aria-label="VM details for ' + esc(n) + '" style="padding: 4px 8px; font-size: 14px; margin-left: 4px;">ⓘ</button>' +
       '</div></td></tr>';
   }).join("");
   // The row HTML above is fully regenerated on every SSE push, which would
@@ -2819,43 +2826,225 @@ async function runJamfEvent() {
   await runJamfPreset("sudo jamf policy -event " + eventName);
 }
 
-// ---- VM edit modal (notes + tags) ----
-let editVmName = "";
-function openEditModal(vmName) {
-  editVmName = vmName;
+// ---- Edit VM modal (replaces both the panel and the old notes modal) ----
+let editVmModalName = "";
+async function openEditModal(vmName) {
+  editVmModalName = vmName;
   const vm = latest && latest.vms.find(v => v.name === vmName);
-  document.getElementById("notesVmName").textContent = vmName;
-  document.getElementById("notesText").value = vm ? (vm.notes || "") : "";
-  document.getElementById("tagsInput").value = vm && vm.tags ? vm.tags.join(", ") : "";
-  document.getElementById("notesModal").classList.remove("hidden");
-  document.getElementById("tagsInput").focus();
+  if (!vm) return;
+  document.getElementById("editVmModalName").textContent = vmName;
+  document.getElementById("editVmModal").classList.remove("hidden");
+  const isStopped = vm.state === "stopped";
+  const hint = document.getElementById("editVmModalHint");
+  hint.style.display = isStopped ? "none" : "block";
+  // Disable hardware fields if not stopped
+  ["editVmCpu", "editVmMemory", "editVmDisk", "editVmDisplay", "editVmRenameNew", "editVmRandMac", "editVmRandSerial"].forEach(id => {
+    const el = document.getElementById(id);
+    if (el) el.disabled = !isStopped;
+  });
+  ["editVmCpu", "editVmMemory", "editVmDisplay", "editVmDisk", "editVmRenameNew", "editVmSshPassword"].forEach(id => { document.getElementById(id).value = ""; });
+  document.getElementById("editVmRandMac").checked = false;
+  document.getElementById("editVmRandSerial").checked = false;
+  document.getElementById("editVmTags").value = vm.tags ? vm.tags.join(", ") : "";
+  document.getElementById("editVmNotes").value = vm.notes || "";
+  document.getElementById("editVmSshUser").value = vm.sshUser || "";
+  document.getElementById("editVmModalInfo").textContent = "loading…";
+  document.getElementById("editVmMemorySuggestion").textContent = "";
+  try {
+    const res = await api("/api/vm/get?name=" + encodeURIComponent(vmName));
+    const d = await res.json();
+    if (editVmModalName !== vmName) return; // closed or reopened for another VM meanwhile
+    if (d.error) {
+      document.getElementById("editVmModalInfo").textContent = d.error;
+    } else {
+      document.getElementById("editVmCpu").value = d.CPU || "";
+      document.getElementById("editVmMemory").value = d.Memory || "";
+      document.getElementById("editVmDisplay").value = d.Display || "";
+      document.getElementById("editVmModalInfo").textContent = "current: " + (d.OS || "?") + " · " + d.CPU + " CPU · " + d.Memory + " MB · disk " + d.Disk + " GB · " + (d.State || "?");
+      document.getElementById("editVmMemorySuggestion").textContent = isStopped
+        ? "Memory suggestion: if this VM contributes to host pressure, lower Memory (MB) in small steps and test it. Lowering memory applies on the next boot; Tart enforces the guest minimum."
+        : "";
+    }
+  } catch (e) {
+    if (editVmModalName === vmName) document.getElementById("editVmModalInfo").textContent = "error: " + e.message;
+  }
 }
-function closeEditModal() {
-  document.getElementById("notesModal").classList.add("hidden");
-  editVmName = "";
+function closeEditVmModal() {
+  document.getElementById("editVmModal").classList.add("hidden");
+  editVmModalName = "";
 }
-async function saveVmDetails() {
-  const notes = document.getElementById("notesText").value;
-  const tagsRaw = document.getElementById("tagsInput").value;
+async function saveEditVmModal() {
+  const name = editVmModalName;
+  if (!name) return;
+  const vm = latest && latest.vms.find(v => v.name === name);
+  if (!vm) return;
+  const isStopped = vm.state === "stopped";
+  const newName = document.getElementById("editVmRenameNew").value.trim();
+  // Rename first if requested and VM is stopped
+  if (isStopped && newName && newName !== name) {
+    try {
+      const res = await api("/api/vm/rename", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ name, newName }) });
+      const d = await res.json();
+      if (d.error) { toast("Rename failed", d.error, "bad"); return; }
+    } catch (e) { toast("Rename failed", e.message, "bad"); return; }
+    // Retargets a retry after a later step fails, since the old name is gone.
+    editVmModalName = newName;
+    document.getElementById("editVmModalName").textContent = newName;
+    document.getElementById("editVmRenameNew").value = "";
+  }
+  const finalName = (isStopped && newName) || name;
+  // Set hardware if stopped and something changed
+  if (isStopped) {
+    const num = id => parseInt(document.getElementById(id).value, 10) || 0;
+    const body = {
+      name: finalName,
+      cpu: num("editVmCpu"), memory: num("editVmMemory"), diskSize: num("editVmDisk"),
+      display: document.getElementById("editVmDisplay").value.trim(),
+      randomMac: document.getElementById("editVmRandMac").checked,
+      randomSerial: document.getElementById("editVmRandSerial").checked
+    };
+    if (body.cpu || body.memory || body.diskSize || body.display || body.randomMac || body.randomSerial) {
+      try {
+        const res = await api("/api/vm/set", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) });
+        const d = await res.json();
+        if (d.error) { toast("Edit failed", d.error, "bad"); return; }
+      } catch (e) { toast("Edit failed", e.message, "bad"); return; }
+    }
+  }
+  // Save tags, notes, SSH user/password
+  const tagsRaw = document.getElementById("editVmTags").value;
   const tags = tagsRaw.split(",").map(t => t.trim()).filter(Boolean);
+  const notes = document.getElementById("editVmNotes").value;
+  const sshUser = document.getElementById("editVmSshUser").value.trim();
+  const sshPassword = document.getElementById("editVmSshPassword").value;
   try {
     await api("/api/vm/notes", {
       method: "POST", headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ name: editVmName, notes, tags })
+      body: JSON.stringify({ name: finalName, notes, tags, sshUser, sshPassword })
     });
-    closeEditModal();
+    closeEditVmModal();
+    toast("Edit VM", finalName + " updated.", "ok");
   } catch (e) {
     toast("Save error", e.message, "bad");
   }
 }
-el("notesSave").onclick = saveVmDetails;
-el("notesCancel").onclick = closeEditModal;
-q("#notesModal .modal-backdrop").onclick = closeEditModal;
-el("notesText").addEventListener("keydown", e => {
-  if (e.key === "Escape") closeEditModal();
+el("editVmSaveBtn").onclick = saveEditVmModal;
+el("editVmCancelBtn").onclick = closeEditVmModal;
+q("#editVmModal .modal-backdrop").onclick = closeEditVmModal;
+document.addEventListener("keydown", e => {
+  if (e.key === "Escape" && !document.getElementById("editVmModal").classList.contains("hidden")) {
+    closeEditVmModal();
+  }
 });
-el("tagsInput").addEventListener("keydown", e => {
-  if (e.key === "Escape") closeEditModal();
+
+// ---- VM Info modal (read-only inspector) ----
+let vmInfoModalName = "";
+let vmInfoHardwareCache = null;
+let vmInfoHistory = null;
+async function openVmInfoModal(vmName) {
+  vmInfoHistory = null;
+  api("/api/history").then(r => r.json()).then(d => {
+    if (vmInfoModalName !== vmName) return;
+    vmInfoHistory = d.events || [];
+    renderVmInfoModalBody();
+  }).catch(() => {});
+  vmInfoModalName = vmName;
+  vmInfoHardwareCache = null;
+  document.getElementById("vmInfoModalName").textContent = vmName;
+  document.getElementById("vmInfoModal").classList.remove("hidden");
+  renderVmInfoModalBody();
+  // Fetch hardware details once
+  try {
+    const res = await api("/api/vm/get?name=" + encodeURIComponent(vmName));
+    vmInfoHardwareCache = await res.json();
+    renderVmInfoModalBody();
+  } catch (e) {
+    vmInfoHardwareCache = { error: e.message };
+    renderVmInfoModalBody();
+  }
+}
+function closeVmInfoModal() {
+  document.getElementById("vmInfoModal").classList.add("hidden");
+  vmInfoModalName = "";
+  vmInfoHardwareCache = null;
+}
+function renderVmInfoModalBody() {
+  if (!vmInfoModalName || !latest) return;
+  const vm = latest.vms.find(v => v.name === vmInfoModalName);
+  if (!vm) { closeVmInfoModal(); return; }
+  const set = t => t && !String(t).startsWith("0001");
+  const running = vm.state === "running";
+  const row = (label, valueHtml) => '<div class="kv-row"><span>' + label + '</span><span class="kv-val">' + valueHtml + '</span></div>';
+  const block = (label, innerHtml) => '<div class="kv-row kv-block"><span>' + label + '</span>' + innerHtml + '</div>';
+  const section = (title, rows) => '<div class="kv-section"><div class="kv-title">' + title + '</div><div class="kv-list">' + rows.join("") + '</div></div>';
+  const when = t => set(t) ? esc(fmtDateTime(t)) + ' · ' + esc(fmtAgo(t)) : "—";
+
+  const overview = [
+    row("Name", esc(vm.name)),
+    row("State", esc(vm.state)),
+    row("Role", vm.template ? "Template" : (vm.excluded ? "Excluded from scheduler" : "Standard")),
+  ];
+  if (vm.source) overview.push(row("Source", esc(vm.source)));
+  overview.push(row("IP", esc(vm.ip || "—")));
+  if (vm.bootFailed) overview.push(row("Boot failure", "Yes" + (vm.lastError ? " — " + esc(vm.lastError) : "")));
+  if (running) overview.push(row("Window", vm.headless ? "Headless" : "Normal"));
+  overview.push(row("Last started", when(vm.lastRun)));
+  overview.push(row("Last stopped", findLastStoppedAt(vm.name)));
+  if (running && set(vm.startedAt)) overview.push(row("Current uptime", fmtDuration(vm.startedAt, new Date().toISOString())));
+  if (running && !latest.config.paused && set(vm.stopAt)) overview.push(row("Time remaining", esc(fmtRemaining(vm.stopAt))));
+
+  const hw = vmInfoHardwareCache;
+  let hardware;
+  if (!hw) hardware = [row("Status", "loading…")];
+  else if (hw.error) hardware = [row("Error", esc(hw.error))];
+  else hardware = [
+    row("OS", esc(hw.OS || "—")),
+    row("CPU", hw.CPU ? esc(hw.CPU) + " cores" : "—"),
+    row("Memory", hw.Memory ? esc(hw.Memory) + " MB" : "—"),
+    row("Display", esc(hw.Display || "—")),
+    row("Disk capacity", hw.Disk ? esc(hw.Disk) + " GB" : "—"),
+    row("Size on disk", vm.size ? esc(vm.size) + " GB" : "—"),
+  ];
+
+  const lastKnown = (ok, at, yes, no) => {
+    if (!set(at)) return running ? "checking…" : "Never checked";
+    return (running ? "" : "Last known: ") + (ok ? yes : no) + " · checked " + esc(fmtAgo(at));
+  };
+  const ssh = lastKnown(vm.sshOk, vm.sshCheckedAt, "OK", "KO");
+  const agent = lastKnown(vm.agentOk, vm.agentCheckedAt, "Responding", "Not responding");
+  const sshUser = vm.sshUser ? esc(vm.sshUser) : esc((latest.config && latest.config.sshUser) || "admin") + " (default)";
+  let mdm = "Not checked yet";
+  if (set(vm.mdmCheckedAt)) {
+    const url = consoleURL(vm.mdmServer);
+    mdm = vm.mdmEnrolled ? "Enrolled" + (url ? " · " + esc(url) : "") : "Not enrolled";
+  }
+  const info = vm.info
+    ? '<pre class="kv-pre">' + esc(vm.info) + '</pre>' + (set(vm.infoAt) ? '<div class="muted kv-note">fetched ' + esc(fmtDateTime(vm.infoAt)) + '</div>' : "")
+    : '<span class="kv-val">—</span>';
+
+  document.getElementById("vmInfoModalBody").innerHTML =
+    section("Overview", overview) +
+    section("Hardware", hardware) +
+    section("Guest", [row("SSH", ssh), row("Guest agent", agent), row("SSH user", sshUser), row("MDM", mdm), block("Last Info output", info)]) +
+    section("Notes &amp; tags", [
+      row("Tags", tagsHtml(vm) || "—"),
+      block("Notes", vm.notes ? '<pre class="kv-pre">' + esc(vm.notes) + '</pre>' : '<span class="kv-val">—</span>'),
+    ]);
+}
+function findLastStoppedAt(name) {
+  // /api/history is newest-first.
+  for (const ev of vmInfoHistory || []) {
+    if (ev.name === name && !ev.stopUnknown && ev.stoppedAt && !ev.stoppedAt.startsWith("0001")) {
+      return esc(fmtDateTime(ev.stoppedAt)) + " · " + esc(fmtAgo(ev.stoppedAt));
+    }
+  }
+  return "—";
+}
+q("#vmInfoModal .modal-backdrop").onclick = closeVmInfoModal;
+document.addEventListener("keydown", e => {
+  if (e.key === "Escape" && !document.getElementById("vmInfoModal").classList.contains("hidden")) {
+    closeVmInfoModal();
+  }
 });
 
 async function sendCmd() {
@@ -2915,6 +3104,21 @@ async function act(kind, name) {
     logLine("clog", "» " + kind + " " + name);
   } catch (e) { logLine("cbad", "✗ " + kind + " " + name + ": " + e.message); }
 }
+async function runHeadless(name) {
+  if (latest) {
+    const self = latest.vms.find(v => v.name === name);
+    const selfActive = self && (self.state === "running" || self.state === "starting");
+    const active = latest.vms.filter(v => v.state === "running" || v.state === "starting").length;
+    if (!selfActive && active >= 2) {
+      toast("Cannot start " + name, "Host limit reached — 2 VMs already running.", "bad");
+      return;
+    }
+  }
+  try {
+    await api("/api/run", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ name, headless: true }) });
+    logLine("clog", "» run (headless) " + name);
+  } catch (e) { logLine("cbad", "✗ run headless " + name + ": " + e.message); }
+}
 async function clearBootFailure(name) {
   try {
     await api("/api/vm/clear-boot-failure", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ name }) });
@@ -2959,7 +3163,7 @@ function renderHistory() {
     return '<tr>' +
       '<td class="mono">' + esc(fmtDateTime(e.startedAt)) + '</td>' +
       '<td class="name"><b>' + esc(e.name) + '</b></td>' +
-      '<td>' + fmtDuration(e.startedAt, e.stoppedAt) + '</td>' +
+      '<td>' + (e.stopUnknown ? '<span class="muted" title="Tart Oven was not running when this VM stopped">unknown</span>' : fmtDuration(e.startedAt, e.stoppedAt)) + '</td>' +
       '<td>' + ip + '</td>' +
       '<td>' + trig + '</td></tr>';
   }).join("");
@@ -2985,7 +3189,6 @@ function fillOne(id, vms, opts) {
 function fillMgmtSelects(vms) {
   fillOne("cloneSource", vms, { preferTemplate: true });
   const local = vms.filter(v => !isOCI(v.source));
-  fillOne("editSelect", local);
   const running = local.filter(v => v.state === "running");
   fillOne("mdmTarget", running);
   if (!running.length) {
@@ -3162,86 +3365,6 @@ el("createBtn").onclick = async () => {
       document.getElementById("provisioningPassword").value = "";
     }
   } catch (e) { toast("Create failed", e.message, "bad"); }
-};
-
-async function loadVMInfo() {
-  const name = document.getElementById("editSelect").value;
-  const info = document.getElementById("editInfo");
-  const memorySuggestion = document.getElementById("memorySuggestion");
-  if (!name) { info.textContent = ""; memorySuggestion.textContent = ""; return; }
-  info.textContent = "loading…";
-  memorySuggestion.textContent = "";
-  try {
-    const res = await api("/api/vm/get?name=" + encodeURIComponent(name));
-    const d = await res.json();
-    if (d.error) { info.textContent = d.error; memorySuggestion.textContent = ""; return; }
-    document.getElementById("editCpu").value = d.CPU || "";
-    document.getElementById("editMemory").value = d.Memory || "";
-    document.getElementById("editDisplay").value = d.Display || "";
-    document.getElementById("editDisk").value = "";
-    document.getElementById("renameNew").value = "";
-    document.getElementById("editRandMac").checked = false;
-    document.getElementById("editRandSerial").checked = false;
-    // Load tags, notes, and custom SSH user from latest state
-    const vm = latest && latest.vms.find(v => v.name === name);
-    document.getElementById("editTags").value = vm && vm.tags ? vm.tags.join(", ") : "";
-    document.getElementById("editNotes").value = vm && vm.notes ? vm.notes : "";
-    document.getElementById("editSshUser").value = vm && vm.sshUser ? vm.sshUser : "";
-    document.getElementById("editSshPassword").value = ""; // write-only; never echoed back by the server
-    info.textContent = "current: " + (d.OS || "?") + " · " + d.CPU + " CPU · " + d.Memory + " MB · disk " + d.Disk + " GB · " + (d.State || "?");
-    memorySuggestion.textContent = String(d.State || "").toLowerCase() === "stopped"
-      ? "Memory suggestion: if this VM contributes to host pressure, lower Memory (MB) in small steps and test it. Lowering memory applies on the next boot; Tart enforces the guest minimum."
-      : "Stop the VM before changing its memory allocation.";
-  } catch (e) { info.textContent = "error: " + e.message; memorySuggestion.textContent = ""; }
-}
-
-el("editBtn").onclick = async () => {
-  const num = id => parseInt(document.getElementById(id).value, 10) || 0;
-  const name = document.getElementById("editSelect").value;
-  const newName = document.getElementById("renameNew").value.trim();
-  if (!name) return;
-
-  // Rename first if requested
-  if (newName && newName !== name) {
-    try {
-      const res = await api("/api/vm/rename", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ name, newName }) });
-      const d = await res.json();
-      if (d.error) { toast("Rename failed", d.error, "bad"); return; }
-      toast("Rename", name + " → " + newName, "", "panel-tart-logs");
-      document.getElementById("renameNew").value = "";
-    } catch (e) { toast("Rename failed", e.message, "bad"); return; }
-  }
-
-  const finalName = newName || name;
-  const body = {
-    name: finalName,
-    cpu: num("editCpu"), memory: num("editMemory"), diskSize: num("editDisk"),
-    display: document.getElementById("editDisplay").value.trim(),
-    randomMac: document.getElementById("editRandMac").checked,
-    randomSerial: document.getElementById("editRandSerial").checked
-  };
-  // Only call set if there are actual tart set changes
-  if (body.cpu || body.memory || body.diskSize || body.display || body.randomMac || body.randomSerial) {
-    try {
-      const res = await api("/api/vm/set", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) });
-      const d = await res.json();
-      if (d.error) toast("Edit failed", d.error, "bad");
-      else toast("Edit", body.name + " updated.", "", "panel-tart-logs");
-    } catch (e) { toast("Edit failed", e.message, "bad"); }
-  }
-  // Save tags, notes, and custom SSH user
-  const tagsRaw = document.getElementById("editTags").value;
-  const tags = tagsRaw.split(",").map(t => t.trim()).filter(Boolean);
-  const notes = document.getElementById("editNotes").value;
-  const sshUser = document.getElementById("editSshUser").value.trim();
-  const sshPassword = document.getElementById("editSshPassword").value; // blank = leave unchanged
-  try {
-    await api("/api/vm/notes", {
-      method: "POST", headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ name: finalName, notes, tags, sshUser, sshPassword })
-    });
-  } catch (_) {}
-  loadVMInfo();
 };
 
 function renderLogs(logs) {

@@ -615,7 +615,7 @@ func (m *Manager) autoEnroll(t *Task, name string) error {
 
 	if state != "running" {
 		m.appendTaskOutput(t, "VM is stopped — starting it first\n")
-		m.doRun(name, "auto-enroll")
+		m.doRun(name, "auto-enroll", false)
 		if !m.waitForState(t.ctx, name, "running", 3*time.Minute) {
 			return fmt.Errorf("VM did not reach running state")
 		}

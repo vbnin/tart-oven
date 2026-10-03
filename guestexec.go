@@ -7,6 +7,7 @@ import (
 	"os/exec"
 	"regexp"
 	"strings"
+	"time"
 )
 
 var sudoPattern = regexp.MustCompile(`(^|[\s;&|(])sudo(\s)`)
@@ -132,6 +133,7 @@ func (m *Manager) setAgentOK(name string, ok bool) {
 	m.mu.Lock()
 	if vm := m.vms[name]; vm != nil {
 		vm.AgentOK = ok
+		vm.AgentCheckedAt = time.Now()
 	}
 	m.mu.Unlock()
 }

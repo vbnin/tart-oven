@@ -158,10 +158,9 @@ func TestManagementActionsOnlyTargetLocalVMs(t *testing.T) {
 	if !strings.Contains(section, `const local = vms.filter(v => !isOCI(v.source));`) {
 		t.Fatal("VM management selectors do not filter edit/delete/MDM actions to local VMs")
 	}
-	for _, want := range []string{`fillOne("editSelect", local)`, `const running = local.filter`} {
-		if !strings.Contains(section, want) {
-			t.Errorf("local-only management selector missing %q", want)
-		}
+	// The Edit a VM panel was removed in v1.55-dev5; only check for running local filter
+	if !strings.Contains(section, `const running = local.filter`) {
+		t.Error("local-only management selector missing running VM filter")
 	}
 }
 
@@ -319,7 +318,7 @@ func TestDashboardContainsMemoryRecoveryActions(t *testing.T) {
 	for _, want := range []string{
 		`/api/" + kind`,
 		`New VM starts are deferred while pressure is critical`,
-		`id="memorySuggestion"`, `Lowering memory applies on the next boot`,
+		`id="editVmMemorySuggestion"`, `Lowering memory applies on the next boot`,
 	} {
 		if !strings.Contains(html, want) {
 			t.Errorf("dashboard missing memory safeguard %q", want)
@@ -344,18 +343,8 @@ func TestMemoryRecoveryActionsOnlyEnableForRunningVMs(t *testing.T) {
 	}
 }
 
-func TestVMLookupClearsPreviousMemorySuggestion(t *testing.T) {
-	b, err := content.ReadFile("index.html")
-	if err != nil {
-		t.Fatal(err)
-	}
-	loadVMInfo := sourceSection(t, string(b), `async function loadVMInfo`, `el("editBtn")`)
-	loading := strings.Index(loadVMInfo, `memorySuggestion.textContent = "";`)
-	fetching := strings.Index(loadVMInfo, `await api("/api/vm/get?name="`)
-	if loading < 0 || fetching < 0 || loading > fetching {
-		t.Fatal("loadVMInfo does not clear the previous memory suggestion before fetching another VM")
-	}
-}
+// TestVMLookupClearsPreviousMemorySuggestion removed in v1.55-dev5: loadVMInfo
+// function was removed when the Edit a VM panel was replaced with a modal.
 
 func TestJamfCommandControlsAndSchedulerOptions(t *testing.T) {
 	b, err := content.ReadFile("index.html")

@@ -12,22 +12,46 @@ A few terms appear throughout:
 - **MDM / Jamf Pro** — the system that manages enrolled Macs. Tart Oven can prepare
   a VM for enrollment and report whether a guest is enrolled.
 
-## 1.55-dev4 (in progress)
+## 1.55-dev8 (in progress)
+
+### Added
+
+- **Run headless** in a VM's **⋯** menu starts it without a window, just for
+  that run. A restart keeps it headless.
+- **ⓘ VM details** button next to the **⋯** menu. Shows the VM's state, IP,
+  last start and stop, uptime, hardware, SSH and guest agent status, MDM
+  enrollment, last Get info output, tags and notes. Updates live while open.
+- **+ Create VM** button on the Dashboard jumps straight to Create / clone VMs.
 
 ### Changed
 
+- **Edit VM** now opens in a window on the Dashboard, and also edits tags and
+  notes. While the VM is running, only tags, notes and SSH credentials can be
+  changed; stop it to change hardware or rename it.
+- The Scheduler and Refresh buttons moved into the Local VMs toolbar, next to
+  **+ Create VM**. "Show running only" is now a **Show All / Show Running**
+  button.
 - Notification banners (top right) are now colour-coded — green for success,
   red for errors, blue for information — and have a ✕ button to dismiss them.
   Errors stay on screen for 12 seconds instead of 6.
 - Sections in VM Management and Configuration can be collapsed by clicking
   their title. Each section remembers whether it was open or closed.
-- **+ Create VM** button on the Dashboard jumps straight to Create / clone VMs.
 - Shorter Network interface hint in Configuration.
+- A stopped VM keeps showing its last known SSH status on the Dashboard
+  (faded), and its last known SSH and guest agent status in **ⓘ** details,
+  with when each was last checked.
+
+### Fixed
+
+- Runs left open in History (shown as "running…" forever) after Tart Oven was
+  stopped or replaced while VMs were running. They're closed at startup and
+  show an "unknown" duration.
+- **ⓘ** details always showed "—" for Last stopped.
 
 ### Removed
 
-- The Delete a VM section in VM Management. Delete a VM from its **⋯** menu
-  on the Dashboard instead.
+- The Edit a VM and Delete a VM sections in VM Management, and the separate
+  Edit Tags menu item. Use **Edit VM** and **Delete VM** in a VM's **⋯** menu.
 - Leftover "progress shows in Activity below" hints. Progress now appears in a
   notification banner with a link to the Logs tab.
 
