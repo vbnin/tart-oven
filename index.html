@@ -540,22 +540,21 @@
   .ssh-dot.green { background: var(--green); }
   .ssh-dot.red { background: var(--red); }
   .ssh-dot.amber { background: var(--amber); animation: pulse 1s infinite; }
+  .ssh-dot.amber.pulse { animation: pulse 1s infinite; }
   .ssh-dot.grey { background: var(--grey); }
   .ssh-status-label { font-size: 11px; font-weight: 700; letter-spacing: .03em; margin-left: 6px; vertical-align: middle; }
   .ssh-status-label.ok { color: var(--green); }
   .ssh-status-label.bad { color: var(--red); }
+  .ssh-status-label.muted { color: var(--muted); }
   .last-known { opacity: .45; }
+  .access-line { display: flex; align-items: center; gap: 4px; font-size: 11px; line-height: 1.3; }
+  .access-label { font-size: 11px; color: var(--muted); min-width: 36px; }
 
   .ssh-row { display: flex; gap: 10px; align-items: center; margin-bottom: 14px; flex-wrap: wrap; }
   .ssh-row select { width: 280px; flex: none; }
   .ssh-row input { flex: 1; }
 
-  #console {
-    background: var(--code-bg); border: 1px solid var(--border); border-radius: 8px;
-    padding: 14px 16px; font-family: ui-monospace, Menlo, Monaco, monospace; font-size: 12.5px;
-    white-space: pre-wrap; max-height: 240px; overflow: auto; color: var(--text);
-  }
-  #console:empty::before { content: "No output yet. Pick a VM, type a command, and Run — or use the per-VM buttons below."; color: var(--grey); }
+  #terminalConsole:empty::before { content: "No output yet."; color: var(--grey); }
   .clog { color: var(--muted); } .cok { color: var(--green); } .cbad { color: var(--red); }
   .logbox {
     margin: 0; background: var(--code-bg); border: 1px solid var(--border); border-radius: 8px;
@@ -694,7 +693,7 @@
       </div>
       <div class="table-wrap">
         <table>
-          <thead><tr><th>Name</th><th>State</th><th>IP</th><th>SSH</th><th>Info</th><th>MDM</th><th>Last run</th><th>Time remaining</th><th>Actions</th></tr></thead>
+          <thead><tr><th>Name</th><th>State</th><th>IP</th><th>Access</th><th>Info</th><th>MDM</th><th>Last run</th><th>Time remaining</th><th>Actions</th></tr></thead>
           <tbody id="localVmRows"><tr><td colspan="9" class="muted">loading…</td></tr></tbody>
         </table>
       </div>
@@ -714,42 +713,6 @@
       </div>
     </div>
 
-    <div class="panel">
-      <div style="display:flex;align-items:center;gap:16px;margin-bottom:16px;flex-wrap:wrap">
-        <h2 style="margin:0">Guest Commands</h2>
-        <div class="segmented-control">
-          <button type="button" class="subtab-btn active" id="cmdTabSshBtn" onclick="switchCmdTab('ssh')">SSH &amp; Shell</button>
-          <button type="button" class="subtab-btn" id="cmdTabJamfBtn" onclick="switchCmdTab('jamf')">Jamf Commands</button>
-        </div>
-      </div>
-
-      <!-- Tab 1: SSH / Shell Commands -->
-      <div id="cmdTabSsh">
-        <div class="ssh-row">
-          <select id="sshTarget"></select>
-          <input type="text" id="sshCommand" placeholder="e.g. sw_vers; whoami" autocomplete="off">
-          <input type="password" id="sshSudoPw" placeholder="sudo password (if needed)" autocomplete="off" style="width:220px;flex:none">
-          <button id="sshRun">Run</button>
-        </div>
-      </div>
-
-      <!-- Tab 2: Jamf Commands -->
-      <div id="cmdTabJamf" style="display:none">
-        <div class="ssh-row" style="margin-bottom:10px">
-          <select id="jamfCmdTarget" style="width:260px;flex:none"></select>
-          <input type="password" id="jamfSudoPw" placeholder="sudo password (if needed)" autocomplete="off" style="width:220px;flex:none">
-          <button type="button" id="jamfBtnPolicy" class="ghost" onclick="runJamfPreset('sudo jamf policy')">⚡ sudo jamf policy</button>
-          <button type="button" id="jamfBtnRecon" class="ghost" onclick="runJamfPreset('sudo jamf recon')">🔍 sudo jamf recon</button>
-          <button type="button" id="jamfBtnManage" class="ghost" onclick="runJamfPreset('sudo jamf manage')">🛡️ sudo jamf manage</button>
-        </div>
-        <div class="ssh-row" style="margin-bottom:14px">
-          <input type="text" id="jamfEventName" placeholder="Enter custom event name (e.g. install-chrome) for sudo jamf policy -event &lt;name&gt;" autocomplete="off">
-          <button type="button" id="jamfBtnEvent" onclick="runJamfEvent()">Run Event</button>
-        </div>
-      </div>
-
-      <div id="console"></div>
-    </div>
 
   </div>
 
@@ -1384,6 +1347,30 @@
   </div>
 </div>
 
+<!-- Terminal modal -->
+<div id="terminalModal" class="modal hidden">
+  <div class="modal-backdrop" onclick="closeTerminal()"></div>
+  <div class="modal-content" style="width: 760px; max-width: 92vw; max-height: 85vh; display: flex; flex-direction: column;">
+    <div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 12px;">
+      <h3 id="terminalModalTitle" style="margin: 0; font-size: 16px; font-weight: 600;">Terminal</h3>
+      <button type="button" class="ghost" onclick="closeTerminal()" style="padding: 4px 10px; font-size: 16px; line-height: 1;" title="Close">✕</button>
+    </div>
+    <div id="terminalStatus" style="display: flex; gap: 8px; flex-wrap: wrap; margin-bottom: 12px; font-size: 12px;"></div>
+    <div style="display: flex; gap: 10px; margin-bottom: 12px; flex-wrap: wrap;">
+      <input type="text" id="terminalCommand" placeholder="e.g. sw_vers; whoami" style="flex: 1; min-width: 200px; font-family: ui-monospace, monospace; font-size: 13px;" autocomplete="off">
+      <input type="password" id="terminalSudoPassword" placeholder="sudo password (if needed)" style="width: 180px; font-size: 13px;" autocomplete="off">
+      <button id="terminalRunBtn" onclick="runTerminalCommand()" style="padding: 8px 16px;">Run</button>
+    </div>
+    <div style="display: flex; gap: 6px; margin-bottom: 12px; flex-wrap: wrap;">
+      <button type="button" class="ghost terminal-shortcut" onclick="runTerminalShortcut('sudo jamf manage')" style="font-size: 12px; padding: 5px 10px;">sudo jamf manage</button>
+      <button type="button" class="ghost terminal-shortcut" onclick="runTerminalShortcut('sudo jamf recon')" style="font-size: 12px; padding: 5px 10px;">sudo jamf recon</button>
+      <button type="button" class="ghost terminal-shortcut" onclick="runTerminalShortcut('sudo jamf policy')" style="font-size: 12px; padding: 5px 10px;">sudo jamf policy</button>
+      <button type="button" class="ghost terminal-shortcut" onclick="runTerminalShortcut('sudo jamf checkJSSConnection')" style="font-size: 12px; padding: 5px 10px;">sudo jamf checkJSSConnection</button>
+    </div>
+    <div id="terminalConsole" style="background: var(--code-bg); border: 1px solid var(--border); border-radius: 8px; padding: 14px 16px; font-family: ui-monospace, Menlo, Monaco, monospace; font-size: 12.5px; white-space: pre-wrap; overflow: auto; flex: 1; min-height: 240px; max-height: 45vh; color: var(--text);"></div>
+  </div>
+</div>
+
 <div id="toasts"></div>
 
 <script>
@@ -2015,8 +2002,9 @@ el("refreshBtn").onclick = async (e) => {
   btn.disabled = true; const o = btn.textContent; btn.textContent = "Refreshing…";
   try {
     await api("/api/refresh", { method: "POST" });
-    logLine("clog", "» refreshed VM status");
-  } catch (err) { toast("Refresh failed", err.message, "bad"); }
+  } catch (err) {
+    toast("Refresh failed", err.message, "bad");
+  }
   setTimeout(() => { btn.disabled = false; btn.textContent = o; }, 1500);
 };
 
@@ -2056,29 +2044,59 @@ function fmtDuration(startISO, stopISO) {
 function esc(s) { return (s == null ? "" : String(s)).replace(/[&<>"]/g, c => ({ "&":"&amp;","<":"&lt;",">":"&gt;","\"":"&quot;" }[c])); }
 
 // SSH connectivity bubble for a VM.
-function sshCell(vm) {
-  if (vm.state === "stopped") {
-    const known = vm.sshCheckedAt && !vm.sshCheckedAt.startsWith("0001");
-    if (!known) return '<span class="ssh-dot grey" title="VM stopped — never checked"></span>';
-    const tip = 'last known while running (checked ' + esc(fmtDateTime(vm.sshCheckedAt)) + ')';
-    return '<span class="last-known" title="' + tip + '">' + (vm.sshOk
-      ? '<span class="ssh-dot green"></span><span class="ssh-status-label ok">OK</span>'
-      : '<span class="ssh-dot red"></span><span class="ssh-status-label bad">KO</span>') + '</span>';
-  }
-  if (vm.state === "running") {
-    const checked = vm.sshCheckedAt && !vm.sshCheckedAt.startsWith("0001");
-    if (checked) {
-      // Commands reach the guest either through the Tart guest agent (no SSH at
-      // all) or through the SSH fallback; fold which one answered into the
-      // dot's tooltip rather than a separate visible badge, to keep the row compact.
-      const via = vm.agentOk ? "the Tart guest agent" : "SSH";
-      return vm.sshOk
-        ? '<span class="ssh-dot green" title="guest command OK via ' + via + '"></span><span class="ssh-status-label ok" title="guest command OK via ' + via + '">OK</span>'
-        : '<span class="ssh-dot red" title="guest command failed via ' + via + ' — if this VM has no Tart guest agent, see the SSH setup guide in VM Management"></span><span class="ssh-status-label bad" title="guest command failed via ' + via + '">KO</span>';
+// channelBadge renders one line of the Access column: a status dot + label for
+// either the guest agent or SSH.
+function channelBadge(label, ok, checkedAt, vm, opts) {
+  opts = opts || {};
+  const isSSH = opts.ssh;
+  const sshOff = isSSH && latest && latest.config && latest.config.sshFallbackEnabled === false;
+  const checked = checkedAt && !checkedAt.startsWith("0001");
+  const running = vm.state === "running";
+  const transient = vm.state === "starting" || vm.state === "stopping";
+
+  let dot = "grey", status = "—", tooltip = "";
+
+  if (sshOff) {
+    dot = "grey"; status = "off";
+    tooltip = "SSH fallback is turned off in Configuration";
+  } else if (transient) {
+    dot = "amber"; status = "";
+    tooltip = vm.state + "…";
+  } else if (running && !checked) {
+    dot = "amber pulse"; status = "checking…";
+    tooltip = "checking " + label + "…";
+  } else if (running && checked) {
+    dot = ok ? "green" : "red";
+    status = ok ? "OK" : "KO";
+    tooltip = label + " " + (ok ? "OK" : "failed") + " — checked " + fmtAgo(checkedAt);
+    if (!ok) {
+      tooltip += isSSH
+        ? " — see the SSH setup guide in VM Management"
+        : " — Tart guest agent not responding; use ⋯ → Install Agent";
     }
-    return '<span class="ssh-dot amber" title="checking SSH…"></span>';
+  } else if (!running && checked) {
+    dot = ok ? "green" : "red";
+    status = ok ? "OK" : "KO";
+    tooltip = "last known while running (checked " + fmtDateTime(checkedAt) + ")";
+  } else {
+    dot = "grey"; status = "—";
+    tooltip = "never checked";
   }
-  return '<span class="ssh-dot amber" title="' + vm.state + '…"></span>';
+
+  const dotClass = "ssh-dot " + dot;
+  const labelClass = status === "OK" ? "ssh-status-label ok" : (status === "KO" ? "ssh-status-label bad" : "ssh-status-label muted");
+  const stale = !running && !transient && checked && !sshOff;
+  return '<div class="access-line' + (stale ? ' last-known' : '') + '" title="' + esc(tooltip) + '">' +
+    '<span class="' + dotClass + '"></span>' +
+    '<span class="access-label">' + label + '</span> ' +
+    '<span class="' + labelClass + '">' + status + '</span>' +
+    '</div>';
+}
+
+function accessCell(vm) {
+  const agentLine = channelBadge("Agent", vm.agentOk, vm.agentCheckedAt, vm, {});
+  const sshLine = channelBadge("SSH", vm.sshOk, vm.sshCheckedAt, vm, { ssh: true });
+  return agentLine + sshLine;
 }
 
 // Info column: last "Get info" output (may be multi-line).
@@ -2361,7 +2379,6 @@ function render(state) {
   document.title = label ? label + " — Tart Oven" : "Tart Oven";
 
   renderTable(state.vms);
-  fillSshTargets(state.vms);
   fillMgmtSelects(state.vms);
   fillSshGuide(state.vms);
   renderTasks(state.tasks || []);
@@ -2369,6 +2386,9 @@ function render(state) {
   checkErrors(state.vms);
   if (vmInfoModalName && !document.getElementById("vmInfoModal").classList.contains("hidden")) {
     renderVmInfoModalBody();
+  }
+  if (terminalOpenVm && !document.getElementById("terminalModal").classList.contains("hidden")) {
+    updateTerminalStatus();
   }
 
   if (!wizardAutoOpened && state && state.config && !state.config.firstRunCompleted && Array.isArray(state.vms) && state.vms.filter(v => !isOCI(v.source)).length === 0) {
@@ -2502,7 +2522,6 @@ function applyRolePreset(role) {
     if (crs) crs.checked = true;
     const crm = document.getElementById("createRandMac");
     if (crm) crm.checked = true;
-    if (typeof switchCmdTab === "function") switchCmdTab("jamf");
   } else if (role === "qa") {
     const ng = document.getElementById("noGraphics");
     if (ng) ng.checked = false;
@@ -2725,7 +2744,7 @@ function renderTable(vms) {
       '<td class="name"><b>' + n + '</b>' + tags + '</td>' +
       '<td><span class="state s-' + vm.state + '"><span class="dot"></span>' + vm.state + '</span></td>' +
       '<td>' + ip + '</td>' +
-      '<td>' + sshCell(vm) + '</td>' +
+      '<td>' + accessCell(vm) + '</td>' +
       '<td class="info">' + infoCell(vm) + '</td>' +
       '<td class="mdm">' + mdmCell(vm) + '</td>' +
       '<td class="muted" title="' + esc(fmtDateTime(vm.lastRun)) + '">' + fmtAgo(vm.lastRun) + '</td>' +
@@ -2733,6 +2752,7 @@ function renderTable(vms) {
       '<td class="acts"><div class="row-actions">' +
         '<button onclick="act(\'run\',\'' + n + '\')"' + busy + '>Run</button>' +
         '<button class="danger" onclick="act(\'stop\',\'' + n + '\')"' + stopDisabled + '>Stop</button>' +
+        '<button class="ghost" onclick="openTerminal(\'' + n + '\')" title="Run a command in this VM" aria-label="Terminal for ' + esc(vm.name) + '" style="font-family:ui-monospace,monospace;padding:6px 10px">&gt;_</button>' +
         '<div class="row-menu" id="rowmenu-' + n + '">' +
           '<button class="ghost row-menu-btn" onclick="toggleRowMenu(event,\'' + n + '\')" title="More actions">⋯</button>' +
           '<div class="row-menu-list">' +
@@ -2764,67 +2784,6 @@ setInterval(() => {
     if (td.dataset.state === "running") td.textContent = fmtRemaining(td.dataset.stop);
   });
 }, 1000);
-
-// ---- Guest command panels (SSH & Jamf) ----
-function switchCmdTab(tab) {
-  const isSsh = tab === "ssh";
-  const sshPanel = document.getElementById("cmdTabSsh");
-  const jamfPanel = document.getElementById("cmdTabJamf");
-  const sshBtn = document.getElementById("cmdTabSshBtn");
-  const jamfBtn = document.getElementById("cmdTabJamfBtn");
-  if (sshPanel) sshPanel.style.display = isSsh ? "" : "none";
-  if (jamfPanel) jamfPanel.style.display = isSsh ? "none" : "";
-  if (sshBtn) sshBtn.classList.toggle("active", isSsh);
-  if (jamfBtn) jamfBtn.classList.toggle("active", !isSsh);
-}
-
-function fillSshTargets(vms) {
-  const sel = document.getElementById("sshTarget");
-  const jamfSel = document.getElementById("jamfCmdTarget");
-  const prev = sel ? sel.value : "";
-  const prevJamf = jamfSel ? jamfSel.value : "";
-  const running = vms.filter(v => !isOCI(v.source) && v.state === "running");
-  const html = running.length
-    ? running.map(v => '<option value="' + esc(v.name) + '">' + esc(v.name) + '</option>').join("")
-    : '<option value="">— no running VM —</option>';
-  if (sel) {
-    sel.innerHTML = html;
-    if (prev && running.some(v => v.name === prev)) sel.value = prev;
-  }
-  if (jamfSel) {
-    jamfSel.innerHTML = html;
-    if (prevJamf && running.some(v => v.name === prevJamf)) jamfSel.value = prevJamf;
-  }
-}
-el("sshRun").onclick = sendCmd;
-el("sshCommand").addEventListener("keydown", e => { if (e.key === "Enter") sendCmd(); });
-el("sshSudoPw").addEventListener("keydown", e => { if (e.key === "Enter") sendCmd(); });
-el("jamfEventName").addEventListener("keydown", e => { if (e.key === "Enter") runJamfEvent(); });
-el("jamfSudoPw").addEventListener("keydown", e => { if (e.key === "Enter") runJamfPreset("sudo jamf policy"); });
-
-async function runJamfPreset(cmd) {
-  const targetEl = document.getElementById("jamfCmdTarget");
-  const name = targetEl ? targetEl.value : "";
-  const pwEl = document.getElementById("jamfSudoPw");
-  const sudoPassword = pwEl ? pwEl.value : "";
-  if (!name) { toast("Jamf Command", "Pick a running VM first.", "bad"); return; }
-  logLine("clog", "$ [" + name + "] " + cmd + (sudoPassword ? "   (with sudo password)" : ""));
-  if (pwEl) pwEl.value = "";
-  try {
-    const res = await api("/api/exec", {
-      method: "POST", headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ name, command: cmd, sudoPassword })
-    });
-    showResult(await res.json());
-  } catch (e) { logLine("cbad", "✗ " + e.message); }
-}
-
-async function runJamfEvent() {
-  const eventInput = document.getElementById("jamfEventName");
-  const eventName = eventInput ? eventInput.value.trim() : "";
-  if (!eventName) { toast("Jamf Event", "Enter an event name first.", "bad"); return; }
-  await runJamfPreset("sudo jamf policy -event " + eventName);
-}
 
 // ---- Edit VM modal (replaces both the panel and the old notes modal) ----
 let editVmModalName = "";
@@ -3010,7 +2969,8 @@ function renderVmInfoModalBody() {
     if (!set(at)) return running ? "checking…" : "Never checked";
     return (running ? "" : "Last known: ") + (ok ? yes : no) + " · checked " + esc(fmtAgo(at));
   };
-  const ssh = lastKnown(vm.sshOk, vm.sshCheckedAt, "OK", "KO");
+  const sshOff = latest && latest.config && latest.config.sshFallbackEnabled === false;
+  const ssh = sshOff ? "Off (SSH fallback disabled)" : lastKnown(vm.sshOk, vm.sshCheckedAt, "OK", "KO");
   const agent = lastKnown(vm.agentOk, vm.agentCheckedAt, "Responding", "Not responding");
   const sshUser = vm.sshUser ? esc(vm.sshUser) : esc((latest.config && latest.config.sshUser) || "admin") + " (default)";
   let mdm = "Not checked yet";
@@ -3047,43 +3007,161 @@ document.addEventListener("keydown", e => {
   }
 });
 
-async function sendCmd() {
-  const name = document.getElementById("sshTarget").value;
-  const command = document.getElementById("sshCommand").value.trim();
-  const pwEl = document.getElementById("sshSudoPw");
-  const sudoPassword = pwEl.value;
-  if (!name || !command) return;
-  logLine("clog", "$ [" + name + "] " + command + (sudoPassword ? "   (with sudo password)" : ""));
-  pwEl.value = ""; // transient: ask again every time
+// ---- Terminal window (per-VM) ----
+let terminalSessions = {};
+let terminalOpenVm = "";
+
+function openTerminal(vmName) {
+  terminalOpenVm = vmName;
+  if (!terminalSessions[vmName]) {
+    terminalSessions[vmName] = { lines: [], draft: "", sudoPassword: "" };
+  }
+  const sess = terminalSessions[vmName];
+  document.getElementById("terminalModalTitle").textContent = "Terminal — " + vmName;
+  document.getElementById("terminalCommand").value = sess.draft || "";
+  document.getElementById("terminalSudoPassword").value = sess.sudoPassword || "";
+  const consoleEl = document.getElementById("terminalConsole");
+  consoleEl.innerHTML = "";
+  sess.lines.forEach(line => {
+    const div = document.createElement("div");
+    if (line.cls) div.className = line.cls;
+    div.textContent = line.text;
+    consoleEl.appendChild(div);
+  });
+  consoleEl.scrollTop = consoleEl.scrollHeight;
+  document.getElementById("terminalModal").classList.remove("hidden");
+  updateTerminalStatus();
+  document.getElementById("terminalCommand").focus();
+}
+
+function closeTerminal() {
+  if (terminalOpenVm && terminalSessions[terminalOpenVm]) {
+    terminalSessions[terminalOpenVm].draft = document.getElementById("terminalCommand").value;
+    terminalSessions[terminalOpenVm].sudoPassword = document.getElementById("terminalSudoPassword").value;
+  }
+  document.getElementById("terminalModal").classList.add("hidden");
+  terminalOpenVm = "";
+}
+
+function updateTerminalStatus() {
+  if (!terminalOpenVm || !latest) return;
+  const vm = latest.vms.find(v => v.name === terminalOpenVm);
+  if (!vm) return;
+  const set = t => t && !String(t).startsWith("0001");
+  const running = vm.state === "running";
+  const sshOff = latest.config && latest.config.sshFallbackEnabled === false;
+
+  const pill = (label, ok, checked, isSSH) => {
+    let color = "grey", status = "never checked";
+    if (isSSH && sshOff) { color = "grey"; status = "off"; }
+    else if (!running) { color = "grey"; status = "stopped"; }
+    else if (checked) { color = ok ? "green" : "red"; status = ok ? "OK" : "KO"; }
+    else { color = "amber"; status = "checking"; }
+    return '<span style="display:inline-flex;align-items:center;gap:4px;padding:4px 8px;background:var(--panel2);border:1px solid var(--border);border-radius:4px;font-size:11px;">' +
+      '<span style="display:inline-block;width:6px;height:6px;border-radius:50%;background:var(--' + color + ')"></span>' +
+      label + ': ' + status + '</span>';
+  };
+
+  const agentChecked = set(vm.agentCheckedAt);
+  const sshChecked = set(vm.sshCheckedAt);
+  const agentPill = pill("Guest agent", vm.agentOk, agentChecked, false);
+  const sshPill = pill("SSH", vm.sshOk, sshChecked, true);
+
+  let message = "";
+  if (!running) {
+    message = '<span class="muted" style="font-size:12px;">VM is stopped — start it to run commands</span>';
+  } else if (vm.agentOk && agentChecked) {
+    message = '<span style="font-size:12px;">Commands run through the guest agent</span>';
+  } else if (vm.sshOk && sshChecked && !sshOff) {
+    message = '<span style="font-size:12px;">Commands run over SSH (agent not responding)</span>';
+  } else if (sshOff) {
+    message = '<span class="muted" style="font-size:12px;">No working channel — install the guest agent or set up SSH</span>';
+  } else if (!agentChecked || !sshChecked) {
+    message = '<span class="muted" style="font-size:12px;">Checking channels…</span>';
+  } else {
+    message = '<span class="muted" style="font-size:12px;">No working channel — install the guest agent or set up SSH</span>';
+  }
+
+  document.getElementById("terminalStatus").innerHTML = agentPill + sshPill + message;
+  const sess = terminalSessions[terminalOpenVm];
+  const blocked = !running || !!(sess && sess.running);
+  document.querySelectorAll("#terminalRunBtn, #terminalModal .terminal-shortcut").forEach(b => { b.disabled = blocked; });
+  document.getElementById("terminalRunBtn").textContent = sess && sess.running ? "Running…" : "Run";
+}
+
+async function runTerminalCommand() {
+  const vmName = terminalOpenVm;
+  if (!vmName) return;
+  const sess = terminalSessions[vmName];
+  if (sess.running) return;
+  const vm = latest && latest.vms.find(v => v.name === vmName);
+  if (!vm || vm.state !== "running") { toast("Terminal", vmName + " is not running.", "bad"); return; }
+  const command = document.getElementById("terminalCommand").value.trim();
+  if (!command) return;
+  const sudoPassword = document.getElementById("terminalSudoPassword").value;
+  sess.draft = command;
+  sess.sudoPassword = sudoPassword;
+  sess.running = true;
+  updateTerminalStatus();
+
+  // Output lands in this VM's session even if the window was closed or
+  // switched to another VM while the command ran.
+  const addLine = (cls, text) => {
+    sess.lines.push({ cls, text });
+    if (sess.lines.length > 500) sess.lines.shift();
+    if (terminalOpenVm !== vmName) return;
+    const consoleEl = document.getElementById("terminalConsole");
+    const div = document.createElement("div");
+    if (cls) div.className = cls;
+    div.textContent = text;
+    consoleEl.appendChild(div);
+    consoleEl.scrollTop = consoleEl.scrollHeight;
+  };
+
+  addLine("clog", "$ " + command + (sudoPassword ? "   (with sudo password)" : ""));
   try {
     const res = await api("/api/exec", {
-      method: "POST", headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ name, command, sudoPassword })
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ name: vmName, command, sudoPassword })
     });
-    showResult(await res.json());
-  } catch (e) { logLine("cbad", "✗ " + e.message); }
+    const r = await res.json();
+    if (r.error) addLine("cbad", "error: " + r.error);
+    else {
+      if (r.stdout) addLine("", r.stdout.replace(/\n$/, ""));
+      if (r.stderr) addLine("cbad", r.stderr.replace(/\n$/, ""));
+      addLine(r.exitCode === 0 ? "cok" : "cbad", "[exit " + r.exitCode + "]");
+    }
+  } catch (e) {
+    addLine("cbad", "✗ " + e.message);
+  }
+  sess.running = false;
+  updateTerminalStatus();
 }
+
+function runTerminalShortcut(cmd) {
+  document.getElementById("terminalCommand").value = cmd;
+  runTerminalCommand();
+}
+
+document.getElementById("terminalCommand").addEventListener("keydown", e => {
+  if (e.key === "Enter") runTerminalCommand();
+});
+document.addEventListener("keydown", e => {
+  if (e.key === "Escape" && terminalOpenVm) closeTerminal();
+});
+
 async function getInfo(name) {
   if (!name) return;
-  logLine("clog", "$ [" + name + "] (status command)");
   try {
     const res = await api("/api/info?name=" + encodeURIComponent(name));
-    showResult(await res.json());
-  } catch (e) { logLine("cbad", "✗ " + e.message); }
-}
-function showResult(r) {
-  if (r.error) { logLine("cbad", "error: " + r.error); return; }
-  if (r.stdout) logLine("", r.stdout.replace(/\n$/, ""));
-  if (r.stderr) logLine("cbad", r.stderr.replace(/\n$/, ""));
-  logLine(r.exitCode === 0 ? "cok" : "cbad", "[exit " + r.exitCode + "]");
-}
-function logLine(cls, text) {
-  const c = document.getElementById("console");
-  const div = document.createElement("div");
-  if (cls) div.className = cls;
-  div.textContent = text;
-  c.appendChild(div);
-  c.scrollTop = c.scrollHeight;
+    const r = await res.json();
+    if (r.error || r.exitCode !== 0) {
+      toast("Get Info", r.error || "Command failed (exit " + r.exitCode + ")", "bad");
+    }
+  } catch (e) {
+    toast("Get Info", e.message, "bad");
+  }
 }
 
 // ---- VM actions ----
@@ -3101,8 +3179,9 @@ async function act(kind, name) {
   }
   try {
     await api("/api/" + kind, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ name }) });
-    logLine("clog", "» " + kind + " " + name);
-  } catch (e) { logLine("cbad", "✗ " + kind + " " + name + ": " + e.message); }
+  } catch (e) {
+    toast("Action failed", kind + " " + name + ": " + e.message, "bad");
+  }
 }
 async function runHeadless(name) {
   if (latest) {
@@ -3116,14 +3195,16 @@ async function runHeadless(name) {
   }
   try {
     await api("/api/run", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ name, headless: true }) });
-    logLine("clog", "» run (headless) " + name);
-  } catch (e) { logLine("cbad", "✗ run headless " + name + ": " + e.message); }
+  } catch (e) {
+    toast("Run headless failed", name + ": " + e.message, "bad");
+  }
 }
 async function clearBootFailure(name) {
   try {
     await api("/api/vm/clear-boot-failure", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ name }) });
-    logLine("clog", "» cleared boot failure " + name);
-  } catch (e) { logLine("cbad", "✗ clear boot failure " + name + ": " + e.message); }
+  } catch (e) {
+    toast("Clear boot failure failed", name + ": " + e.message, "bad");
+  }
 }
 function openVNC(ip, user) {
   if (!ip) return;
@@ -3131,7 +3212,6 @@ function openVNC(ip, user) {
   const a = document.createElement("a");
   a.href = "vnc://" + user + "@" + ip;
   document.body.appendChild(a); a.click(); a.remove();
-  logLine("clog", "↗ opening Screen Sharing to " + user + "@" + ip + " (on this computer)");
 }
 
 // ---- history ----
@@ -3472,9 +3552,12 @@ async function cancelTask(id) {
   try {
     const res = await api("/api/task/cancel", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ id }) });
     const d = await res.json();
-    if (d.error) toast("Cancel failed", d.error, "bad");
-    else logLine("clog", "» cancelled task " + id);
-  } catch (e) { toast("Cancel failed", e.message, "bad"); }
+    if (d.error) {
+      toast("Cancel failed", d.error, "bad");
+    }
+  } catch (e) {
+    toast("Cancel failed", e.message, "bad");
+  }
 }
 
 el("installTartBtn").onclick = async (e) => {

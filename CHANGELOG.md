@@ -12,19 +12,28 @@ A few terms appear throughout:
 - **MDM / Jamf Pro** — the system that manages enrolled Macs. Tart Oven can prepare
   a VM for enrollment and report whether a guest is enrolled.
 
-## 1.55-dev8 (in progress)
+## 1.55-dev9 (in progress)
 
 ### Added
 
+- **`>_` Terminal** button on each VM, between Stop and **⋯**. Opens a window
+  to run commands in that VM, with shortcuts for `sudo jamf manage`, `recon`,
+  `policy` and `checkJSSConnection`. It shows whether the guest agent and SSH
+  are working, and remembers each VM's output, command and sudo password until
+  you reload the page.
 - **Run headless** in a VM's **⋯** menu starts it without a window, just for
   that run. A restart keeps it headless.
 - **ⓘ VM details** button next to the **⋯** menu. Shows the VM's state, IP,
-  last start and stop, uptime, hardware, SSH and guest agent status, MDM
+  last start and stop, uptime, hardware, guest agent and SSH status, MDM
   enrollment, last Get info output, tags and notes. Updates live while open.
 - **+ Create VM** button on the Dashboard jumps straight to Create / clone VMs.
 
 ### Changed
 
+- The SSH column is now **Access**, with separate Agent and SSH status. Each is
+  checked on its own after boot and on Get info, so SSH no longer shows OK just
+  because the guest agent answered. SSH shows "off" when the SSH fallback is
+  turned off. A stopped VM keeps its last known status, faded.
 - **Edit VM** now opens in a window on the Dashboard, and also edits tags and
   notes. While the VM is running, only tags, notes and SSH credentials can be
   changed; stop it to change hardware or rename it.
@@ -37,19 +46,16 @@ A few terms appear throughout:
 - Sections in VM Management and Configuration can be collapsed by clicking
   their title. Each section remembers whether it was open or closed.
 - Shorter Network interface hint in Configuration.
-- A stopped VM keeps showing its last known SSH status on the Dashboard
-  (faded), and its last known SSH and guest agent status in **ⓘ** details,
-  with when each was last checked.
 
 ### Fixed
 
 - Runs left open in History (shown as "running…" forever) after Tart Oven was
   stopped or replaced while VMs were running. They're closed at startup and
   show an "unknown" duration.
-- **ⓘ** details always showed "—" for Last stopped.
 
 ### Removed
 
+- The Guest Commands panel at the bottom of the Dashboard, replaced by `>_`.
 - The Edit a VM and Delete a VM sections in VM Management, and the separate
   Edit Tags menu item. Use **Edit VM** and **Delete VM** in a VM's **⋯** menu.
 - Leftover "progress shows in Activity below" hints. Progress now appears in a

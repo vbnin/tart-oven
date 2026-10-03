@@ -4,7 +4,7 @@ Tart Oven is a local web console for managing [Tart](https://github.com/openai/t
 
 Tart Oven runs on macOS. Its guests can run macOS or Linux.
 
-Current release: **1.55-dev8** · [Changelog](CHANGELOG.md)
+Current release: **1.55-dev9** · [Changelog](CHANGELOG.md)
 
 ## Prerequisites
 
@@ -24,13 +24,13 @@ Tart Oven limits the host to two running VMs at a time. Apple's macOS license al
 
 ### 1. Install Tart Oven
 
-Download `TartOven-1.55-dev8.pkg` from the [release page](https://github.com/vbnin/tart-oven/releases).
+Download `TartOven-1.55-dev9.pkg` from the [release page](https://github.com/vbnin/tart-oven/releases).
 
 Open the package in Finder or install it from Terminal:
 
 ```sh
 cd "$HOME/Downloads"
-sudo installer -pkg "./TartOven-1.55-dev8.pkg" -target /
+sudo installer -pkg "./TartOven-1.55-dev9.pkg" -target /
 ```
 
 The package installs:
@@ -117,16 +117,15 @@ For a custom guest without the agent, follow the **SSH setup guide** in **VM Man
 
 ### Guest commands
 
-Under **Dashboard → Guest Commands**:
+Each VM on the Dashboard has a **`>_`** button next to its **Stop** button. Click it to open that VM's terminal window.
 
-1. Select a running local VM.
-2. Enter a command, such as `sw_vers`.
-3. Enter a sudo password only if the command requires one.
-4. Click **Run**.
+1. Enter a command, such as `sw_vers`.
+2. Enter a sudo password only if the command requires one.
+3. Click **Run** or press Enter.
 
-Commands execute with the privileges available inside the guest. Treat this panel like a terminal.
+Commands execute with the privileges available inside the guest. The terminal window shows live guest agent and SSH status at the top, and each VM remembers its own console output, command draft, and sudo password across open/close cycles.
 
-The **Jamf Commands** tab next to **SSH & Shell** offers one-click presets (`sudo jamf policy`, `sudo jamf recon`, `sudo jamf manage`) and a field to run `sudo jamf policy -event <name>` against a running VM, using the same guest-agent-or-SSH transport and sudo password field as SSH & Shell.
+Shortcut buttons below the command field let you run common Jamf commands in one click: `sudo jamf manage`, `sudo jamf recon`, `sudo jamf policy`, and `sudo jamf checkJSSConnection`.
 
 ## Configuration
 

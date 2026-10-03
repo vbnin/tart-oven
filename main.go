@@ -41,7 +41,7 @@ import (
 //go:embed index.html README.md CHANGELOG.md
 var content embed.FS
 
-const version = "1.55-dev8"
+const version = "1.55-dev9"
 
 // ---------------------------------------------------------------------------
 // Editable constants.
@@ -1665,19 +1665,18 @@ func (m *Manager) doRun(name, trigger string, headless bool) {
 	m.broadcast()
 	log.Printf("started %q (ip=%s, window=%s)", name, ip, window)
 
-	// Run the "Get info" (status) command over SSH: this both verifies SSH
-	// connectivity (green/red bubble) and populates the Info column.
+	m.probeGuestChannels(name)
+
+	// The status command only fills the Info column; connectivity was probed above.
 	res := m.sshExec(name, statusCmd, "")
-	ok, info := sshOutcome(res)
+	infoOK, info := sshOutcome(res)
 	m.mu.Lock()
-	vm.SSHOK = ok
-	vm.SSHCheckedAt = time.Now()
 	vm.Info = info
 	vm.InfoAt = time.Now()
 	m.save()
 	m.mu.Unlock()
 	m.broadcast()
-	m.logln("info %s: ok=%v", name, ok)
+	m.logln("info %s: ok=%v", name, infoOK)
 
 	m.refreshMDMStatus(name)
 	m.broadcast()
@@ -2976,16 +2975,16 @@ func (m *Manager) routes() *http.ServeMux {
 			http.Error(w, "name required", http.StatusBadRequest)
 			return
 		}
+		m.probeGuestChannels(name)
+
+		// The status command only fills the Info column; connectivity was probed above.
 		m.mu.Lock()
 		cmd := m.cfg.StatusCommand
 		m.mu.Unlock()
 		res := m.sshExec(name, cmd, "")
-		// Reflect the result in the SSH bubble and the Info column.
-		ok, info := sshOutcome(res)
+		_, info := sshOutcome(res)
 		m.mu.Lock()
 		if vm := m.vms[name]; vm != nil {
-			vm.SSHOK = ok
-			vm.SSHCheckedAt = time.Now()
 			vm.Info = info
 			vm.InfoAt = time.Now()
 		}

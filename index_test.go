@@ -353,22 +353,26 @@ func TestJamfCommandControlsAndSchedulerOptions(t *testing.T) {
 	}
 	html := string(b)
 	for _, requiredID := range []string{
-		`id="cmdTabSshBtn"`,
-		`id="cmdTabJamfBtn"`,
-		`id="cmdTabSsh"`,
-		`id="cmdTabJamf"`,
-		`id="jamfCmdTarget"`,
-		`id="jamfSudoPw"`,
-		`id="jamfBtnPolicy"`,
-		`id="jamfBtnRecon"`,
-		`id="jamfBtnManage"`,
-		`id="jamfEventName"`,
-		`id="jamfBtnEvent"`,
+		`id="terminalModal"`,
+		`id="terminalCommand"`,
+		`id="terminalSudoPassword"`,
+		`id="terminalConsole"`,
 		`id="noGraphics"`,
 		`id="noAudio"`,
 	} {
 		if !strings.Contains(html, requiredID) {
 			t.Errorf("missing required element %s in index.html", requiredID)
+		}
+	}
+	// Check for the four Jamf shortcut commands in the terminal modal
+	for _, cmd := range []string{
+		"sudo jamf manage",
+		"sudo jamf recon",
+		"sudo jamf policy",
+		"sudo jamf checkJSSConnection",
+	} {
+		if !strings.Contains(html, cmd) {
+			t.Errorf("missing Jamf command shortcut %q in terminal modal", cmd)
 		}
 	}
 }

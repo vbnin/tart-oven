@@ -137,3 +137,51 @@ func (m *Manager) setAgentOK(name string, ok bool) {
 	}
 	m.mu.Unlock()
 }
+
+// probeGuestChannels checks the guest agent and SSH independently and records
+// each result, so the SSH status reflects SSH itself rather than whichever
+// transport answered. Each probe gets its own deadline: a guest without the
+// agent makes `tart exec` wait out a ~30s gRPC timeout, and execViaAgent
+// reports an expired context as "handled", so a shared or shorter deadline
+// would both mark a missing agent as OK and starve the SSH probe.
+//
+// A guest already found agent-less this boot isn't re-probed (see execInGuest);
+// a fresh boot or installGuestAgent clears that cache.
+func (m *Manager) probeGuestChannels(name string) {
+	m.mu.Lock()
+	knownUnavailable := m.agentProbedSinceBoot[name]
+	m.mu.Unlock()
+	if !knownUnavailable {
+		agentCtx, cancelAgent := context.WithTimeout(context.Background(), 45*time.Second)
+		res, handled := m.execViaAgent(agentCtx, name, "true", "")
+		cancelAgent()
+		agentOK := handled && res.Error == "" && res.ExitCode == 0
+		m.setAgentOK(name, agentOK)
+		m.mu.Lock()
+		m.agentProbedSinceBoot[name] = !agentOK
+		m.mu.Unlock()
+	}
+	m.mu.Lock()
+	fallback := m.cfg.SSHFallbackEnabled
+	sshTimeout := time.Duration(m.cfg.SSHTimeoutSec)*time.Second + 10*time.Second
+	m.mu.Unlock()
+
+	sshOK := false
+	var checkedAt time.Time
+	if fallback {
+		sshCtx, cancelSSH := context.WithTimeout(context.Background(), sshTimeout)
+		r := m.sshExecContext(sshCtx, name, "true", "")
+		cancelSSH()
+		sshOK = r.Error == "" && r.ExitCode == 0
+		checkedAt = time.Now()
+	}
+
+	m.mu.Lock()
+	if vm := m.vms[name]; vm != nil {
+		vm.SSHOK = sshOK
+		vm.SSHCheckedAt = checkedAt // zero when the fallback is off; the UI shows "off"
+	}
+	m.save()
+	m.mu.Unlock()
+	m.broadcast()
+}
