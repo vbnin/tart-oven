@@ -96,17 +96,17 @@ func shellQuote(s string) string {
 // applyHostnameIfPending sets the guest's hostname when the desired name
 // differs from the one last applied. Safe to call repeatedly: it does nothing
 // once applied, and a failed attempt is retried on the next call.
-func (m *Manager) applyHostnameIfPending(name string) {
+func (m *Manager) applyHostnameIfPending(name string) (applied bool) {
 	m.mu.Lock()
 	vm := m.vms[name]
 	if vm == nil || vm.State != "running" || m.hostnameBusy[name] {
 		m.mu.Unlock()
-		return
+		return false
 	}
 	want := desiredHostname(vm)
 	if want == "" || want == vm.HostnameApplied {
 		m.mu.Unlock()
-		return
+		return false
 	}
 	if m.hostnameBusy == nil {
 		m.hostnameBusy = map[string]bool{}
@@ -131,7 +131,7 @@ func (m *Manager) applyHostnameIfPending(name string) {
 			detail = strings.TrimSpace(res.Stderr)
 		}
 		m.logln("hostname %s: could not set %q: %s", name, want, detail)
-		return
+		return false
 	}
 	m.mu.Lock()
 	if vm := m.vms[name]; vm != nil {
@@ -141,4 +141,14 @@ func (m *Manager) applyHostnameIfPending(name string) {
 	m.mu.Unlock()
 	m.logln("hostname %s: set to %q", name, want)
 	m.broadcast()
+	return true
+}
+
+// applyHostnameAndRefresh applies a pending hostname to a VM that is already
+// up, then refreshes its info, which still shows the old name until it runs
+// again. (At boot the start sequence collects the info itself.)
+func (m *Manager) applyHostnameAndRefresh(name string) {
+	if m.applyHostnameIfPending(name) {
+		m.refreshVMInfo(name)
+	}
 }

@@ -460,6 +460,8 @@
     border-radius: 6px; padding: 9px 13px; font: inherit; font-size: 14.5px; width: 100%;
     transition: border-color 0.15s ease, box-shadow 0.15s ease;
   }
+  input:disabled, select:disabled, textarea:disabled { opacity: .45; cursor: not-allowed; }
+  .field:has(> input:disabled) > label, .field:has(> select:disabled) > label, .checks label:has(input:disabled) { opacity: .55; cursor: not-allowed; }
   input:focus, textarea:focus, select:focus {
     outline: none; border-color: var(--accent); box-shadow: 0 0 0 2px var(--ring-focus);
   }
@@ -774,11 +776,10 @@
       <div style="font-size: 36px; margin-bottom: 10px;">🚀</div>
       <h2 style="margin: 0 0 8px; font-size: 20px; font-weight: 600;">Welcome to Tart Oven!</h2>
       <p class="muted" style="max-width: 600px; margin: 0 auto 20px; font-size: 14px; line-height: 1.5;">
-        You don't have any local virtual machines configured yet. Get started by stepping through the onboarding wizard or pulling a base macOS image from the registry.
+        You don't have any local virtual machines configured yet. Get started by stepping through the setup wizard.
       </p>
       <div style="display: flex; gap: 12px; justify-content: center; flex-wrap: wrap;">
         <button type="button" class="big" onclick="openOnboardingWizard(1)" style="padding: 8px 18px;">🚀 Open Setup Wizard</button>
-        <button type="button" class="ghost big" onclick="openPullOciModal()" style="padding: 8px 18px;">⇩ Pull Base Image</button>
         <button type="button" class="ghost big" onclick="showTab('guide')" style="padding: 8px 18px;">📖 Helper Guide</button>
       </div>
     </div>
@@ -789,7 +790,7 @@
         <div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap">
           <button type="button" onclick="goToCreatePanel()">+ Create VM</button>
           <button type="button" id="pauseBtn">…</button>
-          <button type="button" id="refreshBtn" class="ghost" title="Re-check all VMs against Tart and clear stuck statuses">⟳ Refresh</button>
+          <button type="button" id="refreshBtn" class="ghost" title="Re-check all VMs against Tart, clear stuck statuses, and run Refresh info on running VMs">⟳ Refresh</button>
           <button type="button" id="showRunningOnly" class="ghost" aria-pressed="false">Show All</button>
           <input type="text" id="vmSearch" placeholder="Search VMs…" style="width:200px" autocomplete="off">
         </div>
@@ -897,7 +898,7 @@
       <div class="grid" id="createFieldsGrid">
         <div class="field" id="cloneSourceField"><label>Source VM / template</label><select id="cloneSource"></select></div>
         <div class="field" id="ipswField" style="display:none; grid-column: 1 / -1;">
-          <label for="ipswSource">macOS version</label>
+          <label for="ipswSource">macOS version <span id="ipswDownloadedNote" style="color: var(--green); font-weight: 600; margin-left: 8px;"></span></label>
           <div class="ipsw-row">
             <select id="ipswSource"><option value="">Loading…</option></select>
             <label class="ipsw-beta"><input type="checkbox" id="ipswShowBeta"> Include betas</label>
@@ -1060,14 +1061,14 @@
       <ol class="muted" style="margin: 0 0 10px 0; padding-left: 20px;">
         <li>Start the VM.</li>
         <li>Either use <b>⋯ → Install Agent</b> on the Dashboard (over SSH), or in the VM open <b>Finder → My Shared Files → host_resources → tart-guest-agent</b> and double-click the package (or "Install Tart Guest Agent.command").</li>
-        <li>The agent starts automatically when a user is logged in; the Agent dot in the Access column turns green after the next check (Get info).</li>
+        <li>The agent starts automatically when a user is logged in; the Agent dot in the Access column turns green after the next check (Refresh info).</li>
         <li><b>Tip:</b> install it once on a base VM, then clone.</li>
       </ol>
     </div>
 
     <div class="panel guide" id="sshGuidePanel">
       <h2>SSH setup guide</h2>
-      <p class="muted"><b>Most VMs need none of this.</b> Tart Oven runs <b>Send command</b> and <b>Get info</b> through the <b>Tart guest agent</b> — no SSH, no key, no credentials — and the official <span class="mono">ghcr.io/cirruslabs/macos-*-base</span> images ship the agent preinstalled. The VM row shows <span class="mono">agent</span> when that path is in use.</p>
+      <p class="muted"><b>Most VMs need none of this.</b> Tart Oven runs <b>Send command</b> and <b>Refresh info</b> through the <b>Tart guest agent</b> — no SSH, no key, no credentials — and the official <span class="mono">ghcr.io/cirruslabs/macos-*-base</span> images ship the agent preinstalled. The VM row shows <span class="mono">agent</span> when that path is in use.</p>
       <p class="muted">Follow the steps below only for a guest <b>without</b> the agent (for example a <span class="mono">vanilla-*</span> image), where Tart Oven falls back to SSH. To add the agent to such an image instead, run <span class="mono">brew install openai/tools/tart-guest-agent</span> inside the guest once, before cloning it. Run the commands below <b>on the Mac mini</b> — the key stays on the mini.</p>
 
       <h3>1 · Generate a key (once)</h3>
@@ -1082,7 +1083,7 @@
       <p class="muted">You'll enter the VM's password once. The VM must have <b>Remote Login</b> on (System Settings → General → Sharing). This command fixes the <span class="mono">~/.ssh</span> permissions that often block <span class="mono">ssh-copy-id</span>, and skips host-key fingerprint prompts / <span class="mono">known_hosts</span> entries (so reused VM IPs never cause conflicts — the same way Tart Oven connects).</p>
 
       <h3>3 · Point Tart Oven at the key</h3>
-      <p class="muted">Set <b>SSH identity file</b> in Configuration to <span class="mono" id="guideKeyPath">~/.ssh/tart-oven</span>, then click <b>Save configuration</b>. Test it with <b>Get info</b> on a running VM.</p>
+      <p class="muted">Set <b>SSH identity file</b> in Configuration to <span class="mono" id="guideKeyPath">~/.ssh/tart-oven</span>, then click <b>Save configuration</b>. Test it with <b>Refresh info</b> on a running VM.</p>
 
       <h3>Tip · Do it once for the whole fleet</h3>
       <p class="muted">Add the public key to your <b>TEMPLATE</b> VM's <span class="mono">~/.ssh/authorized_keys</span> before cloning — every clone inherits it, so you never repeat steps 1–2.</p>
@@ -1143,7 +1144,7 @@
         <div class="field"><label for="sshPassword">Default SSH password<button type="button" class="help-tip" data-help="Leave blank to keep the saved password" aria-label="About Default SSH password" aria-expanded="false">?</button></label><input type="password" id="sshPassword" autocomplete="new-password"></div>
         <div class="field" id="sshKeyField"><label>SSH identity file<button type="button" class="help-tip" data-help="Used only when a guest has no Tart guest agent. Must start with ~/ or /" aria-label="About SSH identity file" aria-expanded="false">?</button></label><input type="text" id="sshKey"></div>
         <div class="field"><label>SSH connect timeout (s)</label><input type="number" id="sshTimeoutSec" min="1"></div>
-        <div class="field"><label>Status command (Get info)</label><input type="text" id="statusCommand"></div>
+        <div class="field"><label>Status command (Refresh info)</label><input type="text" id="statusCommand"></div>
         <div class="field"><label>&nbsp;</label><label class="radio"><span class="toggle"><input type="checkbox" id="sshFallbackEnabled"><span class="slider"></span></span><span>Allow SSH fallback for guest commands<button type="button" class="help-tip" data-help="Off = agent only. Hides the SSH setup guide and identity file." aria-label="About Allow SSH fallback for guest commands" aria-expanded="false">?</button></span></label></div>
         <div class="field"><label>&nbsp;</label><label class="radio"><span class="toggle"><input type="checkbox" id="prioritizeSshShutdown"><span class="slider"></span></span><span>Prioritize clean shutdown<button type="button" class="help-tip" data-help="On = ask the guest to shut down for up to 30s before falling back to a fast stop. Off = fast stop only." aria-label="About Prioritize clean shutdown" aria-expanded="false">?</button></span></label></div>
       </div>
@@ -1250,7 +1251,7 @@
     <h3>Edit <span id="editVmModalName"></span></h3>
     <div class="modal-scroll">
     <div id="editVmModalInfo" class="muted" style="margin-bottom: 12px; font-size: 13px;"></div>
-    <p id="editVmModalHint" class="muted" style="margin-bottom: 12px; font-size: 12.5px; display: none;">Stop the VM to change hardware or rename it.</p>
+    <p id="editVmModalHint" class="muted" style="margin-bottom: 12px; font-size: 12.5px; display: none;">Stop the VM to change hardware or rename it. Greyed-out fields are unavailable while it runs.</p>
 
     <h3 style="font-size: 12px; text-transform: uppercase; color: var(--muted); margin: 16px 0 10px; font-weight: 600;">VM Settings</h3>
     <div class="grid">
@@ -1527,8 +1528,8 @@
 
         <div id="wizardIpswPanel" style="display: none;">
           <div class="field" style="margin-bottom: 12px;">
-            <label for="wizardIpswSelect" style="font-size: 13px; font-weight: 600;">macOS version</label>
-            <select id="wizardIpswSelect"><option value="">Loading…</option></select>
+            <label for="wizardIpswSelect" style="font-size: 13px; font-weight: 600;">macOS version <span id="wizardIpswNote" style="color: var(--green); margin-left: 8px;"></span></label>
+            <select id="wizardIpswSelect" onchange="updateWizardIpswNote()"><option value="">Loading…</option></select>
           </div>
           <div class="field" style="margin-bottom: 12px;">
             <label for="wizardIpswName" style="font-size: 13px; font-weight: 600;">VM name</label>
@@ -1699,8 +1700,9 @@ async function submitLogin() {
     if (res.ok) {
       input.value = "";
       document.getElementById("loginModal").classList.add("hidden");
-      connect();
-      loadSecurity();
+      // Several panels load once at page start (guest agent, Launch at login,
+      // Security). Those requests got a 401 before sign-in, so start over.
+      location.reload();
       return true;
     }
     err.textContent = res.status === 429 ? "Too many attempts. Try again in a minute." : "That token isn't valid.";
@@ -2448,7 +2450,7 @@ function accessCell(vm) {
   return agentLine + channelBadge("SSH", vm.sshOk, vm.sshCheckedAt, vm, { ssh: true });
 }
 
-// Info column: last "Get info" output (may be multi-line).
+// Info column: last "Refresh info" output (may be multi-line).
 function infoCell(vm) {
   if (!vm.info) return '<span class="muted">—</span>';
   return '<div class="infobox" title="fetched ' + esc(fmtDateTime(vm.infoAt)) + '">' + esc(vm.info) + '</div>';
@@ -2776,6 +2778,15 @@ function render(state) {
   if (vmInfoModalName && !document.getElementById("vmInfoModal").classList.contains("hidden")) {
     renderVmInfoModalBody();
   }
+  if (editVmModalName && !document.getElementById("editVmModal").classList.contains("hidden")) {
+    syncEditVmLock();
+  }
+  if (!document.getElementById("onboardingModal").classList.contains("hidden")) {
+    const task = wizardInstallTask();
+    if (wizardTartPending && task && task.id !== wizardTartBaseTask && task.status !== "running") wizardTartPending = false;
+    renderWizardEnv();
+    updateWizardReview();
+  }
   if (terminalOpenVm && !document.getElementById("terminalModal").classList.contains("hidden")) {
     updateTerminalStatus();
   }
@@ -2814,6 +2825,8 @@ let wizardRoleChosen = false; // only a role the user picked is applied on compl
 let wizardSource = ""; // "" | "oci" | "ipsw"
 let wizardStarted = ""; // what step 3 kicked off, for the review
 let wizardCheck = null; // /api/setup/check
+let wizardTartPending = false; // an install was requested and the server task hasn't finished
+let wizardTartBaseTask = ""; // id of the install task that already existed when it was requested
 let wizardAutoOpened = false;
 
 const WIZARD_ROLES = {
@@ -2844,20 +2857,37 @@ function renderWizardEnv() {
   }
   const installBtn = document.getElementById("wizardInstallTartBtn");
   const updateBtn = document.getElementById("wizardUpdateTartBtn");
-  const show = (btn, on) => { if (btn && btn.style) btn.style.display = on ? "" : "none"; };
+  const show = (btn, on, busy) => {
+    if (!btn || !btn.style) return;
+    btn.style.display = on ? "" : "none";
+    btn.disabled = !!busy;
+  };
   if (typeof latest === "undefined" || !latest) return;
   const tartUpdate = (latest.updates && latest.updates.tart) || {};
-  if (!latest.tartInstalled) {
-    setWizardStatus("wizardTartStatus", "Tart is not installed.", "amber");
+  const task = wizardInstallTask();
+  const installing = wizardTartPending || (!!task && task.status === "running");
+  if (installing) {
+    setWizardStatus("wizardTartStatus", (latest.tartInstalled ? "Updating" : "Installing") + " Tart… this can take a minute.", "amber");
+    show(installBtn, !latest.tartInstalled, true); show(updateBtn, !!latest.tartInstalled, true);
+  } else if (!latest.tartInstalled) {
+    const failed = task && task.status === "error";
+    setWizardStatus("wizardTartStatus", failed ? "The install failed: " + (task.error || "unknown error") : "Tart is not installed.", failed ? "red" : "amber");
     show(installBtn, true); show(updateBtn, false);
   } else if (tartUpdate.available) {
     setWizardStatus("wizardTartStatus", "Tart " + (latest.tartVersion || "") + " is installed. " + tartUpdate.latest + " is available.", "amber");
     show(installBtn, false); show(updateBtn, true);
   } else {
     const checked = !!tartUpdate.latest;
-    setWizardStatus("wizardTartStatus", "Tart " + (latest.tartVersion || "") + " is installed" + (checked ? " and up to date." : "."), checked ? "green" : "");
+    setWizardStatus("wizardTartStatus", "✓ Tart " + (latest.tartVersion || "") + " is installed" + (checked ? " and up to date." : "."), "green");
     show(installBtn, false); show(updateBtn, false);
   }
+}
+
+// The most recent Tart install or update task, as reported by the server.
+function wizardInstallTask() {
+  const tasks = (typeof latest !== "undefined" && latest && latest.tasks) || [];
+  const installs = tasks.filter(t => t.kind === "install" && t.target === "tart");
+  return installs.length ? installs[installs.length - 1] : null;
 }
 
 // Step 2: storage path, free space, server address.
@@ -2901,14 +2931,16 @@ async function saveWizardStorage() {
 }
 
 async function wizardInstallTart(btn) {
-  if (btn) { btn.disabled = true; }
+  const previous = wizardInstallTask();
+  wizardTartBaseTask = previous ? previous.id : "";
+  wizardTartPending = true; // until the server's install task shows up and finishes
+  renderWizardEnv();
   try {
     const res = await api("/api/install-tart", { method: "POST" });
     const d = await res.json();
-    if (d.error) toast("Tart", d.error, "bad");
-    else toast("Tart", "Downloading and installing…", "", "panel-activity");
-  } catch (err) { toast("Tart", err.message, "bad"); }
-  setTimeout(() => { if (btn) btn.disabled = false; renderWizardEnv(); }, 4000);
+    if (d.error) { wizardTartPending = false; toast("Tart", d.error, "bad"); }
+  } catch (err) { wizardTartPending = false; toast("Tart", err.message, "bad"); }
+  renderWizardEnv();
 }
 
 // Step 3: pull an image or build from an IPSW.
@@ -2953,21 +2985,28 @@ function renderWizardIpsw() {
     const name = MACOS_NAMES[major] ? " (" + MACOS_NAMES[major] + ")" : "";
     html += '<optgroup label="macOS ' + major + name + '">';
     for (const e of byMajor.get(major)) {
-      html += '<option value="' + esc(e.url) + '">' + esc(ipswOptionLabel(e)) + "</option>";
+      html += ipswOptionHtml(e, false);
     }
     html += "</optgroup>";
   }
   sel.innerHTML = html;
+  updateWizardIpswNote();
+}
+
+function updateWizardIpswNote() {
+  const sel = document.getElementById("wizardIpswSelect");
+  ipswDownloadedNote("wizardIpswNote", sel ? sel.value : "", (ipswSources && ipswSources.entries) || []);
 }
 
 async function loadWizardIpsw() {
-  if (ipswSources && !ipswSources.error) { renderWizardIpsw(); return; }
+  if (ipswSources && !ipswSources.error && Date.now() - ipswFetchedAt < IPSW_REFRESH_MS) { renderWizardIpsw(); return; }
   if (ipswLoading) return;
   ipswLoading = true;
   renderWizardIpsw();
   try {
     const res = await api("/api/ipsw/sources");
     ipswSources = await res.json();
+    ipswFetchedAt = Date.now();
   } catch (e) {
     ipswSources = { entries: [], error: "Could not load the macOS list: " + e.message };
   }
@@ -3007,7 +3046,7 @@ async function startWizardIpsw() {
   const url = sel ? sel.value : "";
   const statusEl = document.getElementById("wizardPullStatus");
   if (!url) { toast("Build from IPSW", "Choose a macOS version first.", "bad"); return; }
-  const label = sel.options[sel.selectedIndex] ? sel.options[sel.selectedIndex].textContent : "macOS";
+  const label = (sel.options[sel.selectedIndex] ? sel.options[sel.selectedIndex].textContent : "macOS").replace(/ · ✓ Downloaded$/, "");
   try {
     const res = await api("/api/vm/create", {
       method: "POST",
@@ -3496,7 +3535,7 @@ function renderTable(vms) {
           '<div class="row-menu-list">' +
             '<button onclick="closeRowMenus();openRunArgsModal(\'' + n + '\')"' + (busy || vm.state !== "stopped" ? ' disabled' : '') + ' title="Start VM with chosen tart run arguments">Run with arguments</button>' +
             '<button onclick="closeRowMenus();restartVM(\'' + n + '\')"' + (busy || vm.state !== "running" ? ' disabled' : '') + ' title="Restart this VM">Restart VM</button>' +
-            '<button onclick="closeRowMenus();getInfo(\'' + n + '\')"' + notRunning + '>Get info</button>' +
+            '<button onclick="closeRowMenus();getInfo(\'' + n + '\')"' + notRunning + ' title="Re-check the IP, Agent and SSH status and MDM enrollment, and collect the VM info again">Refresh info</button>' +
             agentInstallButton(n, notRunning, guestAgentInfo.available) +
             '<button onclick="closeRowMenus();openVNC(\'' + esc(vm.ip) + '\',\'' + esc(effUser) + '\')"' + noScreen + '>Start Screen Sharing</button>' +
             '<button onclick="closeRowMenus();openEditModal(\'' + n + '\')" title="Edit VM settings, tags, and notes">Edit VM</button>' +
@@ -3525,20 +3564,26 @@ setInterval(() => {
 
 // ---- Edit VM modal (replaces both the panel and the old notes modal) ----
 let editVmModalName = "";
+// Hardware and rename fields only apply to a stopped VM: grey them out while
+// it runs (and again if it starts or stops while the window is open).
+function syncEditVmLock() {
+  const vm = latest && latest.vms.find(v => v.name === editVmModalName);
+  if (!vm) return;
+  const isStopped = vm.state === "stopped";
+  const hint = document.getElementById("editVmModalHint");
+  if (hint) hint.style.display = isStopped ? "none" : "block";
+  ["editVmCpu", "editVmMemory", "editVmDisk", "editVmDisplay", "editVmRenameNew", "editVmRandMac", "editVmRandSerial"].forEach(id => {
+    const el = document.getElementById(id);
+    if (el) el.disabled = !isStopped;
+  });
+}
 async function openEditModal(vmName) {
   editVmModalName = vmName;
   const vm = latest && latest.vms.find(v => v.name === vmName);
   if (!vm) return;
   document.getElementById("editVmModalName").textContent = vmName;
   document.getElementById("editVmModal").classList.remove("hidden");
-  const isStopped = vm.state === "stopped";
-  const hint = document.getElementById("editVmModalHint");
-  hint.style.display = isStopped ? "none" : "block";
-  // Disable hardware fields if not stopped
-  ["editVmCpu", "editVmMemory", "editVmDisk", "editVmDisplay", "editVmRenameNew", "editVmRandMac", "editVmRandSerial"].forEach(id => {
-    const el = document.getElementById(id);
-    if (el) el.disabled = !isStopped;
-  });
+  syncEditVmLock();
   ["editVmCpu", "editVmMemory", "editVmDisplay", "editVmDisk", "editVmRenameNew", "editVmSshPassword"].forEach(id => { document.getElementById(id).value = ""; });
   document.getElementById("editVmRandMac").checked = false;
   document.getElementById("editVmRandSerial").checked = false;
@@ -3993,10 +4038,10 @@ async function getInfo(name) {
     const res = await api("/api/info?name=" + encodeURIComponent(name));
     const r = await res.json();
     if (r.error || r.exitCode !== 0) {
-      toast("Get Info", r.error || "Command failed (exit " + r.exitCode + ")", "bad");
+      toast("Refresh Info", r.error || "Command failed (exit " + r.exitCode + ")", "bad");
     }
   } catch (e) {
-    toast("Get Info", e.message, "bad");
+    toast("Refresh Info", e.message, "bad");
   }
 }
 
@@ -4061,8 +4106,23 @@ let ipswSources = null; // {entries, error} from /api/ipsw/sources
 let ipswLoading = false;
 const MACOS_NAMES = { 12: "Monterey", 13: "Ventura", 14: "Sonoma", 15: "Sequoia", 26: "Tahoe" };
 function ipswOptionLabel(e) {
-  return e.version + " (" + e.build + ") · " + (e.size / 1e9).toFixed(1) + " GB · " + e.released;
+  return e.version + " (" + e.build + ") · " + (e.size / 1e9).toFixed(1) + " GB · " + e.released + (e.downloaded ? " · ✓ Downloaded" : "");
 }
+// The value a version is picked by: the copy already on this Mac when there
+// is one (Tart then has nothing to download), otherwise the download URL.
+function ipswOptionValue(e) { return e.downloaded && e.path ? e.path : e.url; }
+function ipswOptionHtml(e, selected) {
+  return '<option value="' + esc(ipswOptionValue(e)) + '"' + (selected ? " selected" : "") +
+    (e.downloaded ? ' style="color: var(--green); font-weight: 600;"' : "") + ">" + esc(ipswOptionLabel(e)) + "</option>";
+}
+function ipswDownloadedNote(noteId, selectValue, entries) {
+  const note = document.getElementById(noteId);
+  if (!note) return;
+  const hit = (entries || []).find(e => e.downloaded && ipswOptionValue(e) === selectValue);
+  note.textContent = hit ? "✓ Downloaded, no download needed" : "";
+}
+let ipswFetchedAt = 0; // list is re-read when older than this many ms, so a finished download shows up
+const IPSW_REFRESH_MS = 15000;
 function renderIpswOptions() {
   const sel = document.getElementById("ipswSource");
   const current = document.getElementById("fromIpsw").value.trim();
@@ -4083,11 +4143,12 @@ function renderIpswOptions() {
     const name = MACOS_NAMES[major] ? " (" + MACOS_NAMES[major] + ")" : "";
     html += '<optgroup label="macOS ' + major + name + '">';
     for (const e of byMajor.get(major)) {
-      html += '<option value="' + esc(e.url) + '"' + (e.url === current ? " selected" : "") + ">" + esc(ipswOptionLabel(e)) + "</option>";
+      html += ipswOptionHtml(e, ipswOptionValue(e) === current);
     }
     html += "</optgroup>";
   }
   sel.innerHTML = html;
+  ipswDownloadedNote("ipswDownloadedNote", sel.value, entries);
 }
 // Keep the dropdown in step with the path/URL box: it shows a version only
 // while the box holds that version's URL.
@@ -4095,9 +4156,10 @@ function syncIpswSelect() {
   const sel = document.getElementById("ipswSource");
   const value = document.getElementById("fromIpsw").value.trim();
   sel.value = Array.from(sel.options).some(o => o.value === value) ? value : "";
+  ipswDownloadedNote("ipswDownloadedNote", sel.value, (ipswSources && ipswSources.entries) || []);
 }
 async function loadIpswSources() {
-  if (ipswLoading || (ipswSources && !ipswSources.error)) return;
+  if (ipswLoading || (ipswSources && !ipswSources.error && Date.now() - ipswFetchedAt < IPSW_REFRESH_MS)) return;
   const status = document.getElementById("ipswStatus");
   ipswLoading = true;
   status.textContent = "";
@@ -4105,6 +4167,7 @@ async function loadIpswSources() {
   try {
     const res = await api("/api/ipsw/sources");
     ipswSources = await res.json();
+    ipswFetchedAt = Date.now();
   } catch (e) {
     ipswSources = { entries: [], error: "Could not load the macOS list: " + e.message };
   }
@@ -4116,6 +4179,7 @@ async function loadIpswSources() {
 el("ipswSource").onchange = () => {
   const url = document.getElementById("ipswSource").value;
   if (url) document.getElementById("fromIpsw").value = url;
+  ipswDownloadedNote("ipswDownloadedNote", url, (ipswSources && ipswSources.entries) || []);
 };
 el("ipswShowBeta").onchange = () => { renderIpswOptions(); syncIpswSelect(); };
 el("fromIpsw").addEventListener("input", syncIpswSelect);

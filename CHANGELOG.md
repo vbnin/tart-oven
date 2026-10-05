@@ -12,6 +12,36 @@ A few terms appear throughout:
 - **MDM / Jamf Pro** — the system that manages enrolled Macs. Tart Oven can prepare
   a VM for enrollment and report whether a guest is enrolled.
 
+## 2.0.1 (2026-10-05)
+
+### Changed
+
+- **Get info is now Refresh info.** Besides running the status command, it
+  re-checks the VM's IP, its Agent and SSH status and its MDM enrollment.
+- **Refresh** (Local VMs toolbar) now runs Refresh info on every running VM,
+  not just the Agent and SSH check.
+- Changing a running VM's hostname runs Refresh info once the new name is
+  applied, so the collected info shows it.
+- In **Edit VM**, the fields that can't change while the VM runs (CPU, memory,
+  disk, display, rename, new MAC and serial) are greyed out, and follow the VM
+  if it starts or stops while the window is open.
+
+- The empty Dashboard's welcome card no longer offers **Pull Base Image**; the
+  Setup Wizard covers it.
+- **Downloaded IPSW versions are marked.** In Create from IPSW and in the Setup
+  Wizard, a macOS version already in Tart's download cache (`cache/IPSWs` in
+  your VM storage path) shows **✓ Downloaded** in green, and picking it uses
+  that copy instead of downloading it again. The list re-checks the folder
+  each time it opens.
+- Installing or updating Tart from the Setup Wizard now shows progress, then a
+  green check when Tart is in place, or the reason it failed.
+
+### Fixed
+
+- With an access token set, panels that load once when the page opens (Tart
+  guest agent, Launch at login, Security) stayed on "Loading..." if you
+  signed in afterwards. Signing in now reloads the page so everything loads.
+
 ## 2.0 (2026-10-05)
 
 So much changed since 1.54 that this release is 2.0. The highlights: a

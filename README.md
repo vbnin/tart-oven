@@ -4,7 +4,7 @@ Tart Oven is a local web console for managing [Tart](https://github.com/openai/t
 
 Tart Oven runs on macOS and manages macOS virtual machines.
 
-Current release: **2.0** · [Changelog](CHANGELOG.md)
+Current release: **2.0.1** · [Changelog](CHANGELOG.md)
 
 <p align="center">
   <img src="assets/screenshots/Tart%20Oven%20Screenshot%201.png" alt="Tart Oven screenshot 1" width="900">
@@ -28,13 +28,13 @@ Tart Oven limits the host to two running VMs at a time. Apple's macOS license al
 
 ### 1. Install Tart Oven
 
-Download `TartOven-2.0.pkg` from the [release page](https://github.com/vbnin/tart-oven/releases).
+Download `TartOven-2.0.1.pkg` from the [release page](https://github.com/vbnin/tart-oven/releases).
 
 Open the package in Finder or install it from Terminal:
 
 ```sh
 cd "$HOME/Downloads"
-sudo installer -pkg "./TartOven-2.0.pkg" -target /
+sudo installer -pkg "./TartOven-2.0.1.pkg" -target /
 ```
 
 The package installs:
@@ -90,7 +90,7 @@ If a VM with the same name already exists, `-1`, `-2`, and so on is added (`lab`
 1. Open **Dashboard**.
 2. Find the new VM under **Local VMs** and click **Run**.
 3. Wait until its state is **running** and an IP address appears.
-4. Click **Get info**.
+4. Click **Refresh info**.
 
 A successful result shows the guest hostname, serial number, and macOS version. That is your first working Tart Oven VM.
 
@@ -114,18 +114,18 @@ The tabs along the top are:
 
 On the Dashboard:
 
-- **+ Create VM** jumps to **Create / clone VMs**. **Scheduler** and **Refresh** sit beside it, and **Show All / Show Running** filters the list. **Refresh** also re-checks the guest agent and SSH for running VMs.
+- **+ Create VM** jumps to **Create / clone VMs**. **Scheduler** and **Refresh** sit beside it, and **Show All / Show Running** filters the list. **Refresh** also runs **Refresh info** on every running VM.
 - Click a column name, or its arrows, to sort the **Local VMs** and **OCI Images** tables. The choice is remembered.
 - The **Access** column shows whether commands can reach the guest: **Agent** (the Tart guest agent answers) or **SSH** (the fallback). When the agent works, only it is shown. A stopped VM keeps its last known status, faded.
-- The **ⓘ** button opens **VM details**: state, IP, last start and stop, uptime, hardware, Access, MDM enrollment, the last **Get info** output, tags and notes. It updates live.
+- The **ⓘ** button opens **VM details**: state, IP, last start and stop, uptime, hardware, Access, MDM enrollment, the last **Refresh info** output, tags and notes. It updates live.
 - Click a **?** beside a setting for its help text. Click a section title to collapse it; Tart Oven remembers which are open. The switch in the header toggles dark and light mode.
 - Leaving **Configuration** with unsaved changes asks whether to save, discard or keep editing.
 
 The **Setup Wizard** (Configuration) opens by itself on a first run with no VMs, and you can relaunch it any time. It has five steps:
 
-1. **Environment** checks that the Mac has an Apple silicon chip, and that Tart is installed and up to date. It can install or update Tart for you.
+1. **Environment** checks that the Mac has an Apple silicon chip, and that Tart is installed and up to date. It can install or update Tart for you, and shows a green check once Tart is in place.
 2. **Storage & Server** shows the VM storage path, which you can change, and the free space there. Tart Oven recommends 40 GB or more, and warns if there is less, but you can continue. It also shows the server address.
-3. **First VM** offers two routes. **Pull an OCI image** is the quickest: it downloads a prepared macOS image you can clone. **Build a fresh VM from an IPSW** starts from Apple's restore image for a clean install, in the macOS version you choose. Pick one, then pull the image or choose a version from the list. You can also skip this step.
+3. **First VM** offers two routes. **Pull an OCI image** is the quickest: it downloads a prepared macOS image you can clone. **Build a fresh VM from an IPSW** starts from Apple's restore image for a clean install, in the macOS version you choose. Pick one, then pull the image or choose a version from the list; versions already downloaded are marked in green. You can also skip this step.
 4. **Purpose** sets starting defaults. **Testing / Troubleshooting** keeps the scheduler off and runs VMs with a full display and audio. **Demo / Data Generation** turns the scheduler on and runs scheduled VMs headless with audio off. Change any of it later in Configuration.
 5. **Review** summarises your choices.
 
@@ -166,7 +166,7 @@ The Dashboard provides **Run** and **Stop** next to each VM, plus a "⋯" menu w
 - **Run with arguments** (⋯ menu) opens a window to choose `tart run` options for one run: display (headless, Screen Sharing, or Virtualization VNC, which works before login and in recovery), network (shared NAT, host only, Softnet) and options such as no audio or boot into recovery. The choice replaces **Custom run arguments** for that run, and **Restart VM** keeps it. It opens pre-filled with what a normal run would use.
 - **Restart VM** (⋯ menu) restarts a running VM, keeping the options chosen in **Run with arguments**.
 - **Stop** asks Tart to stop it with a short timeout and may force termination. Enable **Prioritize clean shutdown** in **Configuration → SSH & Commands** to instead ask the guest to shut down cleanly (via the guest agent or SSH) first (up to 30 seconds) before falling back to the fast stop — safer for guests that need time to flush state on power-off.
-- **Get info** (⋯ menu) runs the configured status command inside the guest.
+- **Refresh info** (⋯ menu) re-checks the VM's IP, its Agent and SSH status and its MDM enrollment, then runs the configured status command inside the guest to collect its info again. Changing a running VM's hostname runs it automatically.
 - **Install Agent** (⋯ menu) installs the bundled Tart guest agent package into a running guest over SSH, so it no longer needs SSH fallback for commands.
 - **Start Screen Sharing** (⋯ menu) opens macOS Screen Sharing when the guest has an IP and Screen Sharing is enabled.
 - **Edit VM** (⋯ menu) opens a window with the VM's hardware (CPU, memory, disk, display), **Rename to** (accepts the same `$RAND8` and `$AUTONUM` variables as a name template), new random MAC and serial, hostname, SSH credentials, enrollment, and tags and notes. While the VM runs, only tags, notes, SSH credentials and auto-enroll can change; stop it for the rest.
@@ -227,7 +227,7 @@ Keep **Exclude OCI images from scheduler** enabled so registry cache entries rem
 
 ### Creating a VM from an IPSW
 
-**VM Management → Create from IPSW** builds a new macOS VM from a restore image. Pick a version from the **macOS version** list, which Tart Oven loads from [AppleDB](https://github.com/littlebyteorg/appledb) and refreshes daily, or click **Browse…** to choose a local `.ipsw` in a Finder window (only available in a browser on the Mac running Tart Oven). You can also type or paste a path or an `http(s)://` URL into **IPSW path or URL**; the old `latest` shortcut is gone. Tick **Include betas** to list pre-release builds. Only builds Apple still signs for virtual Macs are listed; your Mac must be able to run the macOS version you pick.
+**VM Management → Create from IPSW** builds a new macOS VM from a restore image. Pick a version from the **macOS version** list, which Tart Oven loads from [AppleDB](https://github.com/littlebyteorg/appledb) and refreshes daily, or click **Browse…** to choose a local `.ipsw` in a Finder window (only available in a browser on the Mac running Tart Oven). You can also type or paste a path or an `http(s)://` URL into **IPSW path or URL**; the old `latest` shortcut is gone. Versions that Tart has already downloaded (they are kept in `cache/IPSWs` inside your VM storage path) are marked **✓ Downloaded** in green, and picking one uses that copy instead of downloading it again. Tick **Include betas** to list pre-release builds. Only builds Apple still signs for virtual Macs are listed; your Mac must be able to run the macOS version you pick.
 
 ### Guest provisioning (macOS 27+)
 
@@ -437,7 +437,7 @@ reachability from other devices), but gets full outbound internet access.
 
 ### Guest commands fail
 
-For an official base image, wait for the guest to finish booting and retry **Get info**.
+For an official base image, wait for the guest to finish booting and retry **Refresh info**.
 
 For a custom image:
 
