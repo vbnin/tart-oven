@@ -776,11 +776,10 @@
       <div style="font-size: 36px; margin-bottom: 10px;">🚀</div>
       <h2 style="margin: 0 0 8px; font-size: 20px; font-weight: 600;">Welcome to Tart Oven!</h2>
       <p class="muted" style="max-width: 600px; margin: 0 auto 20px; font-size: 14px; line-height: 1.5;">
-        You don't have any local virtual machines configured yet. Get started by stepping through the onboarding wizard or pulling a base macOS image from the registry.
+        You don't have any local virtual machines configured yet. Get started by stepping through the setup wizard.
       </p>
       <div style="display: flex; gap: 12px; justify-content: center; flex-wrap: wrap;">
         <button type="button" class="big" onclick="openOnboardingWizard(1)" style="padding: 8px 18px;">🚀 Open Setup Wizard</button>
-        <button type="button" class="ghost big" onclick="openPullOciModal()" style="padding: 8px 18px;">⇩ Pull Base Image</button>
         <button type="button" class="ghost big" onclick="showTab('guide')" style="padding: 8px 18px;">📖 Helper Guide</button>
       </div>
     </div>
@@ -899,7 +898,7 @@
       <div class="grid" id="createFieldsGrid">
         <div class="field" id="cloneSourceField"><label>Source VM / template</label><select id="cloneSource"></select></div>
         <div class="field" id="ipswField" style="display:none; grid-column: 1 / -1;">
-          <label for="ipswSource">macOS version</label>
+          <label for="ipswSource">macOS version <span id="ipswDownloadedNote" style="color: var(--green); font-weight: 600; margin-left: 8px;"></span></label>
           <div class="ipsw-row">
             <select id="ipswSource"><option value="">Loading…</option></select>
             <label class="ipsw-beta"><input type="checkbox" id="ipswShowBeta"> Include betas</label>
@@ -1529,8 +1528,8 @@
 
         <div id="wizardIpswPanel" style="display: none;">
           <div class="field" style="margin-bottom: 12px;">
-            <label for="wizardIpswSelect" style="font-size: 13px; font-weight: 600;">macOS version</label>
-            <select id="wizardIpswSelect"><option value="">Loading…</option></select>
+            <label for="wizardIpswSelect" style="font-size: 13px; font-weight: 600;">macOS version <span id="wizardIpswNote" style="color: var(--green); margin-left: 8px;"></span></label>
+            <select id="wizardIpswSelect" onchange="updateWizardIpswNote()"><option value="">Loading…</option></select>
           </div>
           <div class="field" style="margin-bottom: 12px;">
             <label for="wizardIpswName" style="font-size: 13px; font-weight: 600;">VM name</label>
@@ -2782,6 +2781,12 @@ function render(state) {
   if (editVmModalName && !document.getElementById("editVmModal").classList.contains("hidden")) {
     syncEditVmLock();
   }
+  if (!document.getElementById("onboardingModal").classList.contains("hidden")) {
+    const task = wizardInstallTask();
+    if (wizardTartPending && task && task.id !== wizardTartBaseTask && task.status !== "running") wizardTartPending = false;
+    renderWizardEnv();
+    updateWizardReview();
+  }
   if (terminalOpenVm && !document.getElementById("terminalModal").classList.contains("hidden")) {
     updateTerminalStatus();
   }
@@ -2820,6 +2825,8 @@ let wizardRoleChosen = false; // only a role the user picked is applied on compl
 let wizardSource = ""; // "" | "oci" | "ipsw"
 let wizardStarted = ""; // what step 3 kicked off, for the review
 let wizardCheck = null; // /api/setup/check
+let wizardTartPending = false; // an install was requested and the server task hasn't finished
+let wizardTartBaseTask = ""; // id of the install task that already existed when it was requested
 let wizardAutoOpened = false;
 
 const WIZARD_ROLES = {
@@ -2850,20 +2857,37 @@ function renderWizardEnv() {
   }
   const installBtn = document.getElementById("wizardInstallTartBtn");
   const updateBtn = document.getElementById("wizardUpdateTartBtn");
-  const show = (btn, on) => { if (btn && btn.style) btn.style.display = on ? "" : "none"; };
+  const show = (btn, on, busy) => {
+    if (!btn || !btn.style) return;
+    btn.style.display = on ? "" : "none";
+    btn.disabled = !!busy;
+  };
   if (typeof latest === "undefined" || !latest) return;
   const tartUpdate = (latest.updates && latest.updates.tart) || {};
-  if (!latest.tartInstalled) {
-    setWizardStatus("wizardTartStatus", "Tart is not installed.", "amber");
+  const task = wizardInstallTask();
+  const installing = wizardTartPending || (!!task && task.status === "running");
+  if (installing) {
+    setWizardStatus("wizardTartStatus", (latest.tartInstalled ? "Updating" : "Installing") + " Tart… this can take a minute.", "amber");
+    show(installBtn, !latest.tartInstalled, true); show(updateBtn, !!latest.tartInstalled, true);
+  } else if (!latest.tartInstalled) {
+    const failed = task && task.status === "error";
+    setWizardStatus("wizardTartStatus", failed ? "The install failed: " + (task.error || "unknown error") : "Tart is not installed.", failed ? "red" : "amber");
     show(installBtn, true); show(updateBtn, false);
   } else if (tartUpdate.available) {
     setWizardStatus("wizardTartStatus", "Tart " + (latest.tartVersion || "") + " is installed. " + tartUpdate.latest + " is available.", "amber");
     show(installBtn, false); show(updateBtn, true);
   } else {
     const checked = !!tartUpdate.latest;
-    setWizardStatus("wizardTartStatus", "Tart " + (latest.tartVersion || "") + " is installed" + (checked ? " and up to date." : "."), checked ? "green" : "");
+    setWizardStatus("wizardTartStatus", "✓ Tart " + (latest.tartVersion || "") + " is installed" + (checked ? " and up to date." : "."), "green");
     show(installBtn, false); show(updateBtn, false);
   }
+}
+
+// The most recent Tart install or update task, as reported by the server.
+function wizardInstallTask() {
+  const tasks = (typeof latest !== "undefined" && latest && latest.tasks) || [];
+  const installs = tasks.filter(t => t.kind === "install" && t.target === "tart");
+  return installs.length ? installs[installs.length - 1] : null;
 }
 
 // Step 2: storage path, free space, server address.
@@ -2907,14 +2931,16 @@ async function saveWizardStorage() {
 }
 
 async function wizardInstallTart(btn) {
-  if (btn) { btn.disabled = true; }
+  const previous = wizardInstallTask();
+  wizardTartBaseTask = previous ? previous.id : "";
+  wizardTartPending = true; // until the server's install task shows up and finishes
+  renderWizardEnv();
   try {
     const res = await api("/api/install-tart", { method: "POST" });
     const d = await res.json();
-    if (d.error) toast("Tart", d.error, "bad");
-    else toast("Tart", "Downloading and installing…", "", "panel-activity");
-  } catch (err) { toast("Tart", err.message, "bad"); }
-  setTimeout(() => { if (btn) btn.disabled = false; renderWizardEnv(); }, 4000);
+    if (d.error) { wizardTartPending = false; toast("Tart", d.error, "bad"); }
+  } catch (err) { wizardTartPending = false; toast("Tart", err.message, "bad"); }
+  renderWizardEnv();
 }
 
 // Step 3: pull an image or build from an IPSW.
@@ -2959,21 +2985,28 @@ function renderWizardIpsw() {
     const name = MACOS_NAMES[major] ? " (" + MACOS_NAMES[major] + ")" : "";
     html += '<optgroup label="macOS ' + major + name + '">';
     for (const e of byMajor.get(major)) {
-      html += '<option value="' + esc(e.url) + '">' + esc(ipswOptionLabel(e)) + "</option>";
+      html += ipswOptionHtml(e, false);
     }
     html += "</optgroup>";
   }
   sel.innerHTML = html;
+  updateWizardIpswNote();
+}
+
+function updateWizardIpswNote() {
+  const sel = document.getElementById("wizardIpswSelect");
+  ipswDownloadedNote("wizardIpswNote", sel ? sel.value : "", (ipswSources && ipswSources.entries) || []);
 }
 
 async function loadWizardIpsw() {
-  if (ipswSources && !ipswSources.error) { renderWizardIpsw(); return; }
+  if (ipswSources && !ipswSources.error && Date.now() - ipswFetchedAt < IPSW_REFRESH_MS) { renderWizardIpsw(); return; }
   if (ipswLoading) return;
   ipswLoading = true;
   renderWizardIpsw();
   try {
     const res = await api("/api/ipsw/sources");
     ipswSources = await res.json();
+    ipswFetchedAt = Date.now();
   } catch (e) {
     ipswSources = { entries: [], error: "Could not load the macOS list: " + e.message };
   }
@@ -3013,7 +3046,7 @@ async function startWizardIpsw() {
   const url = sel ? sel.value : "";
   const statusEl = document.getElementById("wizardPullStatus");
   if (!url) { toast("Build from IPSW", "Choose a macOS version first.", "bad"); return; }
-  const label = sel.options[sel.selectedIndex] ? sel.options[sel.selectedIndex].textContent : "macOS";
+  const label = (sel.options[sel.selectedIndex] ? sel.options[sel.selectedIndex].textContent : "macOS").replace(/ · ✓ Downloaded$/, "");
   try {
     const res = await api("/api/vm/create", {
       method: "POST",
@@ -4073,8 +4106,23 @@ let ipswSources = null; // {entries, error} from /api/ipsw/sources
 let ipswLoading = false;
 const MACOS_NAMES = { 12: "Monterey", 13: "Ventura", 14: "Sonoma", 15: "Sequoia", 26: "Tahoe" };
 function ipswOptionLabel(e) {
-  return e.version + " (" + e.build + ") · " + (e.size / 1e9).toFixed(1) + " GB · " + e.released;
+  return e.version + " (" + e.build + ") · " + (e.size / 1e9).toFixed(1) + " GB · " + e.released + (e.downloaded ? " · ✓ Downloaded" : "");
 }
+// The value a version is picked by: the copy already on this Mac when there
+// is one (Tart then has nothing to download), otherwise the download URL.
+function ipswOptionValue(e) { return e.downloaded && e.path ? e.path : e.url; }
+function ipswOptionHtml(e, selected) {
+  return '<option value="' + esc(ipswOptionValue(e)) + '"' + (selected ? " selected" : "") +
+    (e.downloaded ? ' style="color: var(--green); font-weight: 600;"' : "") + ">" + esc(ipswOptionLabel(e)) + "</option>";
+}
+function ipswDownloadedNote(noteId, selectValue, entries) {
+  const note = document.getElementById(noteId);
+  if (!note) return;
+  const hit = (entries || []).find(e => e.downloaded && ipswOptionValue(e) === selectValue);
+  note.textContent = hit ? "✓ Downloaded, no download needed" : "";
+}
+let ipswFetchedAt = 0; // list is re-read when older than this many ms, so a finished download shows up
+const IPSW_REFRESH_MS = 15000;
 function renderIpswOptions() {
   const sel = document.getElementById("ipswSource");
   const current = document.getElementById("fromIpsw").value.trim();
@@ -4095,11 +4143,12 @@ function renderIpswOptions() {
     const name = MACOS_NAMES[major] ? " (" + MACOS_NAMES[major] + ")" : "";
     html += '<optgroup label="macOS ' + major + name + '">';
     for (const e of byMajor.get(major)) {
-      html += '<option value="' + esc(e.url) + '"' + (e.url === current ? " selected" : "") + ">" + esc(ipswOptionLabel(e)) + "</option>";
+      html += ipswOptionHtml(e, ipswOptionValue(e) === current);
     }
     html += "</optgroup>";
   }
   sel.innerHTML = html;
+  ipswDownloadedNote("ipswDownloadedNote", sel.value, entries);
 }
 // Keep the dropdown in step with the path/URL box: it shows a version only
 // while the box holds that version's URL.
@@ -4107,9 +4156,10 @@ function syncIpswSelect() {
   const sel = document.getElementById("ipswSource");
   const value = document.getElementById("fromIpsw").value.trim();
   sel.value = Array.from(sel.options).some(o => o.value === value) ? value : "";
+  ipswDownloadedNote("ipswDownloadedNote", sel.value, (ipswSources && ipswSources.entries) || []);
 }
 async function loadIpswSources() {
-  if (ipswLoading || (ipswSources && !ipswSources.error)) return;
+  if (ipswLoading || (ipswSources && !ipswSources.error && Date.now() - ipswFetchedAt < IPSW_REFRESH_MS)) return;
   const status = document.getElementById("ipswStatus");
   ipswLoading = true;
   status.textContent = "";
@@ -4117,6 +4167,7 @@ async function loadIpswSources() {
   try {
     const res = await api("/api/ipsw/sources");
     ipswSources = await res.json();
+    ipswFetchedAt = Date.now();
   } catch (e) {
     ipswSources = { entries: [], error: "Could not load the macOS list: " + e.message };
   }
@@ -4128,6 +4179,7 @@ async function loadIpswSources() {
 el("ipswSource").onchange = () => {
   const url = document.getElementById("ipswSource").value;
   if (url) document.getElementById("fromIpsw").value = url;
+  ipswDownloadedNote("ipswDownloadedNote", url, (ipswSources && ipswSources.entries) || []);
 };
 el("ipswShowBeta").onchange = () => { renderIpswOptions(); syncIpswSelect(); };
 el("fromIpsw").addEventListener("input", syncIpswSelect);

@@ -123,9 +123,9 @@ On the Dashboard:
 
 The **Setup Wizard** (Configuration) opens by itself on a first run with no VMs, and you can relaunch it any time. It has five steps:
 
-1. **Environment** checks that the Mac has an Apple silicon chip, and that Tart is installed and up to date. It can install or update Tart for you.
+1. **Environment** checks that the Mac has an Apple silicon chip, and that Tart is installed and up to date. It can install or update Tart for you, and shows a green check once Tart is in place.
 2. **Storage & Server** shows the VM storage path, which you can change, and the free space there. Tart Oven recommends 40 GB or more, and warns if there is less, but you can continue. It also shows the server address.
-3. **First VM** offers two routes. **Pull an OCI image** is the quickest: it downloads a prepared macOS image you can clone. **Build a fresh VM from an IPSW** starts from Apple's restore image for a clean install, in the macOS version you choose. Pick one, then pull the image or choose a version from the list. You can also skip this step.
+3. **First VM** offers two routes. **Pull an OCI image** is the quickest: it downloads a prepared macOS image you can clone. **Build a fresh VM from an IPSW** starts from Apple's restore image for a clean install, in the macOS version you choose. Pick one, then pull the image or choose a version from the list; versions already downloaded are marked in green. You can also skip this step.
 4. **Purpose** sets starting defaults. **Testing / Troubleshooting** keeps the scheduler off and runs VMs with a full display and audio. **Demo / Data Generation** turns the scheduler on and runs scheduled VMs headless with audio off. Change any of it later in Configuration.
 5. **Review** summarises your choices.
 
@@ -227,7 +227,7 @@ Keep **Exclude OCI images from scheduler** enabled so registry cache entries rem
 
 ### Creating a VM from an IPSW
 
-**VM Management → Create from IPSW** builds a new macOS VM from a restore image. Pick a version from the **macOS version** list, which Tart Oven loads from [AppleDB](https://github.com/littlebyteorg/appledb) and refreshes daily, or click **Browse…** to choose a local `.ipsw` in a Finder window (only available in a browser on the Mac running Tart Oven). You can also type or paste a path or an `http(s)://` URL into **IPSW path or URL**; the old `latest` shortcut is gone. Tick **Include betas** to list pre-release builds. Only builds Apple still signs for virtual Macs are listed; your Mac must be able to run the macOS version you pick.
+**VM Management → Create from IPSW** builds a new macOS VM from a restore image. Pick a version from the **macOS version** list, which Tart Oven loads from [AppleDB](https://github.com/littlebyteorg/appledb) and refreshes daily, or click **Browse…** to choose a local `.ipsw` in a Finder window (only available in a browser on the Mac running Tart Oven). You can also type or paste a path or an `http(s)://` URL into **IPSW path or URL**; the old `latest` shortcut is gone. Versions that Tart has already downloaded (they are kept in `cache/IPSWs` inside your VM storage path) are marked **✓ Downloaded** in green, and picking one uses that copy instead of downloading it again. Tick **Include betas** to list pre-release builds. Only builds Apple still signs for virtual Macs are listed; your Mac must be able to run the macOS version you pick.
 
 ### Guest provisioning (macOS 27+)
 

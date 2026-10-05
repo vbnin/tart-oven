@@ -1147,7 +1147,7 @@ function extractConstObject(name) {
 function wizardGlobals(extra) {
   return Object.assign({
     WIZARD_ROLES: extractConstObject("WIZARD_ROLES"),
-    selectedWizardRole: "testing", wizardRoleChosen: false, wizardSource: "", wizardStarted: "", wizardCheck: null,
+    selectedWizardRole: "testing", wizardRoleChosen: false, wizardTartPending: false, wizardTartBaseTask: "", wizardSource: "", wizardStarted: "", wizardCheck: null,
     location: { origin: "http://127.0.0.1:9000" },
     isConfigDirty: () => false, markConfigClean: () => {},
   }, extra);
@@ -1203,7 +1203,7 @@ test("openOnboardingWizard and closeOnboardingWizard toggle modal and persist co
     latest: mockLatest,
     api: mockApi,
   }));
-  const definitions = ["wizardGB", "setWizardStatus", "renderWizardEnv", "renderWizardStorage", "refreshWizardChecks",
+  const definitions = ["wizardGB", "setWizardStatus", "wizardInstallTask", "renderWizardEnv", "renderWizardStorage", "refreshWizardChecks",
     "updateWizardReview", "selectWizardStep", "fixWizardHeight", "openOnboardingWizard", "closeOnboardingWizard"].map(extractFunction).join("\n");
   vm.runInContext(definitions + "; globalThis.bundle = { openOnboardingWizard, closeOnboardingWizard };", context);
   const { openOnboardingWizard, closeOnboardingWizard } = context.bundle;
@@ -1346,7 +1346,7 @@ test("renderWizardEnv and renderWizardStorage report chip, Tart state and low di
     document: { getElementById: get, activeElement: null },
     latest: { tartInstalled: true, tartVersion: "2.35.0", updates: { tart: { available: true, latest: "2.36.0" } } },
   }));
-  vm.runInContext(["wizardGB", "setWizardStatus", "renderWizardEnv", "renderWizardStorage"].map(extractFunction).join("\n") +
+  vm.runInContext(["wizardGB", "setWizardStatus", "wizardInstallTask", "renderWizardEnv", "renderWizardStorage"].map(extractFunction).join("\n") +
     "; globalThis.b = { renderWizardEnv, renderWizardStorage };", context);
 
   context.wizardCheck = { appleSilicon: true, chip: "Apple M2", storage: { path: "/v", exists: true, freeBytes: 12 * 2 ** 30, requiredBytes: 40 * 2 ** 30, enough: false } };
@@ -1367,7 +1367,7 @@ test("renderWizardEnv and renderWizardStorage report chip, Tart state and low di
   context.b.renderWizardEnv();
   context.b.renderWizardStorage();
   assert.equal(els.wizardSiliconStatus.style.color, "var(--red)");
-  assert.match(els.wizardTartStatus.textContent, /up to date/);
+  assert.match(els.wizardTartStatus.textContent, /^✓ Tart 2\.35\.0 is installed and up to date/);
   assert.equal(els.wizardStorageStatus.style.color, "var(--green)");
 });
 
@@ -1567,4 +1567,73 @@ test("syncEditVmLock greys out hardware fields while the VM runs and frees them 
   context.sync();
   for (const id of ids) assert.equal(els[id].disabled, false, id + " should be free");
   assert.equal(els.editVmModalHint.style.display, "none");
+});
+
+test("Tart install in the wizard shows progress, then a green check once Tart is there", async () => {
+  const els = {};
+  const get = id => els[id] || (els[id] = { textContent: "", style: {}, disabled: false });
+  const posts = [];
+  const context = vm.createContext(wizardGlobals({
+    document: { getElementById: get },
+    latest: { tartInstalled: false, tasks: [], updates: { tart: {} } },
+    toast: () => {},
+    api: async (url) => { posts.push(url); return { json: async () => ({ ok: true }) }; },
+  }));
+  vm.runInContext(["setWizardStatus", "wizardInstallTask", "renderWizardEnv", "wizardInstallTart"].map(extractFunction).join("\n") +
+    "; globalThis.b = { renderWizardEnv, wizardInstallTart };", context);
+
+  context.b.renderWizardEnv();
+  assert.equal(els.wizardTartStatus.textContent, "Tart is not installed.");
+  assert.equal(els.wizardInstallTartBtn.style.display, "");
+
+  // Clicking Install: feedback at once, button locked, request sent.
+  await context.b.wizardInstallTart();
+  assert.deepEqual(posts, ["/api/install-tart"]);
+  assert.match(els.wizardTartStatus.textContent, /^Installing Tart/);
+  assert.equal(els.wizardInstallTartBtn.disabled, true);
+
+  // The server's task is running.
+  context.latest.tasks = [{ id: "t1", kind: "install", target: "tart", status: "running" }];
+  context.b.renderWizardEnv();
+  assert.match(els.wizardTartStatus.textContent, /^Installing Tart/);
+
+  // Done: Tart is there, shown with a green check and no install button.
+  context.wizardTartPending = false;
+  context.latest.tasks[0].status = "success";
+  Object.assign(context.latest, { tartInstalled: true, tartVersion: "2.35.0" });
+  context.b.renderWizardEnv();
+  assert.match(els.wizardTartStatus.textContent, /^✓ Tart 2\.35\.0 is installed/);
+  assert.equal(els.wizardTartStatus.style.color, "var(--green)");
+  assert.equal(els.wizardInstallTartBtn.style.display, "none");
+
+  // A failed install says why.
+  Object.assign(context.latest, { tartInstalled: false });
+  context.latest.tasks[0] = { id: "t2", kind: "install", target: "tart", status: "error", error: "curl: (6) Could not resolve host" };
+  context.b.renderWizardEnv();
+  assert.match(els.wizardTartStatus.textContent, /The install failed: curl: \(6\)/);
+  assert.equal(els.wizardTartStatus.style.color, "var(--red)");
+});
+
+test("IPSW options mark downloaded images in green and select the local copy", () => {
+  const fns = ["ipswOptionLabel", "ipswOptionValue", "ipswOptionHtml", "ipswDownloadedNote"].map(extractFunction).join("\n");
+  const els = { note: { textContent: "" } };
+  const context = vm.createContext({
+    esc: s => String(s).replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/"/g, "&quot;"),
+    document: { getElementById: id => els[id] || null },
+  });
+  vm.runInContext(fns + "; globalThis.f = { ipswOptionLabel, ipswOptionValue, ipswOptionHtml, ipswDownloadedNote };", context);
+  const fresh = { version: "26.0", build: "25A354", size: 18e9, released: "2026-09-15", url: "https://cdn.test/a.ipsw" };
+  const have = Object.assign({}, fresh, { downloaded: true, path: "/Users/Shared/Tart/cache/IPSWs/abc.ipsw" });
+
+  assert.equal(context.f.ipswOptionValue(fresh), fresh.url);
+  assert.equal(context.f.ipswOptionValue(have), have.path, "a downloaded image is picked by its local path");
+  assert.ok(!/Downloaded/.test(context.f.ipswOptionLabel(fresh)));
+  assert.match(context.f.ipswOptionLabel(have), /✓ Downloaded$/);
+  assert.match(context.f.ipswOptionHtml(have, false), /style="color: var\(--green\)/);
+  assert.ok(!/style=/.test(context.f.ipswOptionHtml(fresh, false)));
+
+  context.f.ipswDownloadedNote("note", have.path, [fresh, have]);
+  assert.match(els.note.textContent, /Downloaded/);
+  context.f.ipswDownloadedNote("note", fresh.url, [fresh, have]);
+  assert.equal(els.note.textContent, "");
 });

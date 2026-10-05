@@ -6,6 +6,7 @@ import (
 	"net"
 	"net/http"
 	"os/exec"
+	"path/filepath"
 	"strings"
 	"time"
 
@@ -52,6 +53,9 @@ func (m *Manager) handleIPSWSources(w http.ResponseWriter, r *http.Request) {
 	ctx, cancel := context.WithTimeout(r.Context(), 2*time.Minute)
 	defer cancel()
 	entries, fetched, err := m.ipswSources(ctx)
+	// Mark images Tart has already downloaded (checked on every request, since
+	// a download can finish while the dashboard is open).
+	entries = ipsw.Annotate(filepath.Join(m.storage(), "cache", "IPSWs"), entries)
 	resp := map[string]any{"entries": entries}
 	if entries == nil {
 		resp["entries"] = []ipsw.Entry{}

@@ -6,6 +6,8 @@ import (
 	"errors"
 	"net/http"
 	"net/http/httptest"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 
@@ -111,5 +113,31 @@ func TestIPSWChooseFileRejectsGet(t *testing.T) {
 	m.handleIPSWChooseFile(rec, httptest.NewRequest(http.MethodGet, "/api/ipsw/choose-file", nil))
 	if rec.Code != http.StatusMethodNotAllowed {
 		t.Fatalf("status = %d", rec.Code)
+	}
+}
+
+func TestIPSWSourcesMarksImagesAlreadyInTartsCache(t *testing.T) {
+	m := newTestManager(t)
+	m.cfg.VMStoragePath = t.TempDir()
+	cacheDir := filepath.Join(m.cfg.VMStoragePath, "cache", "IPSWs")
+	if err := os.MkdirAll(cacheDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(cacheDir, "UniversalMac_26.0_Restore.ipsw"), make([]byte, 7), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	m.ipswFetch = func(context.Context) ([]ipsw.Entry, error) {
+		return []ipsw.Entry{
+			{Version: "26.0", URL: "https://cdn.test/UniversalMac_26.0_Restore.ipsw", Size: 7},
+			{Version: "15.6", URL: "https://cdn.test/UniversalMac_15.6_Restore.ipsw", Size: 9},
+		}, nil
+	}
+	entries := getSources(t, m)["entries"].([]any)
+	have, missing := entries[0].(map[string]any), entries[1].(map[string]any)
+	if have["downloaded"] != true || have["path"] != filepath.Join(cacheDir, "UniversalMac_26.0_Restore.ipsw") {
+		t.Fatalf("cached entry = %v", have)
+	}
+	if missing["downloaded"] != false || missing["path"] != nil {
+		t.Fatalf("uncached entry = %v", missing)
 	}
 }

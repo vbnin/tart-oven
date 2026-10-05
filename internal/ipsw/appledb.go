@@ -30,6 +30,10 @@ type Entry struct {
 	RC       bool   `json:"rc"`
 	Size     int64  `json:"size"` // bytes
 	URL      string `json:"url"`
+
+	// Set by Annotate: the image is already in Tart's download cache.
+	Downloaded bool   `json:"downloaded"`
+	Path       string `json:"path,omitempty"` // where the cached file is
 }
 
 type feedEntry struct {
