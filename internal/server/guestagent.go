@@ -378,7 +378,7 @@ echo "Found %s in the guest"`, agentInfo.GuestPath, agentInfo.PKGName)
 	}
 	if !responding {
 		m.setAgentOK(name, false)
-		m.finishTask(t, errors.New("Installed, but the agent isn't answering yet. It starts when a user is logged in to the guest; log in (or enable auto-login) and run Get info."))
+		m.finishTask(t, errors.New("Installed, but the agent isn't answering yet. It starts when a user is logged in to the guest; log in (or enable auto-login) and run Refresh info."))
 		m.broadcast()
 		return
 	}

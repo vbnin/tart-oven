@@ -401,22 +401,7 @@ func (m *Manager) routes() *http.ServeMux {
 			http.Error(w, "name required", http.StatusBadRequest)
 			return
 		}
-		m.probeGuestChannels(name)
-
-		// The status command only fills the Info column; connectivity was probed above.
-		m.mu.Lock()
-		cmd := m.cfg.StatusCommand
-		m.mu.Unlock()
-		res := m.sshExec(name, cmd, "")
-		_, info := sshOutcome(res)
-		m.mu.Lock()
-		if vm := m.vms[name]; vm != nil {
-			vm.Info = info
-			vm.InfoAt = time.Now()
-		}
-		m.mu.Unlock()
-		m.refreshMDMStatus(name)
-		m.broadcast()
+		res := m.refreshVMInfo(name)
 		writeJSON(w, res)
 	})
 
@@ -732,7 +717,7 @@ func (m *Manager) routes() *http.ServeMux {
 		m.mu.Unlock()
 		m.broadcast()
 		if running {
-			go m.applyHostnameIfPending(b.Name)
+			go m.applyHostnameAndRefresh(b.Name)
 		}
 		writeJSON(w, map[string]bool{"ok": true})
 	})

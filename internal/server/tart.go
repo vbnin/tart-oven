@@ -306,7 +306,8 @@ func (m *Manager) forceRefresh() {
 	m.healStuck(maxOpAge)
 	m.reconcile()
 	m.broadcast()
-	// Re-check guest access for all running VMs (non-busy ones only).
+	// Refresh info for all running VMs (non-busy ones only): IP, Agent/SSH
+	// status, MDM enrollment and the status command's output.
 	m.mu.Lock()
 	var toProbe []string
 	for name, vm := range m.vms {
@@ -316,7 +317,7 @@ func (m *Manager) forceRefresh() {
 	}
 	m.mu.Unlock()
 	for _, name := range toProbe {
-		go m.probeGuestChannels(name)
+		go m.refreshVMInfo(name)
 	}
 }
 

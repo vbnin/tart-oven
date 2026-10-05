@@ -67,7 +67,7 @@ type Config struct {
 	DisableTartUpdateCheck  bool          `json:"disableTartUpdateCheck"` // opt-out of the daily Tart release check
 	DisableOvenUpdateCheck  bool          `json:"disableOvenUpdateCheck"` // opt-out of the daily Tart Oven release check
 	SSHTimeoutSec           int           `json:"sshTimeoutSec"`          // ssh connect timeout
-	StatusCommand           string        `json:"statusCommand"`          // command for "Get info"
+	StatusCommand           string        `json:"statusCommand"`          // command for "Refresh info"
 	RunArgs                 string        `json:"runArgs"`                // extra args appended to every `tart run`
 	NetPriority             string        `json:"netPriority"`            // "auto" | "wifi" | "ethernet" | "shared"
 	BootTimeoutSec          int           `json:"bootTimeoutSec"`         // wait for IP before declaring boot failure
@@ -260,7 +260,7 @@ type VM struct {
 
 	AgentOK        bool      `json:"agentOk"`                  // guest agent answered the last probe
 	AgentCheckedAt time.Time `json:"agentCheckedAt,omitempty"` // zero means never probed
-	Info           string    `json:"info,omitempty"`           // last "Get info" (status command) output
+	Info           string    `json:"info,omitempty"`           // last "Refresh info" (status command) output
 	InfoAt         time.Time `json:"infoAt,omitempty"`         // when Info was last fetched
 
 	MDMEnrolled  bool      `json:"mdmEnrolled,omitempty"`  // guest reports an active MDM enrollment

@@ -1495,18 +1495,17 @@ test("Auto-open wizard triggers when firstRunCompleted is false and local VM cou
   assert.equal(wizardAutoOpened, false);
 });
 
-test("submitLogin signs in, hides the prompt and reconnects; a bad token shows an error", async () => {
+test("submitLogin signs in, hides the prompt and reloads the page; a bad token shows an error", async () => {
   const elements = {
     loginToken: { value: " to_abc " },
     loginError: { textContent: "" },
     loginModal: { classList: { added: [], add(c) { this.added.push(c); } } },
   };
-  let connected = 0, fetched = null, status = 200;
+  let reloaded = 0, fetched = null, status = 200;
   const submitLogin = evaluateFunction("submitLogin", {
     document: { getElementById: id => elements[id] },
     fetch: async (url, opts) => { fetched = { url, body: JSON.parse(opts.body) }; return { ok: status === 200, status }; },
-    connect: () => { connected++; },
-    loadSecurity: () => {},
+    location: { reload: () => { reloaded++; } },
   });
 
   status = 401;
@@ -1514,7 +1513,7 @@ test("submitLogin signs in, hides the prompt and reconnects; a bad token shows a
   assert.equal(fetched.url, "/api/auth/login");
   assert.equal(fetched.body.token, "to_abc");
   assert.match(elements.loginError.textContent, /isn't valid/);
-  assert.equal(connected, 0);
+  assert.equal(reloaded, 0);
 
   status = 429;
   await submitLogin();
@@ -1524,7 +1523,7 @@ test("submitLogin signs in, hides the prompt and reconnects; a bad token shows a
   assert.equal(await submitLogin(), true);
   assert.deepEqual(elements.loginModal.classList.added, ["hidden"]);
   assert.equal(elements.loginToken.value, "");
-  assert.equal(connected, 1);
+  assert.equal(reloaded, 1, "a successful sign-in reloads the page so every panel loads again");
 });
 
 test("needsLogin is true only when a token is required and the session has none", async () => {
@@ -1546,4 +1545,26 @@ test("stripRepoOnlySections drops the top picture and the Screenshots section, w
   // A Screenshots section in the middle stops at the next heading.
   assert.equal(strip("## Screenshots\n\n" + pic + "\n## Next\n\ntext\n"), "## Next\n\ntext\n");
   assert.equal(strip("## Other\n\ntext\n"), "## Other\n\ntext\n");
+});
+
+test("syncEditVmLock greys out hardware fields while the VM runs and frees them when it stops", () => {
+  const ids = ["editVmCpu", "editVmMemory", "editVmDisk", "editVmDisplay", "editVmRenameNew", "editVmRandMac", "editVmRandSerial", "editVmTags"];
+  const els = Object.fromEntries(ids.map(id => [id, { disabled: false }]));
+  els.editVmModalHint = { style: { display: "none" } };
+  const context = vm.createContext({
+    document: { getElementById: id => els[id] || null },
+    editVmModalName: "lab",
+    latest: { vms: [{ name: "lab", state: "running" }] },
+  });
+  vm.runInContext(extractFunction("syncEditVmLock") + "; globalThis.sync = syncEditVmLock;", context);
+
+  context.sync();
+  for (const id of ids.filter(i => i !== "editVmTags")) assert.equal(els[id].disabled, true, id + " should be locked");
+  assert.equal(els.editVmTags.disabled, false, "tags and notes stay editable");
+  assert.equal(els.editVmModalHint.style.display, "block");
+
+  context.latest.vms[0].state = "stopped";
+  context.sync();
+  for (const id of ids) assert.equal(els[id].disabled, false, id + " should be free");
+  assert.equal(els.editVmModalHint.style.display, "none");
 });

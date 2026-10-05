@@ -460,6 +460,8 @@
     border-radius: 6px; padding: 9px 13px; font: inherit; font-size: 14.5px; width: 100%;
     transition: border-color 0.15s ease, box-shadow 0.15s ease;
   }
+  input:disabled, select:disabled, textarea:disabled { opacity: .45; cursor: not-allowed; }
+  .field:has(> input:disabled) > label, .field:has(> select:disabled) > label, .checks label:has(input:disabled) { opacity: .55; cursor: not-allowed; }
   input:focus, textarea:focus, select:focus {
     outline: none; border-color: var(--accent); box-shadow: 0 0 0 2px var(--ring-focus);
   }
@@ -789,7 +791,7 @@
         <div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap">
           <button type="button" onclick="goToCreatePanel()">+ Create VM</button>
           <button type="button" id="pauseBtn">…</button>
-          <button type="button" id="refreshBtn" class="ghost" title="Re-check all VMs against Tart and clear stuck statuses">⟳ Refresh</button>
+          <button type="button" id="refreshBtn" class="ghost" title="Re-check all VMs against Tart, clear stuck statuses, and run Refresh info on running VMs">⟳ Refresh</button>
           <button type="button" id="showRunningOnly" class="ghost" aria-pressed="false">Show All</button>
           <input type="text" id="vmSearch" placeholder="Search VMs…" style="width:200px" autocomplete="off">
         </div>
@@ -1060,14 +1062,14 @@
       <ol class="muted" style="margin: 0 0 10px 0; padding-left: 20px;">
         <li>Start the VM.</li>
         <li>Either use <b>⋯ → Install Agent</b> on the Dashboard (over SSH), or in the VM open <b>Finder → My Shared Files → host_resources → tart-guest-agent</b> and double-click the package (or "Install Tart Guest Agent.command").</li>
-        <li>The agent starts automatically when a user is logged in; the Agent dot in the Access column turns green after the next check (Get info).</li>
+        <li>The agent starts automatically when a user is logged in; the Agent dot in the Access column turns green after the next check (Refresh info).</li>
         <li><b>Tip:</b> install it once on a base VM, then clone.</li>
       </ol>
     </div>
 
     <div class="panel guide" id="sshGuidePanel">
       <h2>SSH setup guide</h2>
-      <p class="muted"><b>Most VMs need none of this.</b> Tart Oven runs <b>Send command</b> and <b>Get info</b> through the <b>Tart guest agent</b> — no SSH, no key, no credentials — and the official <span class="mono">ghcr.io/cirruslabs/macos-*-base</span> images ship the agent preinstalled. The VM row shows <span class="mono">agent</span> when that path is in use.</p>
+      <p class="muted"><b>Most VMs need none of this.</b> Tart Oven runs <b>Send command</b> and <b>Refresh info</b> through the <b>Tart guest agent</b> — no SSH, no key, no credentials — and the official <span class="mono">ghcr.io/cirruslabs/macos-*-base</span> images ship the agent preinstalled. The VM row shows <span class="mono">agent</span> when that path is in use.</p>
       <p class="muted">Follow the steps below only for a guest <b>without</b> the agent (for example a <span class="mono">vanilla-*</span> image), where Tart Oven falls back to SSH. To add the agent to such an image instead, run <span class="mono">brew install openai/tools/tart-guest-agent</span> inside the guest once, before cloning it. Run the commands below <b>on the Mac mini</b> — the key stays on the mini.</p>
 
       <h3>1 · Generate a key (once)</h3>
@@ -1082,7 +1084,7 @@
       <p class="muted">You'll enter the VM's password once. The VM must have <b>Remote Login</b> on (System Settings → General → Sharing). This command fixes the <span class="mono">~/.ssh</span> permissions that often block <span class="mono">ssh-copy-id</span>, and skips host-key fingerprint prompts / <span class="mono">known_hosts</span> entries (so reused VM IPs never cause conflicts — the same way Tart Oven connects).</p>
 
       <h3>3 · Point Tart Oven at the key</h3>
-      <p class="muted">Set <b>SSH identity file</b> in Configuration to <span class="mono" id="guideKeyPath">~/.ssh/tart-oven</span>, then click <b>Save configuration</b>. Test it with <b>Get info</b> on a running VM.</p>
+      <p class="muted">Set <b>SSH identity file</b> in Configuration to <span class="mono" id="guideKeyPath">~/.ssh/tart-oven</span>, then click <b>Save configuration</b>. Test it with <b>Refresh info</b> on a running VM.</p>
 
       <h3>Tip · Do it once for the whole fleet</h3>
       <p class="muted">Add the public key to your <b>TEMPLATE</b> VM's <span class="mono">~/.ssh/authorized_keys</span> before cloning — every clone inherits it, so you never repeat steps 1–2.</p>
@@ -1143,7 +1145,7 @@
         <div class="field"><label for="sshPassword">Default SSH password<button type="button" class="help-tip" data-help="Leave blank to keep the saved password" aria-label="About Default SSH password" aria-expanded="false">?</button></label><input type="password" id="sshPassword" autocomplete="new-password"></div>
         <div class="field" id="sshKeyField"><label>SSH identity file<button type="button" class="help-tip" data-help="Used only when a guest has no Tart guest agent. Must start with ~/ or /" aria-label="About SSH identity file" aria-expanded="false">?</button></label><input type="text" id="sshKey"></div>
         <div class="field"><label>SSH connect timeout (s)</label><input type="number" id="sshTimeoutSec" min="1"></div>
-        <div class="field"><label>Status command (Get info)</label><input type="text" id="statusCommand"></div>
+        <div class="field"><label>Status command (Refresh info)</label><input type="text" id="statusCommand"></div>
         <div class="field"><label>&nbsp;</label><label class="radio"><span class="toggle"><input type="checkbox" id="sshFallbackEnabled"><span class="slider"></span></span><span>Allow SSH fallback for guest commands<button type="button" class="help-tip" data-help="Off = agent only. Hides the SSH setup guide and identity file." aria-label="About Allow SSH fallback for guest commands" aria-expanded="false">?</button></span></label></div>
         <div class="field"><label>&nbsp;</label><label class="radio"><span class="toggle"><input type="checkbox" id="prioritizeSshShutdown"><span class="slider"></span></span><span>Prioritize clean shutdown<button type="button" class="help-tip" data-help="On = ask the guest to shut down for up to 30s before falling back to a fast stop. Off = fast stop only." aria-label="About Prioritize clean shutdown" aria-expanded="false">?</button></span></label></div>
       </div>
@@ -1250,7 +1252,7 @@
     <h3>Edit <span id="editVmModalName"></span></h3>
     <div class="modal-scroll">
     <div id="editVmModalInfo" class="muted" style="margin-bottom: 12px; font-size: 13px;"></div>
-    <p id="editVmModalHint" class="muted" style="margin-bottom: 12px; font-size: 12.5px; display: none;">Stop the VM to change hardware or rename it.</p>
+    <p id="editVmModalHint" class="muted" style="margin-bottom: 12px; font-size: 12.5px; display: none;">Stop the VM to change hardware or rename it. Greyed-out fields are unavailable while it runs.</p>
 
     <h3 style="font-size: 12px; text-transform: uppercase; color: var(--muted); margin: 16px 0 10px; font-weight: 600;">VM Settings</h3>
     <div class="grid">
@@ -1699,8 +1701,9 @@ async function submitLogin() {
     if (res.ok) {
       input.value = "";
       document.getElementById("loginModal").classList.add("hidden");
-      connect();
-      loadSecurity();
+      // Several panels load once at page start (guest agent, Launch at login,
+      // Security). Those requests got a 401 before sign-in, so start over.
+      location.reload();
       return true;
     }
     err.textContent = res.status === 429 ? "Too many attempts. Try again in a minute." : "That token isn't valid.";
@@ -2448,7 +2451,7 @@ function accessCell(vm) {
   return agentLine + channelBadge("SSH", vm.sshOk, vm.sshCheckedAt, vm, { ssh: true });
 }
 
-// Info column: last "Get info" output (may be multi-line).
+// Info column: last "Refresh info" output (may be multi-line).
 function infoCell(vm) {
   if (!vm.info) return '<span class="muted">—</span>';
   return '<div class="infobox" title="fetched ' + esc(fmtDateTime(vm.infoAt)) + '">' + esc(vm.info) + '</div>';
@@ -2775,6 +2778,9 @@ function render(state) {
   updatePullProgress();
   if (vmInfoModalName && !document.getElementById("vmInfoModal").classList.contains("hidden")) {
     renderVmInfoModalBody();
+  }
+  if (editVmModalName && !document.getElementById("editVmModal").classList.contains("hidden")) {
+    syncEditVmLock();
   }
   if (terminalOpenVm && !document.getElementById("terminalModal").classList.contains("hidden")) {
     updateTerminalStatus();
@@ -3496,7 +3502,7 @@ function renderTable(vms) {
           '<div class="row-menu-list">' +
             '<button onclick="closeRowMenus();openRunArgsModal(\'' + n + '\')"' + (busy || vm.state !== "stopped" ? ' disabled' : '') + ' title="Start VM with chosen tart run arguments">Run with arguments</button>' +
             '<button onclick="closeRowMenus();restartVM(\'' + n + '\')"' + (busy || vm.state !== "running" ? ' disabled' : '') + ' title="Restart this VM">Restart VM</button>' +
-            '<button onclick="closeRowMenus();getInfo(\'' + n + '\')"' + notRunning + '>Get info</button>' +
+            '<button onclick="closeRowMenus();getInfo(\'' + n + '\')"' + notRunning + ' title="Re-check the IP, Agent and SSH status and MDM enrollment, and collect the VM info again">Refresh info</button>' +
             agentInstallButton(n, notRunning, guestAgentInfo.available) +
             '<button onclick="closeRowMenus();openVNC(\'' + esc(vm.ip) + '\',\'' + esc(effUser) + '\')"' + noScreen + '>Start Screen Sharing</button>' +
             '<button onclick="closeRowMenus();openEditModal(\'' + n + '\')" title="Edit VM settings, tags, and notes">Edit VM</button>' +
@@ -3525,20 +3531,26 @@ setInterval(() => {
 
 // ---- Edit VM modal (replaces both the panel and the old notes modal) ----
 let editVmModalName = "";
+// Hardware and rename fields only apply to a stopped VM: grey them out while
+// it runs (and again if it starts or stops while the window is open).
+function syncEditVmLock() {
+  const vm = latest && latest.vms.find(v => v.name === editVmModalName);
+  if (!vm) return;
+  const isStopped = vm.state === "stopped";
+  const hint = document.getElementById("editVmModalHint");
+  if (hint) hint.style.display = isStopped ? "none" : "block";
+  ["editVmCpu", "editVmMemory", "editVmDisk", "editVmDisplay", "editVmRenameNew", "editVmRandMac", "editVmRandSerial"].forEach(id => {
+    const el = document.getElementById(id);
+    if (el) el.disabled = !isStopped;
+  });
+}
 async function openEditModal(vmName) {
   editVmModalName = vmName;
   const vm = latest && latest.vms.find(v => v.name === vmName);
   if (!vm) return;
   document.getElementById("editVmModalName").textContent = vmName;
   document.getElementById("editVmModal").classList.remove("hidden");
-  const isStopped = vm.state === "stopped";
-  const hint = document.getElementById("editVmModalHint");
-  hint.style.display = isStopped ? "none" : "block";
-  // Disable hardware fields if not stopped
-  ["editVmCpu", "editVmMemory", "editVmDisk", "editVmDisplay", "editVmRenameNew", "editVmRandMac", "editVmRandSerial"].forEach(id => {
-    const el = document.getElementById(id);
-    if (el) el.disabled = !isStopped;
-  });
+  syncEditVmLock();
   ["editVmCpu", "editVmMemory", "editVmDisplay", "editVmDisk", "editVmRenameNew", "editVmSshPassword"].forEach(id => { document.getElementById(id).value = ""; });
   document.getElementById("editVmRandMac").checked = false;
   document.getElementById("editVmRandSerial").checked = false;
@@ -3993,10 +4005,10 @@ async function getInfo(name) {
     const res = await api("/api/info?name=" + encodeURIComponent(name));
     const r = await res.json();
     if (r.error || r.exitCode !== 0) {
-      toast("Get Info", r.error || "Command failed (exit " + r.exitCode + ")", "bad");
+      toast("Refresh Info", r.error || "Command failed (exit " + r.exitCode + ")", "bad");
     }
   } catch (e) {
-    toast("Get Info", e.message, "bad");
+    toast("Refresh Info", e.message, "bad");
   }
 }
 

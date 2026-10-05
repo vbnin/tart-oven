@@ -10,7 +10,7 @@ import (
 )
 
 // ---------------------------------------------------------------------------
-// SSH exec ("Send command" / "Get info")
+// SSH exec ("Send command" / "Refresh info")
 // ---------------------------------------------------------------------------
 
 type execResult struct {
@@ -37,7 +37,7 @@ func sshOutcome(res execResult) (bool, string) {
 
 // sshExec runs command in the guest, preferring the Tart guest agent and falling
 // back to SSH for images without it. The name is retained because it is the
-// established entry point for Get info, Send command, and the boot probe; the
+// established entry point for Refresh info, Send command, and the boot probe; the
 // transport is chosen per call by execInGuest. If sudoPassword is non-empty it is
 // fed to `sudo -S` in the guest so commands needing sudo work without a TTY; the
 // password itself is never logged.

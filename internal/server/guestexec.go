@@ -170,6 +170,55 @@ func (m *Manager) probeGuestChannels(name string) (agentOK, sshOK bool) {
 	return agentOK, sshOK
 }
 
+// refreshVMInfo is "Refresh info": it re-checks a running VM's IP, its Agent
+// and SSH status and its MDM enrollment, then runs the status command to
+// refresh the collected info. It returns the status command's result.
+func (m *Manager) refreshVMInfo(name string) execResult {
+	m.refreshVMIP(name)
+	m.probeGuestChannels(name)
+
+	// The status command only fills the Info column; connectivity was probed above.
+	m.mu.Lock()
+	cmd := m.cfg.StatusCommand
+	m.mu.Unlock()
+	res := m.sshExec(name, cmd, "")
+	_, info := sshOutcome(res)
+	m.mu.Lock()
+	if vm := m.vms[name]; vm != nil {
+		vm.Info = info
+		vm.InfoAt = time.Now()
+	}
+	m.mu.Unlock()
+	m.refreshMDMStatus(name)
+	m.broadcast()
+	return res
+}
+
+// refreshVMIP re-resolves a running VM's IP, which can change after a DHCP
+// renewal. A failed lookup keeps the IP already known.
+func (m *Manager) refreshVMIP(name string) {
+	m.mu.Lock()
+	vm := m.vms[name]
+	running := vm != nil && vm.State == "running"
+	m.mu.Unlock()
+	if !running {
+		return
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
+	defer cancel()
+	ip, err := m.resolveVMIPRobust(ctx, m.storage(), name, 3)
+	if err != nil || ip == "" {
+		return
+	}
+	m.mu.Lock()
+	if vm := m.vms[name]; vm != nil && vm.State == "running" && vm.IP != ip {
+		m.logln("ip %s: now %s (was %s)", name, ip, vm.IP)
+		vm.IP = ip
+		m.save()
+	}
+	m.mu.Unlock()
+}
+
 // probeSSH records whether SSH itself answers. With the SSH fallback off it
 // records "never checked" (the UI shows "off") and reports false.
 func (m *Manager) probeSSH(name string) bool {
@@ -248,7 +297,7 @@ func (m *Manager) watchGuestChannelsAfterBoot(name string, bootedAt time.Time, a
 			m.save()
 			m.mu.Unlock()
 			m.broadcast()
-			go m.applyHostnameIfPending(name) // the boot-time attempt had no working channel
+			go m.applyHostnameAndRefresh(name) // the boot-time attempt had no working channel
 		}
 	}
 }
