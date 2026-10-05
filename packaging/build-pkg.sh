@@ -18,9 +18,15 @@
 # Nothing is ever printed or written to disk in plain text.
 #
 # The resulting TartOven-<version>.pkg installs:
-#   /Library/Application Support/Tart Oven/tart-oven   (the binary)
-#   /Library/LaunchAgents/com.tartoven.agent.plist     (auto-start agent)
+#   /Library/Application Support/Tart Oven/tart-oven                                (the binary)
+#   /Library/Application Support/Tart Oven/guest-agent/tart-guest-agent-*.pkg       (guest agent installer)
+#   /Library/Application Support/Tart Oven/guest-agent/tart-guest-agent-LICENSE.txt
+#   /Library/LaunchAgents/com.tartoven.agent.plist                                  (auto-start agent)
+#   /usr/local/bin/tart-oven -> the binary                                          (symlink, made by postinstall)
 # and its postinstall loads the agent and opens http://127.0.0.1:9000.
+#
+# Optional (off by default): INCLUDE_LAUNCHER_APP=true also installs
+#   /Applications/Tart Oven.app                                                     (launcher: `tart-oven open`)
 set -euo pipefail
 
 # Do not copy resource forks or extended attributes while assembling archives.
@@ -32,17 +38,24 @@ REPO="$(pwd)"
 PKG_ID="com.tartoven.pkg"
 LABEL="com.tartoven.agent"
 APPDIR="Library/Application Support/Tart Oven"
+# Single source of truth for the pinned agent version is build-agent-pkg.sh.
+AGENT_VERSION="${AGENT_VERSION:-$(sed -n 's/^AGENT_VERSION="\${AGENT_VERSION:-\(.*\)}"$/\1/p' packaging/build-agent-pkg.sh)}"
+[ -n "$AGENT_VERSION" ] || { echo "could not read AGENT_VERSION from packaging/build-agent-pkg.sh"; exit 1; }
 
-VERSION=$(sed -n 's/^const version = "\(.*\)"/\1/p' main.go)
-[ -n "$VERSION" ] || { echo "could not read version from main.go"; exit 1; }
+VERSION=$(sed -n 's/^const Version = "\(.*\)"/\1/p' tartoven.go)
+[ -n "$VERSION" ] || { echo "could not read version from tartoven.go"; exit 1; }
 
 OUT_DIR="${OUT_DIR:-$HOME/Downloads}"
 mkdir -p "$OUT_DIR"
 OUT="${OUT_DIR}/TartOven-${VERSION}.pkg"
 
 # Auto-detect Developer ID identities from Keychain
-DETECTED_APP_ID=$(security find-identity -v -p codesigning 2>/dev/null | grep "Developer ID Application:" | head -n 1 | sed -E 's/.*"Developer ID Application: ([^"]+)".*/Developer ID Application: \1/' || true)
-DETECTED_PKG_ID=$(security find-identity -v 2>/dev/null | grep "Developer ID Installer:" | head -n 1 | sed -E 's/.*"Developer ID Installer: ([^"]+)".*/Developer ID Installer: \1/' || true)
+# Picks the newest valid certificate of each kind and returns its SHA-1 hash, not
+# its name — a renewed cert has the same name as the one it replaces, which makes
+# codesign/pkgbuild fail with "ambiguous". See lib-signing.sh.
+source "$REPO/packaging/lib-signing.sh"
+pick_developer_id_identity Application; DETECTED_APP_ID="$PICKED_IDENTITY"
+pick_developer_id_identity Installer;   DETECTED_PKG_ID="$PICKED_IDENTITY"
 
 APP_SIGN_IDENTITY="${APP_SIGN_IDENTITY:-$DETECTED_APP_ID}"
 PKG_SIGN_IDENTITY="${PKG_SIGN_IDENTITY:-$DETECTED_PKG_ID}"
@@ -50,8 +63,10 @@ DO_SIGN=false
 DO_NOTARIZE=false
 
 # Check environment or prompt
-if [ -n "${SIGN_PKG:-}" ] && [ "$SIGN_PKG" = "true" ]; then
-    if [ -n "$APP_SIGN_IDENTITY" ] && [ -n "$PKG_SIGN_IDENTITY" ]; then
+if [ -n "${SIGN_PKG:-}" ]; then
+    # Explicit choice: SIGN_PKG=true signs (when identities exist), anything else
+    # (e.g. SIGN_PKG=false) builds unsigned even if identities are detected.
+    if [ "$SIGN_PKG" = "true" ] && [ -n "$APP_SIGN_IDENTITY" ] && [ -n "$PKG_SIGN_IDENTITY" ]; then
         DO_SIGN=true
     fi
 elif [ -n "${APP_SIGN_IDENTITY}" ] && [ -n "${PKG_SIGN_IDENTITY}" ]; then
@@ -63,8 +78,8 @@ elif [ -t 0 ]; then
     if [[ "$SIGN_ANSWER" =~ ^[Yy]$ ]]; then
         if [ -n "$DETECTED_APP_ID" ] && [ -n "$DETECTED_PKG_ID" ]; then
             echo "  Using detected identities:"
-            echo "    App: $DETECTED_APP_ID"
-            echo "    Pkg: $DETECTED_PKG_ID"
+            echo "    App: $(describe_signing_identity "$DETECTED_APP_ID")"
+            echo "    Pkg: $(describe_signing_identity "$DETECTED_PKG_ID")"
             APP_SIGN_IDENTITY="$DETECTED_APP_ID"
             PKG_SIGN_IDENTITY="$DETECTED_PKG_ID"
             DO_SIGN=true
@@ -81,8 +96,8 @@ fi
 
 if [ "$DO_SIGN" = true ]; then
     echo "==> Signing enabled:"
-    echo "    App binary: $APP_SIGN_IDENTITY"
-    echo "    Installer:  $PKG_SIGN_IDENTITY"
+    echo "    App binary: $(describe_signing_identity "$APP_SIGN_IDENTITY")"
+    echo "    Installer:  $(describe_signing_identity "$PKG_SIGN_IDENTITY")"
 fi
 
 # Notarization credentials, resolved independently of *how* signing was
@@ -143,14 +158,38 @@ fi
 echo ""
 echo "==> Building tart-oven ${VERSION} (arm64)…"
 BUILD="$(mktemp -d)"
-GOOS=darwin GOARCH=arm64 CGO_ENABLED=1 go build -trimpath -buildvcs=false -o "$BUILD/tart-oven" .
+GOOS=darwin GOARCH=arm64 CGO_ENABLED=1 go build -trimpath -buildvcs=false -o "$BUILD/tart-oven" ./cmd/tart-oven
 
 # Sign the binary with hardened runtime if signing is enabled
 if [ "$DO_SIGN" = true ]; then
-    echo "==> Signing binary with: $APP_SIGN_IDENTITY"
+    echo "==> Signing binary with: $(describe_signing_identity "$APP_SIGN_IDENTITY")"
     codesign --force --options runtime --timestamp --sign "$APP_SIGN_IDENTITY" "$BUILD/tart-oven"
     echo "    Verifying signature…"
     codesign --verify --verbose "$BUILD/tart-oven"
+fi
+
+echo "==> Ensuring guest agent package is built…"
+AGENT_PKG="$REPO/packaging/build/tart-guest-agent-${AGENT_VERSION}.pkg"
+AGENT_LICENSE="$REPO/packaging/build/tart-guest-agent-LICENSE.txt"
+NEED_AGENT_BUILD=false
+if [ ! -f "$AGENT_PKG" ] || [ ! -f "$AGENT_LICENSE" ]; then
+    NEED_AGENT_BUILD=true
+elif [ "$DO_SIGN" = true ] && ! pkgutil --check-signature "$AGENT_PKG" 2>/dev/null | grep -q "Developer ID Installer"; then
+    # A leftover unsigned dev build must never ship inside a signed release.
+    echo "    Existing guest agent package is unsigned; rebuilding it signed…"
+    NEED_AGENT_BUILD=true
+fi
+if [ "$NEED_AGENT_BUILD" = true ]; then
+    echo "    Building guest agent package ${AGENT_VERSION}…"
+    if [ "$DO_SIGN" = true ]; then
+        AGENT_VERSION="$AGENT_VERSION" SIGN_PKG=true APP_SIGN_IDENTITY="$APP_SIGN_IDENTITY" PKG_SIGN_IDENTITY="$PKG_SIGN_IDENTITY" NOTARIZE="$DO_NOTARIZE" "$REPO/packaging/build-agent-pkg.sh" </dev/null
+    else
+        AGENT_VERSION="$AGENT_VERSION" SIGN_PKG=false "$REPO/packaging/build-agent-pkg.sh" </dev/null
+    fi
+    if [ ! -f "$AGENT_PKG" ]; then
+        echo "error: guest agent package was not built" >&2
+        exit 1
+    fi
 fi
 
 echo "==> Assembling payload…"
@@ -159,6 +198,50 @@ install -d "$ROOT/$APPDIR"
 install -m 755 "$BUILD/tart-oven" "$ROOT/$APPDIR/tart-oven"
 install -d "$ROOT/Library/LaunchAgents"
 install -m 644 packaging/com.tartoven.agent.plist "$ROOT/Library/LaunchAgents/$LABEL.plist"
+install -d "$ROOT/$APPDIR/guest-agent"
+install -m 644 "$AGENT_PKG" "$AGENT_LICENSE" "$ROOT/$APPDIR/guest-agent/"
+
+# Optional, off by default: a "Tart Oven.app" launcher that runs `tart-oven open`
+# (start the server if needed, then open the dashboard), so it shows up in
+# Spotlight/Launchpad. The `tart-oven` command on the PATH is the supported way
+# in; turn this on with INCLUDE_LAUNCHER_APP=true if the app is wanted again.
+# It has no icon yet: an .icns would go in Contents/Resources (CFBundleIconFile).
+INCLUDE_LAUNCHER_APP="${INCLUDE_LAUNCHER_APP:-false}"
+build_launcher_app() {
+    local app="$ROOT/Applications/Tart Oven.app"
+    install -d "$app/Contents/MacOS"
+    cat > "$app/Contents/Info.plist" <<PLIST_EOF
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+    <key>CFBundleIdentifier</key>
+    <string>com.tartoven.launcher</string>
+    <key>CFBundleName</key>
+    <string>Tart Oven</string>
+    <key>CFBundleExecutable</key>
+    <string>tart-oven-launcher</string>
+    <key>CFBundlePackageType</key>
+    <string>APPL</string>
+    <key>CFBundleShortVersionString</key>
+    <string>${VERSION}</string>
+    <key>LSUIElement</key>
+    <true/>
+</dict>
+</plist>
+PLIST_EOF
+    cat > "$app/Contents/MacOS/tart-oven-launcher" <<'LAUNCHER_EOF'
+#!/bin/sh
+exec "/Library/Application Support/Tart Oven/tart-oven" open
+LAUNCHER_EOF
+    chmod 755 "$app/Contents/MacOS/tart-oven-launcher"
+    if [ "$DO_SIGN" = true ]; then
+        codesign --force --options runtime --timestamp --sign "$APP_SIGN_IDENTITY" "$app"
+    fi
+}
+if [ "$INCLUDE_LAUNCHER_APP" = true ]; then
+    build_launcher_app
+fi
 
 # Strip extended attributes so the payload doesn't carry ._AppleDouble clutter
 # (the repo lives on synced storage that adds xattrs).
@@ -191,7 +274,7 @@ echo "==> Running pkgbuild…"
 PKG_SIGN_ARGS=()
 if [ "$DO_SIGN" = true ]; then
     PKG_SIGN_ARGS=(--sign "$PKG_SIGN_IDENTITY")
-    echo "    signing PKG with: $PKG_SIGN_IDENTITY"
+    echo "    signing PKG with: $(describe_signing_identity "$PKG_SIGN_IDENTITY")"
 fi
 
 pkgbuild \
@@ -209,9 +292,16 @@ if printf '%s\n' "$PAYLOAD_FILES" | grep -Eq '(^|/)\._'; then
     printf '%s\n' "$PAYLOAD_FILES" | grep -E '(^|/)\._' >&2
     exit 1
 fi
-for REQUIRED_FILE in \
-    "./Library/Application Support/Tart Oven/tart-oven" \
-    "./Library/LaunchAgents/$LABEL.plist"; do
+REQUIRED_FILES=(
+    "./Library/Application Support/Tart Oven/tart-oven"
+    "./Library/LaunchAgents/$LABEL.plist"
+    "./Library/Application Support/Tart Oven/guest-agent/tart-guest-agent-${AGENT_VERSION}.pkg"
+    "./Library/Application Support/Tart Oven/guest-agent/tart-guest-agent-LICENSE.txt"
+)
+if [ "$INCLUDE_LAUNCHER_APP" = true ]; then
+    REQUIRED_FILES+=("./Applications/Tart Oven.app/Contents/MacOS/tart-oven-launcher")
+fi
+for REQUIRED_FILE in "${REQUIRED_FILES[@]}"; do
     if ! printf '%s\n' "$PAYLOAD_FILES" | grep -Fqx "$REQUIRED_FILE"; then
         echo "error: package payload is missing $REQUIRED_FILE" >&2
         exit 1

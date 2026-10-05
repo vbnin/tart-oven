@@ -12,31 +12,166 @@ A few terms appear throughout:
 - **MDM / Jamf Pro** — the system that manages enrolled Macs. Tart Oven can prepare
   a VM for enrollment and report whether a guest is enrolled.
 
-## 1.55-dev9 (in progress)
+## 2.0 (2026-10-05)
+
+So much changed since 1.54 that this release is 2.0. The highlights: a
+dashboard access token and HTTPS, a redesigned Dashboard (toolbar, VM details,
+per-VM terminal, Edit VM window), the bundled Tart guest agent, name templates,
+a macOS version list for IPSW creation, update notifications, the `tart-oven`
+command and a reorganised source tree.
 
 ### Added
 
+- **Reworked Setup Wizard.** Step 1 really checks for an Apple silicon chip
+  (it used to always say "verified") and whether Tart is installed and up to
+  date, with Install and Update buttons. Step 2 lets you set the VM storage
+  path and warns, without blocking, when the volume has under 40 GB free, and
+  shows the server address you are using. Step 3 offers two ways to get a first
+  VM, each with a short description: pull an OCI image, or build a fresh VM
+  from a macOS version picked from the IPSW list. Step 4 replaces the three
+  operator roles with two purposes: **Testing / Troubleshooting** (scheduler
+  off, full display and audio) and **Demo / Data Generation** (scheduler on,
+  scheduled VMs headless, audio off).
+- **MIT License** (`LICENSE`).
+- **Installer opens the right address.** After an install or upgrade, the
+  dashboard opens at `https://` when HTTPS is on, using the saved listen port,
+  and at `http://127.0.0.1:9000` otherwise.
+- **Dashboard access token.** Configuration → Server Settings generates a token that the
+  dashboard and API then require. Browsers sign in once; scripts send it as a
+  Bearer token. Only a hash is stored, so a lost token is replaced, not
+  recovered: rotate it in the dashboard or with `tart-oven token generate`
+  (and `token revoke` to remove it). `tart-oven stop` and `restart` still work.
+- **HTTPS.** Serve the dashboard over TLS with your own certificate and key, or
+  let Tart Oven create and renew a self-signed one. A certificate that can't be
+  loaded stops the server instead of falling back to HTTP. Changing the HTTPS
+  settings reminds you to restart Tart Oven.
+- A warning in Server Settings when the server listens on the network without a token
+  or without HTTPS, and matching log warnings at startup.
+- **New app icon** in the dashboard header, replacing the computer emoji, and
+  as the browser tab icon. The title is larger and set in Helvetica Neue Bold.
+  The icon is `assets/icons/tart-oven-icon-512px.png`, embedded in the binary.
+- **Rename to** in Edit VM takes the same name variables as Create / clone VMs
+  (`$RAND8`, `$AUTONUM`), with a **?** listing them. If the name is taken, `-1`,
+  `-2`, ... is added, and names Tart can't use are refused.
+- **Name template** in Create / clone VMs, replacing Name prefix, with two
+  variables: `$RAND8` (8 random capital characters, as before) and `$AUTONUM`
+  (the next free number: 1, 2, 3, ...). `lab-$AUTONUM` gives `lab-1`, `lab-2`;
+  used alone, `$RAND8` is the default. If a VM with the same name exists,
+  `-1`, `-2`, ... is added. Click the **?** beside the field for the list.
+  Names with `/`, `:` or `\`, or starting with `-` or `.`, are refused.
+- **Auto enroll into a chosen Jamf server.** In Create / clone VMs and Edit VM,
+  the Auto enroll checkbox is now a list of your Jamf server profiles (None
+  turns it off). The chosen profile is pushed to the clone and installed, so the
+  template VM can stay un-enrolled and each batch of clones can join a
+  different MDM. Still a one-time attempt at the next boot.
+- **macOS version list** in Create from IPSW. A dropdown of installable macOS
+  versions (release, size and build), loaded from AppleDB and refreshed daily;
+  pick one and Tart downloads it. Betas are hidden unless **Include betas** is
+  ticked. **Browse…** opens a Finder window to pick a local .ipsw instead (only
+  on the Mac running Tart Oven). The IPSW path or URL box still accepts either,
+  typed by hand.
+- **Unsaved changes warning.** Leaving the Configuration tab with unsaved
+  settings asks whether to Save, Discard or keep editing. Reloading or closing
+  the page shows the browser's own warning. Typing a change and undoing it
+  doesn't count.
+- **`tart-oven` command** to start Tart Oven again without logging out:
+  `tart-oven start`, `stop`, `restart`, `status` and `open` (start if needed,
+  then open the dashboard). The package links it into `/usr/local/bin`.
+  `start` re-registers the LaunchAgent, so it also recovers a job launchd
+  stopped retrying.
+- **Run with arguments** in a VM's **⋯** menu replaces **Run headless**. It
+  opens a window with toggles for `tart run` options: display (Headless,
+  Screen Sharing, Virtualization VNC), network (Shared NAT, Host only,
+  Softnet), and options such as No audio, No clipboard sharing or Boot into
+  recovery, plus a field for any other argument and a preview of the command.
+  The choice replaces Custom run arguments for that run, Restart VM keeps it,
+  and VM details shows it.
+- **Hostname** option in Create / clone VMs and Edit VM. Enter a custom name or
+  turn on **Same as VM name**, and Tart Oven sets the guest's computer name,
+  local hostname and hostname, instead of "Admin's Virtual Machine". It's
+  applied right away when the VM is running, otherwise at its next boot, and
+  needs the guest agent or SSH and the guest's sudo password. When cloning
+  several VMs with a custom hostname, each gets the VM's random suffix so they
+  stay unique.
+- **Tart GitHub** link next to **Update Tart**, and **Tart Oven GitHub** in
+  Server Settings, to read each project's release notes.
+- **Update notifications.** Tart Oven checks GitHub for new Tart and Tart Oven
+  releases at startup and every 24 hours. When one is found, a banner appears
+  in the top right: the Tart banner opens Tart Settings and highlights
+  **Update Tart**, and the Tart Oven banner opens the release page. Closing a
+  banner hides it until a newer version comes out or Tart Oven restarts. Turn
+  each check off with **Check for Tart updates** (Tart Settings) or **Check for
+  Tart Oven updates** (Server Settings). Both are on by default.
+- **Tart guest agent package**, bundled with Tart Oven. Every VM sees it in
+  its shared folder (Finder → My Shared Files → host_resources →
+  tart-guest-agent), with a double-clickable installer script next to it. The
+  new **Tart guest agent** section in VM Management shows the bundled version
+  and the in-guest path, and has a Download PKG button.
 - **`>_` Terminal** button on each VM, between Stop and **⋯**. Opens a window
-  to run commands in that VM, with shortcuts for `sudo jamf manage`, `recon`,
-  `policy` and `checkJSSConnection`. It shows whether the guest agent and SSH
+  to run commands in that VM, with shortcuts for `jamf manage`, `recon`,
+  `policy` and `checkJSSConnection` (run with sudo). It shows whether the guest agent and SSH
   are working, and remembers each VM's output, command and sudo password until
   you reload the page.
-- **Run headless** in a VM's **⋯** menu starts it without a window, just for
-  that run. A restart keeps it headless.
 - **ⓘ VM details** button next to the **⋯** menu. Shows the VM's state, IP,
   last start and stop, uptime, hardware, guest agent and SSH status, MDM
   enrollment, last Get info output, tags and notes. Updates live while open.
+- Sortable columns in the Local VMs and OCI Images tables: click a column name,
+  or its ▲ / ▼ arrows, to sort ascending or descending. The choice is
+  remembered.
 - **+ Create VM** button on the Dashboard jumps straight to Create / clone VMs.
+- **Display Jamf-related features** in Configuration → Server Settings, off by
+  default. When off, Tart Oven hides Prepare base VM for Jamf and the jamf
+  shortcuts in the Terminal window. Turn it on to get them back.
+- **Restart VM** in a VM's **⋯** menu restarts a running VM, keeping headless
+  mode or the arguments chosen in Run with arguments.
+- **Auto-enroll** option in **Edit VM → Enrollment** runs the unattended MDM
+  enrollment once at the next boot, then turns itself off.
+- **Cancel** and **Show logs** buttons next to **Create VMs** and **Pull Image**,
+  with a progress spinner while tasks run. Activity logs now show all create/pull
+  progress; the inline pull output windows are gone.
 
 ### Changed
 
+- The purpose chosen in the Setup Wizard is now saved. Before, the role cards
+  only ticked boxes on the Configuration page without saving them. The older
+  DevOps, Jamf and QA roles are gone.
+- Shorter labels: **VM storage path** (without "TART_HOME"), **VM shared
+  directory** (its ? says it appears in the guest as `host_resources`), and the
+  **Timer** column (was "Time remaining"), which is also the name in VM details.
+- **Help text moved into ? tips.** The small helper lines under settings fields
+  (Scheduler, Tart Settings, SSH & Commands, Create / clone VMs, the Jamf
+  invitation ID) are now a **?** beside the field name that opens the text in a
+  popup. In **Enable Auto-Enrollment Capabilities on Base VM**, the
+  requirements list moved into a **?** next to the title, leaving the first and
+  last sentences below it. **Prepare VM for Jamf** has a one-line description
+  again.
+- **Prepare base VM for Jamf** is now **Prepare VM for Jamf**, without the intro
+  text. Its placeholders read "Start a VM first", the base VM requirements
+  no longer include deploying an enrollment profile, and the key-based SSH
+  step is reworded to "Install Tart guest agent (or enable key-based SSH
+  access)".
+- **Check compatibility** no longer shows a Profile status, since a base VM
+  isn't expected to have an enrollment profile.
+- **IPSW field** in Create from IPSW now requires a local .ipsw file path or an
+  http(s) download URL. The "latest" shortcut is no longer supported; enter the
+  full path or URL.
+- **Jamf features toggle** (Configuration → Server Settings) now also hides the
+  Auto enroll at first boot checkbox (Clone from template) and the Enrollment
+  section in Edit VM when turned off.
+- **OCI pull progress** moved from inline log windows to the Activity section in
+  the Logs tab. Success toasts now link to Activity.
+
+- **Install Agent** in the **⋯** menu now installs the bundled package over
+  SSH instead of using Homebrew, so it works on VMs without Homebrew.
 - The SSH column is now **Access**, with separate Agent and SSH status. Each is
   checked on its own after boot and on Get info, so SSH no longer shows OK just
   because the guest agent answered. SSH shows "off" when the SSH fallback is
-  turned off. A stopped VM keeps its last known status, faded.
-- **Edit VM** now opens in a window on the Dashboard, and also edits tags and
-  notes. While the VM is running, only tags, notes and SSH credentials can be
-  changed; stop it to change hardware or rename it.
+  turned off. A stopped VM keeps its last known status, faded. When the agent
+  is OK, only the Agent status is shown, since commands don't need SSH then.
+- **Edit VM** now opens in a window on the Dashboard, grouped into sections (VM
+  Settings, SSH Settings, Enrollment, Tags & Notes), and also edits tags and
+  notes. While the VM is running, only tags, notes, SSH credentials and
+  auto-enroll can be changed; stop it to change hardware or rename it.
 - The Scheduler and Refresh buttons moved into the Local VMs toolbar, next to
   **+ Create VM**. "Show running only" is now a **Show All / Show Running**
   button.
@@ -46,20 +181,82 @@ A few terms appear throughout:
 - Sections in VM Management and Configuration can be collapsed by clicking
   their title. Each section remembers whether it was open or closed.
 - Shorter Network interface hint in Configuration.
+- The dark/light mode button in the header is now a sliding switch.
+- The Name prefix in Create / clone VMs no longer defaults to
+  "macOS-Overview-". Leave it blank to name VMs with just the random suffix.
+- "Run scheduled VMs headless" in Scheduler Settings is now **Headless mode**.
+- The Tart Oven version now sits next to the title in the top-left corner, and
+  the VM count next to the **Local VMs** title (local VMs only, not OCI
+  images). The top-right corner only shows connection status.
+- Source code reorganised into folders: `cmd/tart-oven` (entry point),
+  `internal/server` (split into themed files), `internal/perf`, `internal/mdm`,
+  `internal/sshkey`, `internal/update`, `web/` (the UI) and `scripts/`. Build
+  with `go build -o tart-oven ./cmd/tart-oven`. Still a single binary.
+- More contrast in both themes. Buttons have a solid background and a stronger
+  border, so VM buttons stay visible when the row is highlighted. Hovered rows
+  get a light blue tint instead of grey, and borders, sections and muted text
+  are easier to tell apart.
+- **Refresh** button now also re-checks the guest agent and SSH status for all
+  running VMs (non-busy ones), so you can see updated Access status without
+  clicking Get info on each one.
+- **Headless mode** and **Disable audio** in VM Scheduler now apply only to
+  scheduled runs; manual runs are never affected. A per-run "Run headless" or an
+  explicit --no-graphics / --no-audio in Custom run arguments still works.
+- **Prioritize clean shutdown** toggle (formerly "Prioritize shutdown using SSH")
+  now works via the guest agent as well as SSH — whichever answers. A VM where
+  only the agent works no longer gets a hard stop every time.
+- **Auto-enroll at first boot** (clone option) and **Attempt auto-enroll at next
+  boot** (Edit VM) are now one-shot: the flag clears after the next boot attempt,
+  whether it succeeds or fails, so it doesn't retry indefinitely.
 
 ### Fixed
 
+- IPSW downloads (and other long Tart tasks) showed a blank line between
+  every progress percentage in the Activity log. Each percentage now replaces
+  the previous one, as in a terminal.
+- Pressing Esc raised a page error and never reached the Pull Image window or
+  the Setup Wizard, so they stayed open. Esc now closes them.
+- The memory pressure in the top bar now reads **Normal**, **Warning** or
+  **Critical** instead of lowercase.
+- **Show Running** didn't hide the OCI Images panel, and the Helper Guide search
+  didn't hide non-matching sections. The page's "hidden" style was missing.
+- The Agent status could stay KO for a whole boot even though the agent was
+  working. Tart Oven checked as soon as the VM had an IP, often before anyone
+  was logged in (the agent only starts after login), and then stopped looking.
+  It now keeps re-checking a failed Agent or SSH status for up to 5 minutes
+  after boot, and Get info always re-checks the agent.
 - Runs left open in History (shown as "running…" forever) after Tart Oven was
   stopped or replaced while VMs were running. They're closed at startup and
   show an "unknown" duration.
+- Commands run via the guest agent that needed `sudo` never received the guest
+  password on stdin, so they failed or hung. `tart exec` now gets `-i` when a
+  password is given, so sudo works the same way via the agent and SSH.
+- Guest commands couldn't always find their tools: over SSH `jamf` (in
+  `/usr/local/bin`) was missing, and through the guest agent `shutdown` (in
+  `/sbin`) was missing, which made clean shutdown fail. Both transports now use
+  the same full PATH.
+- Scrolling inside the VM details or Terminal window also scrolled the
+  Dashboard behind it. The Edit VM window now scrolls within the screen height
+  too.
+- **Memory pressure** in the Performance tab and Dashboard showed Warning even on
+  an idle Mac. macOS reports normal pressure as level 1, which Tart Oven read
+  as a warning. It now shows Normal, Warning and Critical correctly.
 
 ### Removed
 
+- **Linux VM option** in Create from IPSW. macOS-only IPSW creation is the only
+  supported path.
+- **"latest" IPSW download shortcut**. You must now provide a local file path or
+  a URL.
 - The Guest Commands panel at the bottom of the Dashboard, replaced by `>_`.
 - The Edit a VM and Delete a VM sections in VM Management, and the separate
   Edit Tags menu item. Use **Edit VM** and **Delete VM** in a VM's **⋯** menu.
 - Leftover "progress shows in Activity below" hints. Progress now appears in a
   notification banner with a link to the Logs tab.
+- Several helper texts in Configuration, Edit VM and the Terminal window that
+  repeated what the controls already say.
+- **Auto Enroll VM (experimental)** from the **⋯** menu. Use the Edit VM
+  auto-enroll checkbox or the Clone from template option instead.
 
 ## 1.54 (2026-09-20)
 
