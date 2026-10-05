@@ -1,4 +1,4 @@
-package main
+package tartoven
 
 import (
 	"fmt"
@@ -17,10 +17,10 @@ func TestReleaseVersionIsConsistent(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !strings.Contains(string(readme), fmt.Sprintf("Current release: **%s**", version)) {
+	if !strings.Contains(string(readme), fmt.Sprintf("Current release: **%s**", Version)) {
 		t.Fatal("README release mismatch")
 	}
-	if !strings.Contains(string(changelog), fmt.Sprintf("## %s", version)) {
+	if !strings.Contains(string(changelog), fmt.Sprintf("## %s", Version)) {
 		t.Fatal("CHANGELOG release missing")
 	}
 }
@@ -30,7 +30,7 @@ func TestReleaseBinaryReportsVersion(t *testing.T) {
 	if err != nil {
 		t.Fatalf("run tracked executable: %v\n%s", err, output)
 	}
-	if got, want := string(output), version+"\n"; got != want {
+	if got, want := string(output), Version+"\n"; got != want {
 		t.Fatalf("tracked executable version output = %q, want %q", got, want)
 	}
 }

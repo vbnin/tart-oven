@@ -6,12 +6,16 @@ set -u
 PLIST="/Library/LaunchAgents/com.tartoven.agent.plist"
 BIN="/Library/Application Support/Tart Oven/tart-oven"
 LABEL="com.tartoven.agent"
-URL="http://127.0.0.1:9000"
+DEFAULT_URL="http://127.0.0.1:9000"
 
 # Make sure permissions are sane regardless of how the payload was built.
 chmod 755 "$BIN" 2>/dev/null || true
 chown root:wheel "$PLIST" 2>/dev/null || true
 chmod 644 "$PLIST" 2>/dev/null || true
+
+# Put the CLI on the PATH: `tart-oven start | stop | restart | status | open`.
+mkdir -p /usr/local/bin 2>/dev/null || true
+ln -sf "$BIN" /usr/local/bin/tart-oven 2>/dev/null || true
 
 # Pre-create world-writable logs so the (non-root) agent can write them.
 for f in /Users/Shared/tart-oven.out.log /Users/Shared/tart-oven.err.log; do
@@ -27,6 +31,27 @@ if [ -z "$consoleUser" ] || [ "$consoleUser" = "root" ] || [ "$consoleUser" = "l
     exit 0
 fi
 uid=$(id -u "$consoleUser")
+
+# Pick the dashboard URL from the user's saved settings: https when HTTPS is
+# turned on, http otherwise. The listen address keeps its port; a wildcard or
+# missing host becomes the loopback address. Any problem reading the settings
+# falls back to the default http URL.
+dashboard_url() {
+    local state home listen tls host port scheme=http
+    home=$(dscl . -read "/Users/${consoleUser}" NFSHomeDirectory 2>/dev/null | awk '{print $2}')
+    state="${home:-/Users/${consoleUser}}/.tart-oven/state.json"
+    [ -r "$state" ] || { echo "$DEFAULT_URL"; return; }
+    tls=$(plutil -extract config.tlsEnabled raw -o - "$state" 2>/dev/null)
+    [ "$tls" = "true" ] && scheme=https
+    listen=$(plutil -extract config.listen raw -o - "$state" 2>/dev/null)
+    host="${listen%:*}"
+    port="${listen##*:}"
+    case "$listen" in *:*) ;; *) echo "${scheme}://127.0.0.1:9000"; return ;; esac
+    case "$port" in ''|*[!0-9]*) port=9000 ;; esac
+    case "$host" in ''|0.0.0.0|'::'|'[::]') host=127.0.0.1 ;; esac
+    echo "${scheme}://${host}:${port}"
+}
+URL=$(dashboard_url)
 
 # (Re)load the agent in the user's GUI domain. bootout first so upgrades work.
 launchctl bootout "gui/${uid}" "$PLIST" 2>/dev/null || true

@@ -1,4 +1,4 @@
-package main
+package tartoven
 
 import (
 	"fmt"
@@ -15,6 +15,7 @@ func TestReadmeContainsOnboardingAndSafetyEssentials(t *testing.T) {
 	content := string(b)
 
 	required := []string{
+		"## Screenshots",
 		"## Prerequisites",
 		"## Quick start",
 		"## Basic usage",
@@ -24,15 +25,17 @@ func TestReadmeContainsOnboardingAndSafetyEssentials(t *testing.T) {
 		"## Security",
 		"## Troubleshooting",
 		"## Build from source",
-		fmt.Sprintf("TartOven-%s.pkg", version),
+		fmt.Sprintf("TartOven-%s.pkg", Version),
 		"/Library/LaunchAgents/com.tartoven.agent.plist",
 		"http://127.0.0.1:9000",
 		"At least 25 GiB free",
 		"Random MAC",
 		"Random serial",
 		"The response only confirms that Tart Oven accepted the request",
-		"It has no user login, API token, or TLS",
-		"go test ./... && node index_ui_test.js",
+		"### Access token",
+		"### HTTPS",
+		"Tart Oven keeps only a hash",
+		"go test ./... && node web/index_ui_test.js",
 	}
 
 	for _, text := range required {
