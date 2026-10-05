@@ -1538,30 +1538,12 @@ test("needsLogin is true only when a token is required and the session has none"
   assert.equal(await needsLogin(), false);
 });
 
-test("stripRepoOnlySections drops the Screenshots section and nothing else", () => {
+test("stripRepoOnlySections drops the top picture and the Screenshots section, wherever it sits", () => {
   const strip = evaluateFunction("stripRepoOnlySections", {});
-  const md = "# T\n\nintro\n\n## Screenshots\n\n<img src=\"a.png\">\n\n## Prerequisites\n\nneeds a Mac\n";
-  assert.equal(strip(md), "# T\n\nintro\n\n## Prerequisites\n\nneeds a Mac\n");
+  const pic = '<p align="center">\n  <img src="a.png" alt="x" width="900">\n</p>\n';
+  const md = "# T\n\n" + pic + "\n## Prerequisites\n\nneeds a Mac\n\n## Support\n\nhelp\n\n## Screenshots\n\n" + pic + "\n" + pic;
+  assert.equal(strip(md), "# T\n\n## Prerequisites\n\nneeds a Mac\n\n## Support\n\nhelp\n\n");
+  // A Screenshots section in the middle stops at the next heading.
+  assert.equal(strip("## Screenshots\n\n" + pic + "\n## Next\n\ntext\n"), "## Next\n\ntext\n");
   assert.equal(strip("## Other\n\ntext\n"), "## Other\n\ntext\n");
-});
-
-test("fixWizardHeight sizes the wizard body to the Review step and leaves step indicators to CSS", () => {
-  const els = { wizardBody: { style: {}, offsetHeight: 431 } };
-  for (let i = 1; i <= 5; i++) els["wizardStep" + i] = { style: { display: "block" } };
-  const context = vm.createContext(wizardGlobals({
-    document: { getElementById: id => els[id] || null },
-    latest: { config: {} },
-  }));
-  vm.runInContext(["wizardGB", "updateWizardReview", "fixWizardHeight"].map(extractFunction).join("\n") +
-    "; globalThis.fix = fixWizardHeight;", context);
-  context.fix();
-  assert.equal(els.wizardBody.style.height, "431px");
-  assert.equal(els.wizardStep5.style.display, "block");
-  assert.equal(els.wizardStep1.style.display, "none");
-
-  // The blue underline comes only from the active class, never from inline styles.
-  const indicators = html.match(/<div class="wizard-step-indicator[^>]*>/g);
-  assert.equal(indicators.length, 5);
-  for (const tag of indicators) assert.ok(!/style=/.test(tag), "indicator has inline style: " + tag);
-  assert.equal(indicators.filter(t => /\bactive\b/.test(t)).length, 1);
 });

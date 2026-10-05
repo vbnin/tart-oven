@@ -6,22 +6,8 @@ Tart Oven runs on macOS and manages macOS virtual machines.
 
 Current release: **2.0** · [Changelog](CHANGELOG.md)
 
-## Screenshots
-
 <p align="center">
   <img src="assets/screenshots/Tart%20Oven%20Screenshot%201.png" alt="Tart Oven screenshot 1" width="900">
-</p>
-<p align="center">
-  <img src="assets/screenshots/Tart%20Oven%20Screenshot%202.png" alt="Tart Oven screenshot 2" width="900">
-</p>
-<p align="center">
-  <img src="assets/screenshots/Tart%20Oven%20Screenshot%203.png" alt="Tart Oven screenshot 3" width="900">
-</p>
-<p align="center">
-  <img src="assets/screenshots/Tart%20Oven%20Screenshot%204.png" alt="Tart Oven screenshot 4" width="900">
-</p>
-<p align="center">
-  <img src="assets/screenshots/Tart%20Oven%20Screenshot%205.png" alt="Tart Oven screenshot 5" width="900">
 </p>
 
 ## Prerequisites
@@ -510,3 +496,22 @@ Report bugs through the [GitHub issue tracker](https://github.com/vbnin/tart-ove
 Tart Oven is released under the [MIT License](LICENSE).
 
 Tart and the Tart guest agent are separate projects under their own licenses (FSL-1.1-ALv2). The guest agent installer bundled with Tart Oven keeps its upstream license.
+
+## Screenshots
+
+<p align="center">
+  <img src="assets/screenshots/Tart%20Oven%20Screenshot%202.png" alt="Tart Oven screenshot 2" width="900">
+</p>
+
+<p align="center">
+  <img src="assets/screenshots/Tart%20Oven%20Screenshot%203.png" alt="Tart Oven screenshot 3" width="900">
+</p>
+
+<p align="center">
+  <img src="assets/screenshots/Tart%20Oven%20Screenshot%204.png" alt="Tart Oven screenshot 4" width="900">
+</p>
+
+<p align="center">
+  <img src="assets/screenshots/Tart%20Oven%20Screenshot%205.png" alt="Tart Oven screenshot 5" width="900">
+</p>
+

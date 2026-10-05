@@ -4781,10 +4781,13 @@ async function loadReadme() {
   }
 }
 
-// The README's Screenshots section is for the GitHub page; the images aren't
-// served by Tart Oven, so the in-app guide leaves the section out.
+// The README's screenshots (the picture at the top and the Screenshots section)
+// are for the GitHub page; Tart Oven doesn't serve the images, so the in-app
+// guide leaves them out.
 function stripRepoOnlySections(md) {
-  return md.replace(/^## Screenshots\n[\s\S]*?(?=^## )/m, "");
+  return md
+    .replace(/^## Screenshots\n[\s\S]*?(?=^## |(?![\s\S]))/m, "")
+    .replace(/^<p[^>]*>[\s\S]*?<\/p>\n*/gm, "");
 }
 
 function renderMarkdownGuide(rawMarkdown) {
