@@ -378,11 +378,12 @@ echo "Found %s in the guest"`, agentInfo.GuestPath, agentInfo.PKGName)
 	}
 	if !responding {
 		m.setAgentOK(name, false)
-		m.finishTask(t, errors.New("Installed, but the agent isn't answering yet. It starts when a user is logged in to the guest; log in (or enable auto-login) and run Refresh info."))
+		m.finishTask(t, errors.New("Installed, but the agent isn't answering yet. Restart the VM, then run Refresh info."))
 		m.broadcast()
 		return
 	}
 	m.setAgentOK(name, true)
+	m.recordAgentMode(name)
 	m.appendTaskOutput(t, "The guest agent is responding. Commands for this VM no longer use SSH.\n")
 	m.finishTask(t, nil)
 	m.broadcast()

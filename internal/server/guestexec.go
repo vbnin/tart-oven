@@ -55,35 +55,65 @@ func agentExecUnavailable(err error, stderr string) bool {
 	return false
 }
 
+// guestRunAsScript is the shell program `tart exec` runs in the guest. With the
+// agent package Tart Oven ships, the exec service is a root LaunchDaemon, so it
+// is available before anyone logs in, but commands would run as root. The script
+// hands the command to the VM's account instead ($1, the SSH user), so tools
+// that refuse root (Homebrew) and per-user settings behave as they do over SSH.
+//   - When that account is the one logged in at the console, the command enters
+//     its GUI session (launchctl asuser), as it would under a per-user agent;
+//     that is what System Events scripting needs.
+//   - With nobody logged in, plain sudo is enough.
+//   - With a per-user agent (not root), or an account that doesn't exist yet
+//     (Setup Assistant not finished), the command just runs as it is.
+//
+// $2 is the command. Both travel as arguments, so no quoting is involved.
+const guestRunAsScript = `u=$1; c=$2
+if [ "$(/usr/bin/id -u)" = 0 ] && [ -n "$u" ] && [ "$u" != root ] && uid=$(/usr/bin/id -u "$u" 2>/dev/null); then
+  if [ "$(/usr/bin/stat -f %Su /dev/console 2>/dev/null)" = "$u" ]; then
+    exec /bin/launchctl asuser "$uid" /usr/bin/sudo -n -u "$u" -H /bin/sh -c "$c"
+  fi
+  exec /usr/bin/sudo -n -u "$u" -H /bin/sh -c "$c"
+fi
+exec /bin/sh -c "$c"`
+
+// agentExecArgs builds the `tart exec` argument list for running command in the
+// guest as user. tart only forwards stdin with -i.
+func agentExecArgs(name, user, command string, stdin bool) []string {
+	args := []string{"exec"}
+	if stdin {
+		args = append(args, "-i")
+	}
+	return append(args, name, "/bin/sh", "-c", guestRunAsScript, "tart-oven", user, command)
+}
+
 // execViaAgent runs command inside the guest through the Tart guest agent. The
 // second return value reports whether the agent handled the call at all; when it is
 // false the caller should fall back to SSH.
 func (m *Manager) execViaAgent(ctx context.Context, name, command, sudoPassword string) (execResult, bool) {
 	m.mu.Lock()
 	home := m.cfg.VMStoragePath
+	user, _ := effectiveSSHCredentials(m.cfg, m.vms[name])
 	m.mu.Unlock()
+	if strings.TrimSpace(user) == "" {
+		user = "admin"
+	}
 
 	remote := command
 	if sudoPassword != "" {
 		remote = rewriteSudoForStdin(command)
 	}
 
-	args := []string{"exec"}
-	// tart exec only forwards stdin with -i; without it sudo -S gets nothing.
-	if sudoPassword != "" {
-		args = append(args, "-i")
-	}
-	args = append(args, name, "/bin/sh", "-c", guestPATHExport+remote)
-	cmd := m.tartCmdCtx(ctx, home, args...)
+	cmd := m.tartCmdCtx(ctx, home, agentExecArgs(name, user, guestPATHExport+remote, sudoPassword != "")...)
 	if sudoPassword != "" {
 		cmd.Stdin = strings.NewReader(sudoPassword + "\n")
 	}
-	var stdout, stderr strings.Builder
-	cmd.Stdout = &stdout
-	cmd.Stderr = &stderr
+	stdout, stderr := newCapBuffer(ctx), newCapBuffer(ctx)
+	cmd.Stdout = stdout
+	cmd.Stderr = stderr
 	err := cmd.Run()
 
-	res := execResult{Stdout: stdout.String(), Stderr: stderr.String()}
+	res := execResult{Stdout: stdout.String(), Stderr: stderr.String(), Truncated: stdout.truncated || stderr.truncated}
 	if err == nil {
 		return res, true
 	}
@@ -254,14 +284,44 @@ func (m *Manager) probeAgent(name string) bool {
 	m.mu.Lock()
 	m.agentProbedSinceBoot[name] = !ok
 	m.mu.Unlock()
+	if ok {
+		m.recordAgentMode(name)
+	}
 	return ok
 }
 
+// agentModeProbe tells which layout the guest's agent package has: Tart Oven's
+// build serves exec (--run-rpc) from the root LaunchDaemon, so it works before
+// anyone logs in; upstream's and the official images' serve it from a per-user
+// LaunchAgent.
+const agentModeProbe = `grep -q -e '--run-rpc' /Library/LaunchDaemons/org.cirruslabs.tart-guest-daemon.plist 2>/dev/null && echo boot || echo login`
+
+// recordAgentMode stores whether the guest's agent starts at boot or at login. It
+// needs a working agent, so it runs after a successful probe; a failed check
+// leaves the earlier answer alone.
+func (m *Manager) recordAgentMode(name string) {
+	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
+	res, handled := m.execViaAgent(ctx, name, agentModeProbe, "")
+	cancel()
+	if !handled || res.Error != "" || res.ExitCode != 0 {
+		return
+	}
+	mode := "login"
+	if strings.TrimSpace(res.Stdout) == "boot" {
+		mode = "boot"
+	}
+	m.mu.Lock()
+	if vm := m.vms[name]; vm != nil {
+		vm.AgentMode = mode
+	}
+	m.mu.Unlock()
+}
+
 // watchGuestChannelsAfterBoot keeps re-probing whichever channel failed the
-// boot-time check. The boot probe runs as soon as the VM has an IP, which is
-// often before a user is logged in — and the guest agent is a per-user
-// LaunchAgent, so it only starts after login. Stops once both channels answer,
-// the VM stops or reboots, or the window runs out.
+// boot-time check. The boot probe runs as soon as the VM has an IP, which can be
+// before the guest agent is up: it starts a little after boot, and with a
+// per-user agent (not Tart Oven's package) only once someone logs in. Stops once
+// both channels answer, the VM stops or reboots, or the window runs out.
 func (m *Manager) watchGuestChannelsAfterBoot(name string, bootedAt time.Time, agentOK, sshOK bool) {
 	const window = 5 * time.Minute
 	const interval = 20 * time.Second

@@ -1,6 +1,7 @@
 package server
 
 import (
+	"context"
 	"crypto/subtle"
 	"encoding/json"
 	"net"
@@ -49,6 +50,28 @@ type authState struct {
 	loaded   bool
 	sessions map[string]time.Time
 	fails    map[string]*loginFail
+
+	agents      []auth.AgentToken // agent-scope tokens, reloaded when the file changes
+	agentMtime  time.Time
+	agentLoaded bool
+}
+
+// principal is who a request is acting as. Agent principals may only reach
+// /api/agent/*; name is the agent token's label (the lease owner).
+type principal struct {
+	agent bool
+	name  string
+}
+
+type principalKey struct{}
+
+// principalOf returns the caller recorded by authGuard. Requests that never
+// passed the guard (auth off, or a handler called directly) act as "local".
+func principalOf(r *http.Request) principal {
+	if p, ok := r.Context().Value(principalKey{}).(principal); ok {
+		return p
+	}
+	return principal{name: "local"}
 }
 
 func newAuthState(dir string) *authState {
@@ -102,6 +125,11 @@ func (a *authState) set(hash string) error {
 	var err error
 	if hash == "" {
 		err = auth.Remove(a.dir)
+		if err == nil {
+			// Agent tokens only mean something next to a dashboard token;
+			// don't let them quietly come back when one is generated later.
+			err = auth.RemoveAgentTokens(a.dir)
+		}
 	} else {
 		err = auth.Save(a.dir, hash)
 	}
@@ -110,9 +138,39 @@ func (a *authState) set(hash string) error {
 	}
 	a.loaded = false
 	a.hash = ""
+	a.agentLoaded = false
 	a.sessions = map[string]time.Time{}
 	a.refreshLocked()
 	return nil
+}
+
+// agentTokens returns the current agent tokens, re-reading the file when its
+// mtime changes so `tart-oven token agent ...` takes effect at once. A damaged
+// file yields no tokens (fail closed).
+func (a *authState) agentTokens() []auth.AgentToken {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	fi, err := os.Stat(filepath.Join(a.dir, auth.AgentFileName))
+	if err != nil {
+		a.agents, a.agentLoaded = nil, true
+		return nil
+	}
+	if a.agentLoaded && fi.ModTime().Equal(a.agentMtime) {
+		return a.agents
+	}
+	tokens, lerr := auth.LoadAgentTokens(a.dir)
+	if lerr != nil {
+		tokens = nil
+	}
+	a.agents, a.agentMtime, a.agentLoaded = tokens, fi.ModTime(), true
+	return a.agents
+}
+
+// invalidateAgentTokens forces the next agentTokens call to re-read the file.
+func (a *authState) invalidateAgentTokens() {
+	a.mu.Lock()
+	a.agentLoaded = false
+	a.mu.Unlock()
 }
 
 func (a *authState) newSession() (string, error) {
@@ -199,21 +257,33 @@ func isLoopbackRequest(r *http.Request) bool {
 	return ip != nil && ip.IsLoopback()
 }
 
-// authenticated reports whether the request carries a valid credential: the
-// local CLI's control key, a Bearer token, or a live session cookie.
-func (a *authState) authenticated(r *http.Request, hash string) bool {
+// identify reports who the request is: the local CLI's control key, a Bearer
+// token (dashboard or agent scope), or a live session cookie.
+func (a *authState) identify(r *http.Request, hash string) (principal, bool) {
 	if key := r.Header.Get(controlHeader); key != "" && a.controlKey != "" && isLoopbackRequest(r) &&
 		subtle.ConstantTimeCompare([]byte(key), []byte(a.controlKey)) == 1 {
-		return true
+		return principal{name: "admin"}, true
 	}
-	if h := r.Header.Get("Authorization"); strings.HasPrefix(h, "Bearer ") &&
-		auth.Match(hash, strings.TrimSpace(strings.TrimPrefix(h, "Bearer "))) {
-		return true
+	if h := r.Header.Get("Authorization"); strings.HasPrefix(h, "Bearer ") {
+		token := strings.TrimSpace(strings.TrimPrefix(h, "Bearer "))
+		if auth.Match(hash, token) {
+			return principal{name: "admin"}, true
+		}
+		if t, ok := auth.MatchAgent(a.agentTokens(), token); ok {
+			return principal{agent: true, name: t.Name}, true
+		}
 	}
 	if c, err := r.Cookie(sessionCookie); err == nil && a.validSession(c.Value) {
-		return true
+		return principal{name: "admin"}, true
 	}
-	return false
+	return principal{}, false
+}
+
+// authenticated reports whether the request carries a full-access credential.
+// An agent token is not one: it opens only /api/agent/*.
+func (a *authState) authenticated(r *http.Request, hash string) bool {
+	p, ok := a.identify(r, hash)
+	return ok && !p.agent
 }
 
 // authExempt lists what works without credentials: the page shell (which
@@ -227,6 +297,12 @@ func authExempt(r *http.Request) bool {
 	return false
 }
 
+// agentPath reports whether path belongs to the agent API, the only part of
+// the server an agent-scope token may use (plus the exempt health probe).
+func agentPath(path string) bool {
+	return strings.HasPrefix(path, "/api/agent/") || path == "/api/agent"
+}
+
 // authGuard enforces the token on every non-exempt request once one is set.
 func (m *Manager) authGuard(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -234,8 +310,19 @@ func (m *Manager) authGuard(next http.Handler) http.Handler {
 		w.Header().Set("X-Frame-Options", "DENY")
 		a := m.auth()
 		hash := a.current()
-		if hash == "" || authExempt(r) || a.authenticated(r, hash) {
+		if hash == "" || authExempt(r) {
 			next.ServeHTTP(w, r)
+			return
+		}
+		if p, ok := a.identify(r, hash); ok {
+			if p.agent && !agentPath(r.URL.Path) {
+				w.Header().Set("Cache-Control", "no-store")
+				w.Header().Set("Content-Type", "application/json")
+				w.WriteHeader(http.StatusForbidden)
+				w.Write([]byte(`{"error":"forbidden: an agent token can only use /api/agent/*"}` + "\n"))
+				return
+			}
+			next.ServeHTTP(w, r.WithContext(context.WithValue(r.Context(), principalKey{}, p)))
 			return
 		}
 		w.Header().Set("Cache-Control", "no-store")
@@ -385,6 +472,54 @@ func (m *Manager) registerAuthRoutes(mux *http.ServeMux) {
 		}
 		m.logln("UI access token removed")
 		clearSessionCookie(w)
+		writeJSON(w, map[string]bool{"ok": true})
+	})
+
+	// Agent-scope tokens (full-access callers only: the guard keeps agent
+	// tokens out of everything but /api/agent/*).
+	mux.HandleFunc("GET /api/auth/agent-tokens", func(w http.ResponseWriter, r *http.Request) {
+		type view struct {
+			ID        string    `json:"id"`
+			Name      string    `json:"name"`
+			CreatedAt time.Time `json:"createdAt"`
+		}
+		a := m.auth()
+		tokens := make([]view, 0)
+		for _, t := range a.agentTokens() {
+			tokens = append(tokens, view{t.ID, t.Name, t.CreatedAt})
+		}
+		writeJSON(w, map[string]any{"tokens": tokens, "authEnabled": a.current() != ""})
+	})
+	mux.HandleFunc("POST /api/auth/agent-tokens", func(w http.ResponseWriter, r *http.Request) {
+		a := m.auth()
+		if a.current() == "" {
+			http.Error(w, "generate the dashboard access token first: agent tokens only limit access when a login is required", http.StatusConflict)
+			return
+		}
+		var body struct {
+			Name string `json:"name"`
+		}
+		if err := json.NewDecoder(http.MaxBytesReader(w, r.Body, 4096)).Decode(&body); err != nil {
+			http.Error(w, "bad request", http.StatusBadRequest)
+			return
+		}
+		token, err := auth.AddAgentToken(a.dir, body.Name)
+		if err != nil {
+			http.Error(w, err.Error(), http.StatusBadRequest)
+			return
+		}
+		a.invalidateAgentTokens()
+		m.logln("agent token %q created", strings.TrimSpace(body.Name))
+		writeJSON(w, map[string]string{"token": token, "name": strings.TrimSpace(body.Name)})
+	})
+	mux.HandleFunc("DELETE /api/auth/agent-tokens/{id}", func(w http.ResponseWriter, r *http.Request) {
+		a := m.auth()
+		if err := auth.RevokeAgentToken(a.dir, r.PathValue("id")); err != nil {
+			http.Error(w, err.Error(), http.StatusNotFound)
+			return
+		}
+		a.invalidateAgentTokens()
+		m.logln("agent token %q revoked", r.PathValue("id"))
 		writeJSON(w, map[string]bool{"ok": true})
 	})
 }

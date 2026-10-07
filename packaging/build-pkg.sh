@@ -25,8 +25,8 @@
 #   /usr/local/bin/tart-oven -> the binary                                          (symlink, made by postinstall)
 # and its postinstall loads the agent and opens http://127.0.0.1:9000.
 #
-# Optional (off by default): INCLUDE_LAUNCHER_APP=true also installs
-#   /Applications/Tart Oven.app                                                     (launcher: `tart-oven open`)
+#   /Applications/Tart Oven.app                                                     (launcher: starts the server if needed, opens the dashboard)
+# Set INCLUDE_LAUNCHER_APP=false to leave the launcher app out.
 set -euo pipefail
 
 # Do not copy resource forks or extended attributes while assembling archives.
@@ -174,6 +174,11 @@ AGENT_LICENSE="$REPO/packaging/build/tart-guest-agent-LICENSE.txt"
 NEED_AGENT_BUILD=false
 if [ ! -f "$AGENT_PKG" ] || [ ! -f "$AGENT_LICENSE" ]; then
     NEED_AGENT_BUILD=true
+elif [ "$REPO/packaging/guest-agent-postinstall.sh" -nt "$AGENT_PKG" ] || [ "$REPO/packaging/build-agent-pkg.sh" -nt "$AGENT_PKG" ]; then
+    # What the package contains (launchd layout, postinstall) comes from these two
+    # files; an older package would ship the previous layout.
+    echo "    Existing guest agent package is older than its build scripts; rebuilding it…"
+    NEED_AGENT_BUILD=true
 elif [ "$DO_SIGN" = true ] && ! pkgutil --check-signature "$AGENT_PKG" 2>/dev/null | grep -q "Developer ID Installer"; then
     # A leftover unsigned dev build must never ship inside a signed release.
     echo "    Existing guest agent package is unsigned; rebuilding it signed…"
@@ -201,46 +206,18 @@ install -m 644 packaging/com.tartoven.agent.plist "$ROOT/Library/LaunchAgents/$L
 install -d "$ROOT/$APPDIR/guest-agent"
 install -m 644 "$AGENT_PKG" "$AGENT_LICENSE" "$ROOT/$APPDIR/guest-agent/"
 
-# Optional, off by default: a "Tart Oven.app" launcher that runs `tart-oven open`
-# (start the server if needed, then open the dashboard), so it shows up in
-# Spotlight/Launchpad. The `tart-oven` command on the PATH is the supported way
-# in; turn this on with INCLUDE_LAUNCHER_APP=true if the app is wanted again.
-# It has no icon yet: an .icns would go in Contents/Resources (CFBundleIconFile).
-INCLUDE_LAUNCHER_APP="${INCLUDE_LAUNCHER_APP:-false}"
-build_launcher_app() {
-    local app="$ROOT/Applications/Tart Oven.app"
-    install -d "$app/Contents/MacOS"
-    cat > "$app/Contents/Info.plist" <<PLIST_EOF
-<?xml version="1.0" encoding="UTF-8"?>
-<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
-<plist version="1.0">
-<dict>
-    <key>CFBundleIdentifier</key>
-    <string>com.tartoven.launcher</string>
-    <key>CFBundleName</key>
-    <string>Tart Oven</string>
-    <key>CFBundleExecutable</key>
-    <string>tart-oven-launcher</string>
-    <key>CFBundlePackageType</key>
-    <string>APPL</string>
-    <key>CFBundleShortVersionString</key>
-    <string>${VERSION}</string>
-    <key>LSUIElement</key>
-    <true/>
-</dict>
-</plist>
-PLIST_EOF
-    cat > "$app/Contents/MacOS/tart-oven-launcher" <<'LAUNCHER_EOF'
-#!/bin/sh
-exec "/Library/Application Support/Tart Oven/tart-oven" open
-LAUNCHER_EOF
-    chmod 755 "$app/Contents/MacOS/tart-oven-launcher"
-    if [ "$DO_SIGN" = true ]; then
-        codesign --force --options runtime --timestamp --sign "$APP_SIGN_IDENTITY" "$app"
-    fi
-}
+# "Tart Oven.app": a double-click launcher for people who stopped the server and
+# don't use Terminal. It runs `tart-oven open` (start if needed, then open the
+# dashboard in the default browser); see build-launcher-app.sh.
+INCLUDE_LAUNCHER_APP="${INCLUDE_LAUNCHER_APP:-true}"
 if [ "$INCLUDE_LAUNCHER_APP" = true ]; then
-    build_launcher_app
+    install -d "$ROOT/Applications"
+    # Sign only when the PKG is signed: APP_SIGN_IDENTITY is auto-detected even
+    # for an unsigned build (SIGN_PKG=false).
+    LAUNCHER_SIGN_ID=""
+    if [ "$DO_SIGN" = true ]; then LAUNCHER_SIGN_ID="$APP_SIGN_IDENTITY"; fi
+    APP_SIGN_IDENTITY="$LAUNCHER_SIGN_ID" REQUIRE_RUNTIME=true \
+        "$REPO/packaging/build-launcher-app.sh" "$ROOT/Applications" "$VERSION" >/dev/null
 fi
 
 # Strip extended attributes so the payload doesn't carry ._AppleDouble clutter
@@ -270,6 +247,21 @@ fi
 
 chmod +x packaging/scripts/postinstall
 
+# Every 2.1.0-devN launcher has the same bundle version, and by default Installer
+# keeps an installed bundle unless the one in the package is newer. Turn that
+# check off so reinstalling always refreshes /Applications/Tart Oven.app.
+COMPONENT_ARGS=()
+if [ "$INCLUDE_LAUNCHER_APP" = true ]; then
+    COMPONENT_PLIST="$BUILD/components.plist"
+    pkgbuild --analyze --root "$PKG_ROOT" "$COMPONENT_PLIST" >/dev/null
+    bundle_index=0
+    while /usr/libexec/PlistBuddy -c "Print :${bundle_index}:RootRelativeBundlePath" "$COMPONENT_PLIST" >/dev/null 2>&1; do
+        /usr/libexec/PlistBuddy -c "Set :${bundle_index}:BundleIsVersionChecked false" "$COMPONENT_PLIST"
+        bundle_index=$((bundle_index + 1))
+    done
+    COMPONENT_ARGS=(--component-plist "$COMPONENT_PLIST")
+fi
+
 echo "==> Running pkgbuild…"
 PKG_SIGN_ARGS=()
 if [ "$DO_SIGN" = true ]; then
@@ -283,6 +275,7 @@ pkgbuild \
     --version "$VERSION" \
     --scripts "$REPO/packaging/scripts" \
     --install-location "/" \
+    ${COMPONENT_ARGS[@]+"${COMPONENT_ARGS[@]}"} \
     ${PKG_SIGN_ARGS[@]+"${PKG_SIGN_ARGS[@]}"} \
     "$OUT"
 
@@ -299,7 +292,11 @@ REQUIRED_FILES=(
     "./Library/Application Support/Tart Oven/guest-agent/tart-guest-agent-LICENSE.txt"
 )
 if [ "$INCLUDE_LAUNCHER_APP" = true ]; then
-    REQUIRED_FILES+=("./Applications/Tart Oven.app/Contents/MacOS/tart-oven-launcher")
+    REQUIRED_FILES+=(
+        "./Applications/Tart Oven.app/Contents/MacOS/tart-oven-launcher"
+        "./Applications/Tart Oven.app/Contents/Info.plist"
+        "./Applications/Tart Oven.app/Contents/Resources/TartOven.icns"
+    )
 fi
 for REQUIRED_FILE in "${REQUIRED_FILES[@]}"; do
     if ! printf '%s\n' "$PAYLOAD_FILES" | grep -Fqx "$REQUIRED_FILE"; then

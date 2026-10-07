@@ -15,9 +15,10 @@
 #
 # The resulting tart-guest-agent-<version>.pkg installs:
 #   /usr/local/bin/tart-guest-agent
-#   /Library/LaunchDaemons/org.cirruslabs.tart-guest-daemon.plist
-#   /Library/LaunchAgents/org.cirruslabs.tart-guest-agent.plist
-# and loads both launchd jobs.
+#   /Library/LaunchDaemons/org.cirruslabs.tart-guest-daemon.plist   (--run-daemon --run-rpc: exec and IP service, from boot)
+#   /Library/LaunchAgents/org.cirruslabs.tart-guest-agent.plist     (--run-vdagent: clipboard, at login)
+# and loads both launchd jobs. Unlike upstream's own layout, exec is served by the
+# root daemon, so Tart Oven can run commands before anyone has logged in.
 set -euo pipefail
 
 export COPYFILE_DISABLE=1
@@ -27,7 +28,7 @@ REPO="$(pwd)"
 
 AGENT_VERSION="${AGENT_VERSION:-0.15.0}"
 PKG_ID="com.tartoven.guest-agent"
-BUILD_DIR="$REPO/packaging/build"
+BUILD_DIR="${BUILD_DIR:-$REPO/packaging/build}"
 mkdir -p "$BUILD_DIR"
 
 OUT_PKG="$BUILD_DIR/tart-guest-agent-${AGENT_VERSION}.pkg"
@@ -189,100 +190,9 @@ install -m 755 tart-guest-agent "$PAYLOAD_ROOT/usr/local/bin/tart-guest-agent"
 SCRIPTS_DIR="$TEMP_DIR/scripts"
 mkdir -p "$SCRIPTS_DIR"
 
-# Generate postinstall script
-cat > "$SCRIPTS_DIR/postinstall" << 'POSTINSTALL_EOF'
-#!/bin/sh
-set -e
-
-DAEMON_LABEL="org.cirruslabs.tart-guest-daemon"
-AGENT_LABEL="org.cirruslabs.tart-guest-agent"
-
-DAEMON_PLIST="/Library/LaunchDaemons/${DAEMON_LABEL}.plist"
-AGENT_PLIST="/Library/LaunchAgents/${AGENT_LABEL}.plist"
-
-# Write daemon plist
-cat > "$DAEMON_PLIST" << 'DAEMON_PLIST'
-<?xml version="1.0" encoding="UTF-8"?>
-<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
-<plist version="1.0">
-    <dict>
-        <key>Label</key>
-        <string>org.cirruslabs.tart-guest-daemon</string>
-        <key>ProgramArguments</key>
-        <array>
-            <string>/usr/local/bin/tart-guest-agent</string>
-            <string>--run-daemon</string>
-        </array>
-        <key>EnvironmentVariables</key>
-        <dict>
-            <key>PATH</key>
-            <string>/bin:/usr/bin:/usr/sbin:/usr/local/bin:/opt/homebrew/bin</string>
-        </dict>
-        <key>WorkingDirectory</key>
-        <string>/var/empty</string>
-        <key>RunAtLoad</key>
-        <true/>
-        <key>KeepAlive</key>
-        <true/>
-        <key>StandardOutPath</key>
-        <string>/tmp/tart-guest-daemon.log</string>
-        <key>StandardErrorPath</key>
-        <string>/tmp/tart-guest-daemon.log</string>
-    </dict>
-</plist>
-DAEMON_PLIST
-
-# Write agent plist
-cat > "$AGENT_PLIST" << 'AGENT_PLIST'
-<?xml version="1.0" encoding="UTF-8"?>
-<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
-<plist version="1.0">
-    <dict>
-        <key>Label</key>
-        <string>org.cirruslabs.tart-guest-agent</string>
-        <key>ProgramArguments</key>
-        <array>
-            <string>/usr/local/bin/tart-guest-agent</string>
-            <string>--run-agent</string>
-        </array>
-        <key>EnvironmentVariables</key>
-        <dict>
-            <key>PATH</key>
-            <string>/bin:/usr/bin:/usr/sbin:/usr/local/bin:/opt/homebrew/bin</string>
-            <key>TERM</key>
-            <string>xterm-256color</string>
-        </dict>
-        <key>RunAtLoad</key>
-        <true/>
-        <key>KeepAlive</key>
-        <true/>
-        <key>StandardOutPath</key>
-        <string>/tmp/tart-guest-agent.log</string>
-        <key>StandardErrorPath</key>
-        <string>/tmp/tart-guest-agent.log</string>
-    </dict>
-</plist>
-AGENT_PLIST
-
-chown root:wheel "$DAEMON_PLIST" "$AGENT_PLIST"
-chmod 0644 "$DAEMON_PLIST" "$AGENT_PLIST"
-
-# (Re)load daemon
-launchctl bootout system/"$DAEMON_LABEL" 2>/dev/null || true
-launchctl bootstrap system "$DAEMON_PLIST" || true
-
-# (Re)load agent for currently logged-in user if any
-CONSOLE_USER=$(stat -f %Su /dev/console 2>/dev/null || echo "")
-if [ -n "$CONSOLE_USER" ] && [ "$CONSOLE_USER" != "root" ] && [ "$CONSOLE_USER" != "loginwindow" ] && [ "$CONSOLE_USER" != "_mbsetupuser" ]; then
-    CONSOLE_UID=$(id -u "$CONSOLE_USER")
-    launchctl bootout gui/"$CONSOLE_UID"/"$AGENT_LABEL" 2>/dev/null || true
-    launchctl bootstrap gui/"$CONSOLE_UID" "$AGENT_PLIST" || true
-fi
-
-exit 0
-POSTINSTALL_EOF
-
-chmod 755 "$SCRIPTS_DIR/postinstall"
+# The postinstall writes both launchd plists and (re)loads the jobs; it lives in
+# its own file so it can be tested (guest_agent_postinstall_test.go).
+install -m 755 "$REPO/packaging/guest-agent-postinstall.sh" "$SCRIPTS_DIR/postinstall"
 
 # Strip xattrs
 xattr -rc "$PAYLOAD_ROOT" 2>/dev/null || true

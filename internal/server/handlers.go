@@ -879,6 +879,7 @@ func (m *Manager) routes() *http.ServeMux {
 	m.registerAuthRoutes(mux)
 	m.registerTLSRoutes(mux)
 	m.registerSetupRoutes(mux)
+	m.registerAgentRoutes(mux)
 
 	return mux
 }
@@ -1161,6 +1162,12 @@ func (m *Manager) handleConfig(w http.ResponseWriter, r *http.Request) {
 			m.cfg.ShowJamfFeatures = v
 		}
 	}
+	if raw, ok := fields["showAgentFeatures"]; ok {
+		var v bool
+		if json.Unmarshal(raw, &v) == nil {
+			m.cfg.ShowAgentFeatures = v
+		}
+	}
 	for key, field := range map[string]*bool{
 		"disableTartUpdateCheck": &m.cfg.DisableTartUpdateCheck,
 		"disableOvenUpdateCheck": &m.cfg.DisableOvenUpdateCheck,
@@ -1239,6 +1246,27 @@ func (m *Manager) handleConfig(w http.ResponseWriter, r *http.Request) {
 		var v bool
 		if json.Unmarshal(raw, &v) == nil {
 			m.cfg.FirstRunCompleted = v
+		}
+	}
+	if raw, ok := fields["agentEnabled"]; ok {
+		var v bool
+		if json.Unmarshal(raw, &v) == nil {
+			m.cfg.AgentEnabled = v
+		}
+	}
+	if raw, ok := fields["agentTemplates"]; ok {
+		var v []string
+		if json.Unmarshal(raw, &v) == nil {
+			m.cfg.AgentTemplates = cleanNameList(v)
+		}
+	}
+	if raw, ok := fields["agentMaxTtlMin"]; ok {
+		var v int
+		if json.Unmarshal(raw, &v) == nil && v >= 1 {
+			if v > maxAgentTTLMin {
+				v = maxAgentTTLMin
+			}
+			m.cfg.AgentMaxTTLMin = v
 		}
 	}
 	if raw, ok := fields["operatorRole"]; ok {

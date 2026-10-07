@@ -19,7 +19,7 @@ func eligibleForScheduler(vm *VM, excludeOCI bool, excluded map[string]bool, bus
 	if vm == nil || vm.State != "stopped" || busy {
 		return false
 	}
-	if strings.Contains(vm.Name, templateMarker) || excluded[vm.Name] {
+	if strings.Contains(vm.Name, templateMarker) || excluded[vm.Name] || vm.Lease != nil {
 		return false
 	}
 	return !excludeOCI || !isOCI(vm.Source)
@@ -70,6 +70,9 @@ func (m *Manager) tick() {
 	for _, vm := range m.vms {
 		if vm.State == "running" {
 			running++
+			if vm.Lease != nil {
+				continue // leased VMs live and die by their lease, not the run window
+			}
 			// Outside the daily active hours, stop everything; inside, only stop
 			// VMs whose run window has expired.
 			if !within || (!vm.StopAt.IsZero() && now.After(vm.StopAt)) {

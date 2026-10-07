@@ -2,9 +2,11 @@ package server
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"net"
 	"net/http"
+	"os"
 	"os/exec"
 	"path/filepath"
 	"strings"
@@ -13,7 +15,13 @@ import (
 	"tart-oven/internal/ipsw"
 )
 
-const ipswCacheTTL = 24 * time.Hour
+const (
+	ipswCacheTTL = 24 * time.Hour
+	// The feed is one ~5 MB file with every macOS release, so on a slow link a
+	// download can outlast the browser request that started it.
+	ipswFetchTimeout = 5 * time.Minute
+	ipswCacheFile    = "ipsw-list.json"
+)
 
 // ipswFetchFunc returns the installable restore images; replaced in tests.
 type ipswFetchFunc func(ctx context.Context) ([]ipsw.Entry, error)
@@ -22,25 +30,121 @@ func fetchIPSWFeed(ctx context.Context) ([]ipsw.Entry, error) {
 	return ipsw.Fetch(ctx, ipsw.DefaultClient(), ipsw.FeedURL)
 }
 
-// ipswSources returns the cached restore image list, refreshing it when older
-// than a day. A failed refresh falls back to the stale list.
-func (m *Manager) ipswSources(ctx context.Context) (entries []ipsw.Entry, fetched time.Time, err error) {
+// ipswFlight is one download of the feed. Requests that arrive while it runs
+// wait for it instead of starting another.
+type ipswFlight struct {
+	done chan struct{}
+	err  error // set before done is closed
+}
+
+// ipswDiskCache is the parsed list kept beside state.json, so a restart (or a
+// failed refresh) doesn't leave the pickers empty.
+type ipswDiskCache struct {
+	Fetched time.Time    `json:"fetched"`
+	Entries []ipsw.Entry `json:"entries"`
+}
+
+func (m *Manager) ipswCachePath() string {
+	return filepath.Join(filepath.Dir(m.statePath), ipswCacheFile)
+}
+
+// loadIPSWCache restores the list saved by an earlier run. A missing or damaged
+// file just means starting empty.
+func (m *Manager) loadIPSWCache() {
+	data, err := os.ReadFile(m.ipswCachePath())
+	if err != nil {
+		return
+	}
+	var c ipswDiskCache
+	if json.Unmarshal(data, &c) != nil || len(c.Entries) == 0 {
+		return
+	}
 	m.ipswMu.Lock()
-	defer m.ipswMu.Unlock()
-	if len(m.ipswEntries) > 0 && time.Since(m.ipswFetched) < ipswCacheTTL {
-		return m.ipswEntries, m.ipswFetched, nil
+	m.ipswEntries, m.ipswFetched = c.Entries, c.Fetched
+	m.ipswMu.Unlock()
+}
+
+// saveIPSWCache writes the list atomically. Entries are saved without their
+// per-request "downloaded" marks. Caller holds ipswMu.
+func (m *Manager) saveIPSWCache() {
+	entries := make([]ipsw.Entry, len(m.ipswEntries))
+	for i, e := range m.ipswEntries {
+		e.Downloaded, e.Path = false, ""
+		entries[i] = e
 	}
-	fetch := m.ipswFetch
-	if fetch == nil {
-		fetch = fetchIPSWFeed
+	data, err := json.Marshal(ipswDiskCache{Fetched: m.ipswFetched, Entries: entries})
+	if err != nil {
+		return
 	}
+	tmp := m.ipswCachePath() + ".tmp"
+	if os.WriteFile(tmp, data, 0o600) == nil {
+		os.Rename(tmp, m.ipswCachePath())
+	}
+}
+
+// runIPSWFetch downloads the feed on its own deadline, not the caller's, so a
+// browser that gives up doesn't throw away a nearly finished download.
+func (m *Manager) runIPSWFetch(fl *ipswFlight, fetch ipswFetchFunc) {
+	ctx, cancel := context.WithTimeout(context.Background(), ipswFetchTimeout)
+	defer cancel()
 	fresh, err := fetch(ctx)
+	m.ipswMu.Lock()
 	if err != nil {
 		m.logln("ipsw list: %v", err)
-		return m.ipswEntries, m.ipswFetched, err
+	} else {
+		m.ipswEntries, m.ipswFetched = fresh, time.Now()
+		m.saveIPSWCache()
 	}
-	m.ipswEntries, m.ipswFetched = fresh, time.Now()
-	return fresh, m.ipswFetched, nil
+	fl.err = err
+	m.ipswFlight = nil
+	m.ipswMu.Unlock()
+	close(fl.done)
+}
+
+// ipswSources returns the restore image list, downloading it when the saved one
+// is missing or older than a day. If ctx ends first the download carries on in
+// the background and the stale list (if any) comes back with ctx's error. A
+// failed refresh falls back to the stale list.
+func (m *Manager) ipswSources(ctx context.Context) (entries []ipsw.Entry, fetched time.Time, err error) {
+	m.ipswMu.Lock()
+	if len(m.ipswEntries) > 0 && time.Since(m.ipswFetched) < ipswCacheTTL {
+		entries, fetched = m.ipswEntries, m.ipswFetched
+		m.ipswMu.Unlock()
+		return entries, fetched, nil
+	}
+	fl := m.ipswFlight
+	if fl == nil {
+		fetch := m.ipswFetch
+		if fetch == nil {
+			fetch = fetchIPSWFeed
+		}
+		fl = &ipswFlight{done: make(chan struct{})}
+		m.ipswFlight = fl
+		go m.runIPSWFetch(fl, fetch)
+	}
+	m.ipswMu.Unlock()
+
+	var waitErr error
+	select {
+	case <-fl.done:
+	case <-ctx.Done():
+		waitErr = ctx.Err()
+	}
+	m.ipswMu.Lock()
+	defer m.ipswMu.Unlock()
+	if waitErr == nil {
+		waitErr = fl.err
+	}
+	return m.ipswEntries, m.ipswFetched, waitErr
+}
+
+// prefetchIPSW warms the list in the background. It runs on a first run, where
+// the Setup Wizard is about to ask for it; an established install only fetches
+// when someone opens a picker.
+func (m *Manager) prefetchIPSW() {
+	ctx, cancel := context.WithTimeout(context.Background(), ipswFetchTimeout+time.Minute)
+	defer cancel()
+	m.ipswSources(ctx)
 }
 
 // handleIPSWSources serves GET /api/ipsw/sources.
@@ -63,7 +167,10 @@ func (m *Manager) handleIPSWSources(w http.ResponseWriter, r *http.Request) {
 	if !fetched.IsZero() {
 		resp["fetchedAt"] = fetched
 	}
-	if err != nil {
+	switch {
+	case errors.Is(err, context.DeadlineExceeded):
+		resp["error"] = "The macOS list is still downloading on a slow connection. Try again in a minute, or choose a file from this Mac."
+	case err != nil:
 		resp["error"] = "Could not load the macOS list from AppleDB: " + err.Error()
 	}
 	writeJSON(w, resp)

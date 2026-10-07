@@ -369,6 +369,32 @@
   .token-reveal { display: flex; align-items: center; gap: 10px; margin-top: 12px; padding: 10px 12px; background: var(--code-bg); border: 1px solid var(--border); border-radius: var(--radius); }
   .token-reveal code { flex: 1; min-width: 0; overflow-wrap: anywhere; user-select: all; font-size: 13px; }
   .token-reveal.hidden { display: none; }
+  #agentTokenList:not(:empty) { margin-top: 10px; }
+  /* Multi-select dropdown (checkbox list under a select-looking button) */
+  .multi-select { position: relative; }
+  .multi-select-btn,
+  .multi-select-btn:hover:not(:disabled) {
+    display: block; width: 100%; text-align: left; font-weight: 400; box-shadow: none; filter: none;
+    background-color: var(--input-bg); color: var(--text); border: 1px solid var(--border); border-radius: 6px;
+    padding: 9px 36px 9px 13px; font-size: 14.5px; min-height: 40px;
+    background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='14' height='14' viewBox='0 0 24 24' fill='none' stroke='%23a1a1aa' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='m6 9 6 6 6-6'/%3E%3C/svg%3E");
+    background-repeat: no-repeat; background-position: right 10px center;
+  }
+  .multi-select-btn:focus-visible, .multi-select.open .multi-select-btn { border-color: var(--accent); box-shadow: 0 0 0 2px var(--ring-focus); }
+  .multi-select-btn .placeholder { color: var(--muted); }
+  .multi-select-list {
+    display: none; position: absolute; top: calc(100% + 4px); left: 0; right: 0; z-index: 20;
+    max-height: 260px; overflow-y: auto; padding: 4px;
+    background: var(--panel); border: 1px solid var(--border); border-radius: 7px; box-shadow: 0 6px 16px rgba(0, 0, 0, 0.18);
+  }
+  .multi-select.open .multi-select-list { display: block; }
+  .multi-select-item { display: flex; align-items: center; gap: 10px; padding: 7px 10px; border-radius: 5px; cursor: pointer; font-weight: 400; }
+  .multi-select-item:hover { background: var(--btn-ghost-hover); }
+  .multi-select-item .grow { flex: 1; min-width: 0; overflow-wrap: anywhere; }
+  .multi-select-item .muted, .multi-select-empty { font-size: 13px; }
+  .multi-select-empty { padding: 7px 10px; }
+  .agent-token { display: flex; align-items: center; gap: 10px; padding: 6px 0; }
+  .agent-token .grow { flex: 1; min-width: 0; overflow-wrap: anywhere; }
   .sec-sub { margin: 20px 0 10px; font-size: 13px; font-weight: 600; color: var(--muted); }
   .dot { width: 8px; height: 8px; border-radius: 50%; display: inline-block; }
   .dot.ok { background: var(--green); } .dot.bad { background: var(--red); }
@@ -555,6 +581,7 @@
   .tags .tag { margin-left: 0; white-space: nowrap; }
   .pill { font-size: 13px; font-weight: 500; padding: 3px 11px; border-radius: 9999px; border: 1px solid var(--border); color: var(--muted); }
   .pill.scheduler { color: var(--accent); background: rgba(59, 130, 246, 0.1); border-color: rgba(59, 130, 246, 0.25); }
+  .pill.agent { color: var(--green, #22c55e); background: rgba(34, 197, 94, 0.1); border-color: rgba(34, 197, 94, 0.25); }
   .pill.manual { color: var(--amber); background: rgba(245, 158, 11, 0.1); border-color: rgba(245, 158, 11, 0.25); }
   .readiness-pill { display: inline-block; font-size: 12px; font-weight: 500; padding: 3px 9px; border-radius: 5px; margin: 0 5px 5px 0; border: 1px solid var(--border); background: var(--panel2); color: var(--muted); }
   .readiness-pill.readiness-ok { color: var(--green); border-color: rgba(16, 185, 129, 0.35); background: rgba(16, 185, 129, 0.08); }
@@ -674,6 +701,7 @@
   /* !important: buttons and .progress-spinner set their own display. */
   .hidden { display: none !important; }
   .jamf-off { display: none !important; }
+  .agent-off { display: none !important; }
   /* Keep scrolling inside an open window from also scrolling the page behind it. */
   body:has(.modal:not(.hidden)) { overflow: hidden; }
   .modal-content, .modal-scroll, #vmInfoModalBody, #terminalConsole { overscroll-behavior: contain; }
@@ -809,7 +837,6 @@
         <div style="display:flex;align-items:center;gap:10px">
           <button id="pullOciBtn" class="ghost" onclick="openPullOciModal()">⇩ Pull OCI Image</button>
           <span id="pullProgress" class="progress-spinner hidden"><span class="spinner-dot"></span><span id="pullProgressText">Pulling...</span></span>
-          <button id="pullShowLogs" class="ghost" onclick="showTab('logs'); scrollToPanel('panel-activity');" style="font-size:12px">Show logs</button>
           <button id="pullCancel" class="danger ghost hidden" onclick="cancelPullTask()" style="font-size:12px">Cancel</button>
         </div>
       </div>
@@ -1061,7 +1088,7 @@
       <ol class="muted" style="margin: 0 0 10px 0; padding-left: 20px;">
         <li>Start the VM.</li>
         <li>Either use <b>⋯ → Install Agent</b> on the Dashboard (over SSH), or in the VM open <b>Finder → My Shared Files → host_resources → tart-guest-agent</b> and double-click the package (or "Install Tart Guest Agent.command").</li>
-        <li>The agent starts automatically when a user is logged in; the Agent dot in the Access column turns green after the next check (Refresh info).</li>
+        <li>The agent starts at boot, so commands work before anyone logs in. The Agent dot in the Access column turns green after the next check (Refresh info). A VM that already has an older agent keeps starting it at login until you use <b>Install Agent</b> again.</li>
         <li><b>Tip:</b> install it once on a base VM, then clone.</li>
       </ol>
     </div>
@@ -1150,6 +1177,31 @@
       </div>
     </div>
 
+    <div class="panel" id="panel-agent-access">
+      <h2>Agentic AI access</h2>
+      <div class="grid">
+        <div class="field"><label>&nbsp;</label><label class="radio"><span class="toggle"><input type="checkbox" id="agentEnabled"><span class="slider"></span></span><span>Allow AI agents to lease VMs<button type="button" class="help-tip" data-help="Agents clone the templates below and get a temporary VM that is deleted when its lease ends. They sign in with their own tokens, which cannot reach the rest of the dashboard." aria-label="About agent access" aria-expanded="false">?</button></span></label></div>
+        <div class="field"><label for="agentMaxTtlMin">Longest lease (min)</label><input type="number" id="agentMaxTtlMin" min="1" max="1440"></div>
+        <div class="field" style="grid-column: 1 / -1;">
+          <label id="agentTemplatesLabel">Agent templates<button type="button" class="help-tip" data-help="Only these VMs can be cloned by an agent. Pick stopped VMs that have the Tart guest agent installed." aria-label="About agent templates" aria-expanded="false">?</button></label>
+          <div class="multi-select" id="agentTemplates">
+            <button type="button" class="multi-select-btn" id="agentTemplatesBtn" aria-haspopup="true" aria-expanded="false" aria-labelledby="agentTemplatesLabel"><span id="agentTemplatesText"></span></button>
+            <div class="multi-select-list" id="agentTemplatesList"></div>
+          </div>
+        </div>
+      </div>
+      <div class="muted" id="agentTokensInfo"></div>
+      <div class="actions">
+        <input type="text" id="agentTokenName" placeholder="Token name, e.g. claude" maxlength="40" autocomplete="off" style="max-width: 260px;">
+        <button id="agentTokenCreateBtn" class="ghost">Create agent token</button>
+      </div>
+      <div id="agentTokenReveal" class="token-reveal hidden">
+        <code id="agentTokenValue" class="mono"></code>
+        <button id="agentTokenCopyBtn" class="ghost">Copy</button>
+      </div>
+      <div id="agentTokenList"></div>
+    </div>
+
     <div class="panel" id="panel-server-settings">
       <h2>Server Settings</h2>
       <div class="grid">
@@ -1159,6 +1211,7 @@
         <div class="field"><label>History retention (days)</label><input type="number" id="historyDays" min="1"></div>
         <div class="field"><label>&nbsp;</label><label class="radio"><span class="toggle"><input type="checkbox" id="launchAtBoot"><span class="slider"></span></span> Launch at login</label><small id="launchAtBootStatus" class="muted"></small></div>
         <div class="field"><label>&nbsp;</label><label class="radio"><span class="toggle"><input type="checkbox" id="showJamfFeatures"><span class="slider"></span></span> Display Jamf-related features</label></div>
+        <div class="field"><label>&nbsp;</label><label class="radio"><span class="toggle"><input type="checkbox" id="showAgentFeatures"><span class="slider"></span></span> Display agentic AI features</label></div>
         <div class="field"><label>&nbsp;</label><label class="radio"><span class="toggle"><input type="checkbox" id="checkOvenUpdates"><span class="slider"></span></span> Check for Tart Oven updates</label></div>
       </div>
       <div class="sec-sub">Access token</div>
@@ -1466,6 +1519,24 @@
             </div>
           </div>
         </div>
+
+        <h4 style="margin: 22px 0 10px; font-size: 16px;">Extra features</h4>
+        <div style="background: var(--bg); border: 1px solid var(--border); border-radius: 8px; padding: 16px;">
+          <div style="display: flex; align-items: center; justify-content: space-between; gap: 12px; margin-bottom: 12px;">
+            <div>
+              <div style="font-weight: 600; font-size: 14px;">Jamf</div>
+              <div class="muted" style="font-size: 12.5px;">Enrollment helpers and shortcuts for Jamf Pro.</div>
+            </div>
+            <label class="radio" aria-label="Display Jamf-related features"><span class="toggle"><input type="checkbox" id="wizardShowJamf" onchange="onWizardFeatureChange()"><span class="slider"></span></span></label>
+          </div>
+          <div style="display: flex; align-items: center; justify-content: space-between; gap: 12px; padding-top: 12px; border-top: 1px solid var(--border);">
+            <div>
+              <div style="font-weight: 600; font-size: 14px;">Agentic AI</div>
+              <div class="muted" style="font-size: 12.5px;">Lets AI agents such as Claude Code lease temporary VMs.</div>
+            </div>
+            <label class="radio" aria-label="Display agentic AI features"><span class="toggle"><input type="checkbox" id="wizardShowAgent" onchange="onWizardFeatureChange()"><span class="slider"></span></span></label>
+          </div>
+        </div>
       </div>
 
       <!-- STEP 2: Storage and server address -->
@@ -1529,7 +1600,14 @@
         <div id="wizardIpswPanel" style="display: none;">
           <div class="field" style="margin-bottom: 12px;">
             <label for="wizardIpswSelect" style="font-size: 13px; font-weight: 600;">macOS version <span id="wizardIpswNote" style="color: var(--green); margin-left: 8px;"></span></label>
-            <select id="wizardIpswSelect" onchange="updateWizardIpswNote()"><option value="">Loading…</option></select>
+            <select id="wizardIpswSelect" onchange="onWizardIpswSelect()"><option value="">Loading…</option></select>
+          </div>
+          <div class="field" style="margin-bottom: 12px;">
+            <label for="wizardIpswPath" style="font-size: 13px; font-weight: 600;">Or a file on this Mac</label>
+            <div style="display: flex; gap: 8px;">
+              <input type="text" id="wizardIpswPath" class="mono" style="flex: 1;" placeholder="/Users/you/Downloads/UniversalMac_….ipsw" spellcheck="false" oninput="onWizardIpswPath()">
+              <button type="button" id="wizardIpswBrowseBtn" class="ghost" onclick="browseWizardIpsw(this)">Browse…</button>
+            </div>
           </div>
           <div class="field" style="margin-bottom: 12px;">
             <label for="wizardIpswName" style="font-size: 13px; font-weight: 600;">VM name</label>
@@ -1591,9 +1669,13 @@
             <span class="muted" style="font-size: 13px;">Scheduler</span>
             <span id="wizardReviewScheduler" style="font-size: 13px; text-align: right;"></span>
           </div>
-          <div style="display: flex; justify-content: space-between; gap: 16px;">
+          <div style="display: flex; justify-content: space-between; gap: 16px; margin-bottom: 8px;">
             <span class="muted" style="font-size: 13px;">Scheduled VM display</span>
             <span id="wizardReviewGraphics" style="font-size: 13px; text-align: right;"></span>
+          </div>
+          <div style="display: flex; justify-content: space-between; gap: 16px;">
+            <span class="muted" style="font-size: 13px;">Extra features</span>
+            <span id="wizardReviewFeatures" style="font-size: 13px; text-align: right;"></span>
           </div>
         </div>
 
@@ -2092,8 +2174,12 @@ function fillConfig(c) {
   chk("sshFallbackEnabled", c.sshFallbackEnabled !== false);
   chk("prioritizeSshShutdown", c.prioritizeSshShutdown);
   chk("showJamfFeatures", c.showJamfFeatures);
+  chk("showAgentFeatures", c.showAgentFeatures);
   chk("checkTartUpdates", !c.disableTartUpdateCheck);
   chk("checkOvenUpdates", !c.disableOvenUpdateCheck);
+  chk("agentEnabled", c.agentEnabled);
+  setAgentTemplates(c.agentTemplates || []);
+  set("agentMaxTtlMin", c.agentMaxTtlMin || 480);
   renderJamfProfiles();
   configLoaded = true;
   markConfigClean();
@@ -2124,8 +2210,12 @@ function readConfig() {
     sshFallbackEnabled: chk("sshFallbackEnabled"),
     prioritizeSshShutdown: chk("prioritizeSshShutdown"),
     showJamfFeatures: chk("showJamfFeatures"),
+    showAgentFeatures: chk("showAgentFeatures"),
     disableTartUpdateCheck: !chk("checkTartUpdates"),
     disableOvenUpdateCheck: !chk("checkOvenUpdates"),
+    agentEnabled: chk("agentEnabled"),
+    agentTemplates: agentTemplatesSelected.slice(),
+    agentMaxTtlMin: num("agentMaxTtlMin"),
     statusCommand: str("statusCommand"), runArgs: str("runArgs"), bootTimeoutSec: num("bootTimeoutSec"), netPriority: str("netPriority"),
     serverLabel: str("serverLabel"), logPath: str("logPath"),
     tlsEnabled: chk("tlsEnabled"), tlsCertPath: str("tlsCertPath"), tlsKeyPath: str("tlsKeyPath")
@@ -2678,6 +2768,12 @@ function applyJamfVisibility(enabled) {
   }
 }
 
+// The Agentic AI access panel is opt-in, like the Jamf features.
+function applyAgentVisibility(enabled) {
+  const panel = document.getElementById("panel-agent-access");
+  if (panel) panel.classList.toggle("agent-off", !enabled);
+}
+
 function applySSHFallbackVisibility(enabled) {
   const guide = document.getElementById("sshGuidePanel");
   if (guide) guide.style.display = enabled ? "" : "none";
@@ -2731,6 +2827,7 @@ function render(state) {
   // leaving instructions on screen for a path that can no longer run.
   applySSHFallbackVisibility(state.config.sshFallbackEnabled !== false);
   applyJamfVisibility(state.config.showJamfFeatures === true);
+  applyAgentVisibility(state.config.showAgentFeatures === true);
   applyProvisioningAvailability(!!state.supportsProvisioning);
 
   document.getElementById("tartBanner").style.display = state.tartInstalled ? "none" : "flex";
@@ -3040,13 +3137,62 @@ async function startWizardPull() {
   updateWizardReview();
 }
 
-async function startWizardIpsw() {
+// The restore image to build from: a file typed or browsed to wins over the
+// list, so it works while the online list is still loading (or can't load).
+function wizardIpswSource() {
+  const pathEl = document.getElementById("wizardIpswPath");
+  const path = pathEl ? pathEl.value.trim() : "";
+  if (path) return { value: path, label: path.split("/").pop() || path, local: !/^https?:\/\//i.test(path) };
   const sel = document.getElementById("wizardIpswSelect");
+  const value = sel ? sel.value : "";
+  const opt = sel && sel.options ? sel.options[sel.selectedIndex] : null;
+  return { value, label: (opt ? opt.textContent : "macOS").replace(/ · ✓ Downloaded$/, ""), local: false };
+}
+function updateWizardIpswAction() {
+  const btn = document.getElementById("wizardIpswBtn");
+  if (btn) btn.textContent = wizardIpswSource().local ? "Create VM from file" : "Download and create VM";
+}
+// Choosing a version clears the file box, and typing a file clears the version.
+function onWizardIpswSelect() {
+  const pathEl = document.getElementById("wizardIpswPath");
+  const sel = document.getElementById("wizardIpswSelect");
+  if (pathEl && sel && sel.value) pathEl.value = "";
+  updateWizardIpswNote();
+  updateWizardIpswAction();
+}
+function onWizardIpswPath() {
+  const pathEl = document.getElementById("wizardIpswPath");
+  const sel = document.getElementById("wizardIpswSelect");
+  if (pathEl && sel && pathEl.value.trim()) sel.value = "";
+  updateWizardIpswNote();
+  updateWizardIpswAction();
+}
+// The Finder window opens on this Mac, so Browse only works from its own screen.
+async function browseWizardIpsw(btn) {
+  const idle = btn.textContent;
+  btn.disabled = true;
+  btn.textContent = "Waiting for Finder…";
+  try {
+    const res = await api("/api/ipsw/choose-file", { method: "POST" });
+    const d = await res.json();
+    if (d.error) toast("Browse", d.error, "bad");
+    else if (d.path) {
+      document.getElementById("wizardIpswPath").value = d.path;
+      onWizardIpswPath();
+    }
+  } catch (err) {
+    toast("Browse", err.message, "bad");
+  } finally {
+    btn.disabled = false;
+    btn.textContent = idle;
+  }
+}
+
+async function startWizardIpsw() {
   const nameEl = document.getElementById("wizardIpswName");
-  const url = sel ? sel.value : "";
+  const { value: url, label } = wizardIpswSource();
   const statusEl = document.getElementById("wizardPullStatus");
-  if (!url) { toast("Build from IPSW", "Choose a macOS version first.", "bad"); return; }
-  const label = (sel.options[sel.selectedIndex] ? sel.options[sel.selectedIndex].textContent : "macOS").replace(/ · ✓ Downloaded$/, "");
+  if (!url) { toast("Build from IPSW", "Choose a macOS version or an IPSW file first.", "bad"); return; }
   try {
     const res = await api("/api/vm/create", {
       method: "POST",
@@ -3081,6 +3227,38 @@ function selectWizardRole(role) {
   updateWizardReview();
 }
 
+// ---- Step 1: extra features (Jamf, agentic AI). Opt-in, like their toggles in
+// Server Settings; only applied on completion, and only if the user touched them.
+let wizardFeaturesTouched = false;
+function wizardFeatureFields() {
+  return [
+    { id: "wizardShowJamf", key: "showJamfFeatures", label: "Jamf" },
+    { id: "wizardShowAgent", key: "showAgentFeatures", label: "Agentic AI" },
+  ];
+}
+// What the wizard's toggles say now, keyed by config field.
+function wizardFeatureValues() {
+  const out = {};
+  for (const f of wizardFeatureFields()) {
+    const el = document.getElementById(f.id);
+    out[f.key] = !!(el && el.checked);
+  }
+  return out;
+}
+// Start the toggles from the saved configuration.
+function fillWizardFeatures() {
+  const cfg = (typeof latest !== "undefined" && latest && latest.config) || {};
+  for (const f of wizardFeatureFields()) {
+    const el = document.getElementById(f.id);
+    if (el) el.checked = cfg[f.key] === true;
+  }
+  wizardFeaturesTouched = false;
+}
+function onWizardFeatureChange() {
+  wizardFeaturesTouched = true;
+  updateWizardReview();
+}
+
 function updateWizardReview() {
   const text = (id, value) => { const el = document.getElementById(id); if (el) el.textContent = value; };
   const l = (typeof latest !== "undefined" && latest) ? latest : {};
@@ -3094,6 +3272,9 @@ function updateWizardReview() {
   text("wizardReviewSource", wizardStarted || "Not started");
   const cloneBtn = document.getElementById("wizardCloneBtn");
   if (cloneBtn && cloneBtn.style) cloneBtn.style.display = wizardSource === "ipsw" && wizardStarted ? "none" : "";
+  const featureState = wizardFeaturesTouched ? wizardFeatureValues() : (l.config || {});
+  const features = wizardFeatureFields().filter(f => featureState[f.key] === true).map(f => f.label);
+  text("wizardReviewFeatures", features.length ? features.join(", ") : "None");
   const role = WIZARD_ROLES[selectedWizardRole];
   if (wizardRoleChosen && role) {
     text("wizardReviewRole", role.title);
@@ -3128,6 +3309,7 @@ function openOnboardingWizard(step) {
   if (step === undefined) step = 1;
   const modal = document.getElementById("onboardingModal");
   if (modal) modal.classList.remove("hidden");
+  fillWizardFeatures();
   fixWizardHeight();
   const saved = (typeof latest !== "undefined" && latest && latest.config && latest.config.operatorRole) || "";
   if (WIZARD_ROLES[saved]) {
@@ -3155,6 +3337,8 @@ async function closeOnboardingWizard(markComplete) {
         noAudio: role.noAudio,
       });
     }
+    const featureBody = wizardFeaturesTouched ? wizardFeatureValues() : null;
+    if (featureBody) Object.assign(body, featureBody);
     try {
       if (typeof latest !== "undefined" && latest && latest.config) {
         Object.assign(latest.config, body);
@@ -3164,13 +3348,24 @@ async function closeOnboardingWizard(markComplete) {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(body)
       });
-      if (res.ok && "noGraphics" in body) {
+      if (res.ok && ("noGraphics" in body || featureBody)) {
         // Keep the Configuration form in step unless it has edits of its own.
         const clean = !isConfigDirty();
-        const ng = document.getElementById("noGraphics");
-        const na = document.getElementById("noAudio");
-        if (ng) ng.checked = body.noGraphics;
-        if (na) na.checked = body.noAudio;
+        if ("noGraphics" in body) {
+          const ng = document.getElementById("noGraphics");
+          const na = document.getElementById("noAudio");
+          if (ng) ng.checked = body.noGraphics;
+          if (na) na.checked = body.noAudio;
+        }
+        if (featureBody) {
+          for (const f of wizardFeatureFields()) {
+            const box = document.getElementById(f.key);
+            if (box) box.checked = featureBody[f.key];
+          }
+          applyJamfVisibility(featureBody.showJamfFeatures);
+          applyAgentVisibility(featureBody.showAgentFeatures);
+          wizardFeaturesTouched = false;
+        }
         if (clean) markConfigClean();
       }
     } catch (err) {
@@ -3505,12 +3700,14 @@ function renderTable(vms) {
     const tagList = [];
     if (vm.template) tagList.push('<span class="tag">TEMPLATE</span>');
     if (vm.excluded) tagList.push('<span class="tag">excluded</span>');
+    if (vm.lease) tagList.push('<span class="tag" title="' + esc("Agent VM, owner " + vm.lease.owner) + '">agent</span>');
     if (vm.bootFailed) tagList.push('<button class="tag warn tag-clear" title="Clear boot failure status" onclick="clearBootFailure(\'' + n + '\')">boot failure ✕</button>');
     const userTags = tagsHtml(vm);
     const allTags = tagList.join("") + userTags;
     const tags = allTags ? '<div class="tags">' + allTags + '</div>' : "";
     const busy = vm.busy ? " disabled" : "";
-    const rem = (vm.state === "running" && !latest.config.paused) ? fmtRemaining(vm.stopAt) : "—";
+    const stopAt = vm.lease ? vm.lease.expiresAt : vm.stopAt;
+    const rem = (vm.state === "running" && (vm.lease || !latest.config.paused)) ? fmtRemaining(stopAt) : "—";
     const ip = vm.ip ? '<span class="ip">' + esc(vm.ip) + '</span>' : '<span class="muted">—</span>';
     const notRunning = vm.state !== "running" ? " disabled" : "";
     const stopDisabled = busy;
@@ -3525,7 +3722,7 @@ function renderTable(vms) {
       '<td class="info">' + infoCell(vm) + '</td>' +
       '<td class="mdm">' + mdmCell(vm) + '</td>' +
       '<td class="muted" title="' + esc(fmtDateTime(vm.lastRun)) + '">' + fmtAgo(vm.lastRun) + '</td>' +
-      '<td class="mono" data-stop="' + (vm.stopAt || "") + '" data-state="' + vm.state + '">' + rem + '</td>' +
+      '<td class="mono" data-stop="' + (stopAt || "") + '" data-state="' + vm.state + '">' + rem + '</td>' +
       '<td class="acts"><div class="row-actions">' +
         '<button onclick="act(\'run\',\'' + n + '\')"' + busy + '>Run</button>' +
         '<button class="danger" onclick="act(\'stop\',\'' + n + '\')"' + stopDisabled + '>Stop</button>' +
@@ -3818,8 +4015,9 @@ function renderVmInfoModalBody() {
   const overview = [
     row("Name", esc(vm.name)),
     row("State", esc(vm.state)),
-    row("Role", vm.template ? "Template" : (vm.excluded ? "Excluded from scheduler" : "Standard")),
+    row("Role", vm.lease ? "Agent VM (" + esc(vm.lease.owner) + ")" : (vm.template ? "Template" : (vm.excluded ? "Excluded from scheduler" : "Standard"))),
   ];
+  if (vm.lease) overview.push(row("Lease expires", when(vm.lease.expiresAt)));
   if (vm.source) overview.push(row("Source", esc(vm.source)));
   overview.push(row("IP", esc(vm.ip || "—")));
   if (vm.bootFailed) overview.push(row("Boot failure", "Yes" + (vm.lastError ? " — " + esc(vm.lastError) : "")));
@@ -3853,6 +4051,7 @@ function renderVmInfoModalBody() {
   const sshOff = latest && latest.config && latest.config.sshFallbackEnabled === false;
   const ssh = sshOff ? "Off (SSH fallback disabled)" : lastKnown(vm.sshOk, vm.sshCheckedAt, "OK", "KO");
   const agent = lastKnown(vm.agentOk, vm.agentCheckedAt, "Responding", "Not responding");
+  const agentStarts = vm.agentMode === "boot" ? "At boot, before anyone logs in" : vm.agentMode === "login" ? "At login" : "";
   const sshUser = vm.sshUser ? esc(vm.sshUser) : esc((latest.config && latest.config.sshUser) || "admin") + " (default)";
   let mdm = "Not checked yet";
   if (set(vm.mdmCheckedAt)) {
@@ -3866,7 +4065,7 @@ function renderVmInfoModalBody() {
   document.getElementById("vmInfoModalBody").innerHTML =
     section("Overview", overview) +
     section("Hardware", hardware) +
-    section("Guest", [row("SSH", ssh), row("Guest agent", agent), row("SSH user", sshUser), row("MDM", mdm), block("Last Info output", info)]) +
+    section("Guest", [row("SSH", ssh), row("Guest agent", agent)].concat(agentStarts ? [row("Agent starts", agentStarts)] : [], [row("SSH user", sshUser), row("MDM", mdm), block("Last Info output", info)])) +
     section("Notes &amp; tags", [
       row("Tags", tagsHtml(vm) || "—"),
       block("Notes", vm.notes ? '<pre class="kv-pre">' + esc(vm.notes) + '</pre>' : '<span class="kv-val">—</span>'),
@@ -4347,7 +4546,9 @@ function renderHistory() {
   const tb = document.getElementById("histRows");
   if (!rows.length) { tb.innerHTML = '<tr><td colspan="5" class="muted">no matching runs</td></tr>'; return; }
   tb.innerHTML = rows.map(e => {
-    const trig = e.trigger === "scheduler" ? '<span class="pill scheduler">scheduler</span>' : '<span class="pill manual">manual</span>';
+    const trig = e.trigger === "scheduler" ? '<span class="pill scheduler">scheduler</span>'
+      : e.trigger === "agent" ? '<span class="pill agent">agent</span>'
+      : '<span class="pill manual">manual</span>';
     const ip = e.ip ? '<span class="ip">' + esc(e.ip) + '</span>' : '<span class="muted">—</span>';
     return '<tr>' +
       '<td class="mono">' + esc(fmtDateTime(e.startedAt)) + '</td>' +
@@ -4377,6 +4578,7 @@ function fillOne(id, vms, opts) {
 }
 function fillMgmtSelects(vms) {
   fillOne("cloneSource", vms, { preferTemplate: true });
+  renderAgentTemplates(vms);
   const local = vms.filter(v => !isOCI(v.source));
   const running = local.filter(v => v.state === "running");
   fillOne("mdmTarget", running);
@@ -4712,7 +4914,8 @@ async function loadSecurity() {
   if (!status) return;
   try {
     const st = await (await fetch("/api/auth/status")).json();
-    status.textContent = st.enabled ? "A token is required to use this dashboard." : "No token set. Anyone who can reach this server can use it.";
+    status.textContent = st.enabled ? "" : "No token set. Anyone who can reach this server can use it.";
+    status.style.display = st.enabled ? "none" : "";
     document.getElementById("authGenerateBtn").textContent = st.enabled ? "Rotate token" : "Generate token";
     document.getElementById("authRevokeBtn").classList.toggle("hidden", !st.enabled);
     document.getElementById("authLogoutBtn").classList.toggle("hidden", !st.enabled);
@@ -4722,6 +4925,7 @@ async function loadSecurity() {
     if (st.exposed && !st.tls) msgs.push(st.enabled ? "Traffic, including the token, is not encrypted. Turn on HTTPS." : "Traffic is not encrypted.");
     warn.textContent = msgs.join(" ");
     warn.classList.toggle("hidden", msgs.length === 0);
+    loadAgentTokens(st.enabled);
   } catch (e) { /* the login prompt covers auth failures */ }
   try {
     const t = await (await fetch("/api/tls")).json();
@@ -4735,6 +4939,107 @@ async function loadSecurity() {
     info.textContent = bits.join(" · ");
   } catch (e) { /* needs sign-in */ }
 }
+// ---- Agent templates: a dropdown of existing VMs, several can be ticked ----
+let agentTemplatesSelected = [];
+let agentTemplatesKey = "";
+// The VMs an agent could clone: everything except agent VMs themselves. A saved
+// name whose VM is gone stays listed (flagged) so it can be unticked.
+function agentTemplateChoices(vms, selected) {
+  const rows = (vms || []).filter(v => !v.lease).map(v => ({
+    name: v.name,
+    note: [v.template ? "template" : "", isOCI(v.source) ? "OCI image" : "", v.state === "running" ? "running" : ""].filter(Boolean).join(", ")
+  }));
+  const known = new Set(rows.map(r => r.name));
+  (selected || []).forEach(n => { if (!known.has(n)) rows.push({ name: n, note: "not found" }); });
+  return rows.sort((a, b) => a.name.localeCompare(b.name));
+}
+function agentTemplatesSummary(selected) {
+  if (!selected.length) return "";
+  return selected.length <= 2 ? selected.join(", ") : selected.length + " VMs selected";
+}
+function renderAgentTemplates(vms, force) {
+  const list = document.getElementById("agentTemplatesList");
+  const text = document.getElementById("agentTemplatesText");
+  if (!list || !text) return;
+  const choices = agentTemplateChoices(vms, agentTemplatesSelected);
+  const key = JSON.stringify(choices);
+  if (force || key !== agentTemplatesKey) { // the list is rebuilt only when it changed, so an open menu isn't disturbed
+    agentTemplatesKey = key;
+    list.innerHTML = choices.length ? choices.map(c =>
+      '<label class="multi-select-item"><input type="checkbox" value="' + esc(c.name) + '"' + (agentTemplatesSelected.includes(c.name) ? " checked" : "") + '>' +
+      '<span class="grow">' + esc(c.name) + '</span>' + (c.note ? '<span class="muted">' + esc(c.note) + '</span>' : "") + '</label>').join("")
+      : '<div class="muted multi-select-empty">No VMs yet.</div>';
+  }
+  const summary = agentTemplatesSummary(agentTemplatesSelected);
+  text.textContent = summary || "Select VMs…";
+  text.className = summary ? "" : "placeholder";
+}
+function setAgentTemplates(names) {
+  agentTemplatesSelected = Array.from(new Set(names)).sort();
+  renderAgentTemplates((latest && latest.vms) || [], true);
+}
+function closeAgentTemplates() {
+  const box = document.getElementById("agentTemplates");
+  if (box) box.classList.remove("open");
+  const btn = document.getElementById("agentTemplatesBtn");
+  if (btn) btn.setAttribute("aria-expanded", "false");
+}
+el("agentTemplatesBtn").onclick = (ev) => {
+  ev.stopPropagation();
+  const open = !document.getElementById("agentTemplates").classList.contains("open");
+  closeAgentTemplates();
+  if (open) {
+    document.getElementById("agentTemplates").classList.add("open");
+    ev.currentTarget.setAttribute("aria-expanded", "true");
+  }
+};
+el("agentTemplatesList").addEventListener("change", () => {
+  agentTemplatesSelected = Array.from(document.querySelectorAll("#agentTemplatesList input:checked")).map(i => i.value).sort();
+  renderAgentTemplates((latest && latest.vms) || []);
+});
+document.addEventListener("click", (ev) => { if (!ev.target.closest("#agentTemplates")) closeAgentTemplates(); });
+document.addEventListener("keydown", (ev) => { if (ev.key === "Escape") closeAgentTemplates(); });
+
+async function loadAgentTokens(authEnabled) {
+  const list = document.getElementById("agentTokenList");
+  if (!list) return;
+  document.getElementById("agentTokenName").disabled = !authEnabled;
+  document.getElementById("agentTokenCreateBtn").disabled = !authEnabled;
+  document.getElementById("agentTokensInfo").textContent = authEnabled ? "" : "Generate an access token first. Agent tokens only limit access when a login is required.";
+  if (!authEnabled) { list.innerHTML = ""; return; }
+  try {
+    const res = await api("/api/auth/agent-tokens");
+    const data = await res.json();
+    list.innerHTML = (data.tokens || []).map(t =>
+      '<div class="agent-token"><span class="grow"><b>' + esc(t.name) + '</b> <span class="muted">created ' + esc(fmtDateTime(t.createdAt)) + '</span></span>' +
+      '<button class="ghost" data-revoke="' + esc(t.id) + '" data-name="' + esc(t.name) + '">Revoke</button></div>').join("");
+  } catch (e) { /* needs sign-in */ }
+}
+el("agentTokenCreateBtn").onclick = async () => {
+  const name = document.getElementById("agentTokenName").value.trim();
+  if (!name) { toast("Agent token", "Enter a name for the token.", "bad"); return; }
+  const res = await api("/api/auth/agent-tokens", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ name }) });
+  if (!res.ok) { toast("Agent token", await res.text(), "bad"); return; }
+  const { token } = await res.json();
+  document.getElementById("agentTokenValue").textContent = token;
+  document.getElementById("agentTokenReveal").classList.remove("hidden");
+  document.getElementById("agentTokenName").value = "";
+  loadAgentTokens(true);
+};
+el("agentTokenCopyBtn").onclick = async () => {
+  const tok = document.getElementById("agentTokenValue").textContent;
+  try { await navigator.clipboard.writeText(tok); toast("Agent token", "Copied to the clipboard.", "ok"); }
+  catch (e) { toast("Agent token", "Copy failed; select the text and copy it manually.", "bad"); }
+};
+el("agentTokenList").addEventListener("click", async (ev) => {
+  const b = ev.target.closest("button[data-revoke]");
+  if (!b) return;
+  if (!confirm("Revoke the agent token \"" + b.dataset.name + "\"? Agents using it lose access at once.")) return;
+  const res = await api("/api/auth/agent-tokens/" + encodeURIComponent(b.dataset.revoke), { method: "DELETE" });
+  if (!res.ok) { toast("Agent token", await res.text(), "bad"); return; }
+  document.getElementById("agentTokenReveal").classList.add("hidden");
+  loadAgentTokens(true);
+});
 async function generateToken() {
   const rotating = document.getElementById("authGenerateBtn").textContent.startsWith("Rotate");
   if (rotating && !confirm("Rotate the access token? The current token and every signed-in browser stop working.")) return;
@@ -4754,7 +5059,11 @@ el("authCopyBtn").onclick = async () => {
 el("authRevokeBtn").onclick = async () => {
   if (!confirm("Remove the access token? The dashboard will no longer ask for a login.")) return;
   const res = await api("/api/auth/revoke", { method: "POST" });
-  if (res.ok) { document.getElementById("authTokenReveal").classList.add("hidden"); loadSecurity(); }
+  if (res.ok) {
+    document.getElementById("authTokenReveal").classList.add("hidden");
+    document.getElementById("agentTokenReveal").classList.add("hidden");
+    loadSecurity();
+  }
 };
 el("authLogoutBtn").onclick = async () => {
   await fetch("/api/auth/logout", { method: "POST" });

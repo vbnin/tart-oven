@@ -33,6 +33,7 @@ func (m *Manager) load() {
 		Config struct {
 			ExcludeOCIFromScheduler *bool `json:"excludeOciFromScheduler"`
 			SSHFallbackEnabled      *bool `json:"sshFallbackEnabled"`
+			ShowAgentFeatures       *bool `json:"showAgentFeatures"`
 		} `json:"config"`
 	}
 	if err := json.Unmarshal(data, &presence); err == nil {
@@ -41,6 +42,12 @@ func (m *Manager) load() {
 		}
 		if presence.Config.SSHFallbackEnabled == nil {
 			m.cfg.SSHFallbackEnabled = d.SSHFallbackEnabled
+		}
+		// A state file from before the toggle existed, with agent access already
+		// on, keeps its panel visible; otherwise the feature would vanish from
+		// the UI while still running.
+		if presence.Config.ShowAgentFeatures == nil && m.cfg.AgentEnabled {
+			m.cfg.ShowAgentFeatures = true
 		}
 	}
 	if m.cfg.Listen == "" {
@@ -91,6 +98,12 @@ func (m *Manager) load() {
 	}
 	if m.cfg.Excluded == nil {
 		m.cfg.Excluded = []string{}
+	}
+	if m.cfg.AgentTemplates == nil {
+		m.cfg.AgentTemplates = []string{}
+	}
+	if m.cfg.AgentMaxTTLMin < 1 {
+		m.cfg.AgentMaxTTLMin = d.AgentMaxTTLMin
 	}
 	if m.cfg.HistoryDays < 1 {
 		m.cfg.HistoryDays = d.HistoryDays

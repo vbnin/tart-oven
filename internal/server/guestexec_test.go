@@ -2,6 +2,9 @@ package server
 
 import (
 	"context"
+	"os"
+	"os/exec"
+	"path/filepath"
 	"strings"
 	"testing"
 )
@@ -75,5 +78,129 @@ func TestExecViaAgentIncludesMinusIWhenSudoPasswordGiven(t *testing.T) {
 				t.Errorf("did not expect -i, got %v", args)
 			}
 		})
+	}
+}
+
+func TestAgentExecArgsPassUserAndCommandAsArguments(t *testing.T) {
+	cmd := "echo 'it''s' \"quoted\"; cat <<EOF\nx\nEOF"
+	args := agentExecArgs("vm-1", "builder", cmd, false)
+	want := []string{"exec", "vm-1", "/bin/sh", "-c", guestRunAsScript, "tart-oven", "builder", cmd}
+	if strings.Join(args, "\x00") != strings.Join(want, "\x00") {
+		t.Fatalf("args = %q\nwant   %q", args, want)
+	}
+	withStdin := agentExecArgs("vm-1", "builder", "true", true)
+	if withStdin[0] != "exec" || withStdin[1] != "-i" || withStdin[2] != "vm-1" {
+		t.Fatalf("-i must follow exec and precede the VM name: %q", withStdin)
+	}
+}
+
+// runAsHarness runs guestRunAsScript under /bin/sh with stand-ins for the
+// system tools it calls, so every branch can be checked without a guest.
+func runAsHarness(t *testing.T, euid string, userExists bool, consoleUser, user, command string) (stdout string, calls string) {
+	t.Helper()
+	// Not t.TempDir(): its path contains the subtest name, and the path is
+	// substituted into shell text here.
+	dir, err := os.MkdirTemp("", "runas")
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { os.RemoveAll(dir) })
+	log := filepath.Join(dir, "calls")
+	stub := func(name, body string) {
+		if err := os.WriteFile(filepath.Join(dir, name), []byte("#!/bin/sh\n"+body), 0o755); err != nil {
+			t.Fatal(err)
+		}
+	}
+	exists := "exit 1"
+	if userExists {
+		exists = "echo 501"
+	}
+	stub("id", `if [ -z "$2" ]; then echo "`+euid+`"; else `+exists+`; fi`)
+	stub("stat", `echo "`+consoleUser+`"`)
+	stub("sudo", `echo "sudo $*" >> "`+log+`"`)
+	stub("launchctl", `echo "launchctl $*" >> "`+log+`"`)
+
+	script := strings.NewReplacer("/usr/bin/", dir+"/", "/bin/launchctl", dir+"/launchctl").Replace(guestRunAsScript)
+	out, err := exec.Command("/bin/sh", "-c", script, "tart-oven", user, command).Output()
+	if err != nil {
+		t.Fatalf("script failed: %v", err)
+	}
+	raw, _ := os.ReadFile(log)
+	return strings.TrimSpace(string(out)), strings.ReplaceAll(strings.TrimSpace(string(raw)), dir+"/", "")
+}
+
+func TestGuestRunAsScript(t *testing.T) {
+	const cmd = "echo ran-directly"
+	t.Run("root daemon, nobody logged in: sudo to the account", func(t *testing.T) {
+		out, calls := runAsHarness(t, "0", true, "loginwindow", "admin", cmd)
+		if calls != "sudo -n -u admin -H /bin/sh -c "+cmd || out != "" {
+			t.Fatalf("calls = %q out = %q", calls, out)
+		}
+	})
+	t.Run("root daemon, that account logged in: enter its GUI session", func(t *testing.T) {
+		_, calls := runAsHarness(t, "0", true, "admin", "admin", cmd)
+		if calls != "launchctl asuser 501 sudo -n -u admin -H /bin/sh -c "+cmd {
+			t.Fatalf("calls = %q", calls)
+		}
+	})
+	t.Run("root daemon, someone else logged in: plain sudo", func(t *testing.T) {
+		_, calls := runAsHarness(t, "0", true, "other", "admin", cmd)
+		if strings.Contains(calls, "launchctl") || !strings.HasPrefix(calls, "sudo -n -u admin -H") {
+			t.Fatalf("calls = %q", calls)
+		}
+	})
+	t.Run("account does not exist yet: run as root, never fail", func(t *testing.T) {
+		out, calls := runAsHarness(t, "0", false, "loginwindow", "admin", cmd)
+		if calls != "" || out != "ran-directly" {
+			t.Fatalf("calls = %q out = %q", calls, out)
+		}
+	})
+	t.Run("per-user agent (not root): run as is", func(t *testing.T) {
+		out, calls := runAsHarness(t, "501", true, "admin", "admin", cmd)
+		if calls != "" || out != "ran-directly" {
+			t.Fatalf("calls = %q out = %q", calls, out)
+		}
+	})
+	t.Run("account is root: run as is", func(t *testing.T) {
+		out, calls := runAsHarness(t, "0", true, "loginwindow", "root", cmd)
+		if calls != "" || out != "ran-directly" {
+			t.Fatalf("calls = %q out = %q", calls, out)
+		}
+	})
+	t.Run("blank account: run as is", func(t *testing.T) {
+		out, calls := runAsHarness(t, "0", true, "loginwindow", "", cmd)
+		if calls != "" || out != "ran-directly" {
+			t.Fatalf("calls = %q out = %q", calls, out)
+		}
+	})
+}
+
+func TestRecordAgentMode(t *testing.T) {
+	newMgr := func(reply string) *Manager {
+		m := newTestManager(t)
+		bin := filepath.Join(t.TempDir(), "tart")
+		if err := os.WriteFile(bin, []byte("#!/bin/sh\n"+reply), 0o755); err != nil {
+			t.Fatal(err)
+		}
+		m.cfg.TartAppPath = bin
+		m.vms["vm"] = &VM{Name: "vm", State: "running", AgentMode: "login"}
+		return m
+	}
+	for reply, want := range map[string]string{
+		"echo boot":  "boot",
+		"echo login": "login",
+		"echo ???":   "login", // anything but a clear "boot" is the older layout
+	} {
+		m := newMgr(reply)
+		m.recordAgentMode("vm")
+		if got := m.vms["vm"].AgentMode; got != want {
+			t.Errorf("reply %q: AgentMode = %q, want %q", reply, got, want)
+		}
+	}
+	m := newMgr("exit 1") // a failed check keeps the earlier answer
+	m.vms["vm"].AgentMode = "boot"
+	m.recordAgentMode("vm")
+	if got := m.vms["vm"].AgentMode; got != "boot" {
+		t.Errorf("a failed probe changed AgentMode to %q", got)
 	}
 }
