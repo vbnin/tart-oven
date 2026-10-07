@@ -12,6 +12,27 @@ A few terms appear throughout:
 - **MDM / Jamf Pro** — the system that manages enrolled Macs. Tart Oven can prepare
   a VM for enrollment and report whether a guest is enrolled.
 
+## 2.1.0 (2026-10-07)
+
+### Added
+
+- **AI agent access.** An agent such as Claude Code can lease a disposable VM cloned from a template you approve, wait until it is ready, run commands in it, and destroy it. It has its own **Agentic AI access** section in Configuration, shown by **Server Settings → Display agentic AI features** (off by default). See [AI agents](README.md#ai-agents).
+- **Agent tokens.** Named credentials that can only use the agent API, created in the dashboard or with `tart-oven token agent create <name>`. They never open the dashboard, and they need the dashboard access token to be set.
+- **Leases.** Every agent VM expires (60 minutes by default, 24 hours at most) and is then stopped and deleted. The scheduler leaves these VMs alone, and the Dashboard shows an **agent** tag and the time left.
+- **`tart-oven mcp`.** Serves the agent API as tools over the Model Context Protocol, for Claude Code and other MCP clients.
+- **Built-in guide.** `/api/agent/guide` and `/api/agent/openapi.json` describe the API for agents.
+- **Guest commands before login.** The guest agent package Tart Oven installs now serves commands from boot, so `tart exec` works while nobody is logged in; before, the agent only started after a login. Commands run as the VM's SSH user, inside that user's desktop session when they are logged in. A VM's details show **Agent starts: At boot** or **At login**. Use **Install Agent** once on a VM that has an older agent (official images start theirs at login) to switch it.
+- **Extra features in the Setup Wizard.** Step 1 now has toggles for the Jamf and agentic AI features, so you can turn them on during first-time setup instead of finding them in Server Settings.
+- **Local IPSW files in the Setup Wizard.** The IPSW step can now build from a restore image already on your Mac (type the path or click **Browse…**) as well as from the online list, and it does not wait for the list to load.
+- **Tart Oven app.** The installer now puts **Tart Oven** in Applications. Double-click it to start the server if it was stopped and open the dashboard in your default browser, using the address and HTTP or HTTPS setting from your saved settings. It shows no window or Terminal, and only displays an alert if the server cannot start.
+
+### Changed
+
+- `tart-oven token revoke` now also removes agent tokens.
+- The **Access token** area no longer says "A token is required to use this dashboard." while a token is active.
+- The Dashboard's **OCI Images** section no longer has a **Show logs** button; the Logs tab has the same information.
+- **The macOS version list loads better on slow connections.** The list is now saved on disk and reused after a restart, starts downloading in the background on a first run (before the Setup Wizard reaches the IPSW step), and keeps downloading when a slow connection outlasts a single request instead of starting over.
+
 ## 2.0.1 (2026-10-05)
 
 ### Changed

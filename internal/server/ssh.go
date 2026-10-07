@@ -18,6 +18,8 @@ type execResult struct {
 	Stderr   string `json:"stderr"`
 	ExitCode int    `json:"exitCode"`
 	Error    string `json:"error,omitempty"`
+
+	Truncated bool `json:"truncated,omitempty"` // output was cut at the per-call cap (agent API only)
 }
 
 // sshOutcome distills an execResult into (ok, displayable text) for the SSH
@@ -122,12 +124,12 @@ func (m *Manager) sshExecContext(ctx context.Context, name, command, sudoPasswor
 	if sudoPassword != "" {
 		cmd.Stdin = strings.NewReader(sudoPassword + "\n")
 	}
-	var stdout, stderr strings.Builder
-	cmd.Stdout = &stdout
-	cmd.Stderr = &stderr
+	stdout, stderr := newCapBuffer(ctx), newCapBuffer(ctx)
+	cmd.Stdout = stdout
+	cmd.Stderr = stderr
 	err := cmd.Run()
 
-	res := execResult{Stdout: stdout.String(), Stderr: stderr.String()}
+	res := execResult{Stdout: stdout.String(), Stderr: stderr.String(), Truncated: stdout.truncated || stderr.truncated}
 	if err != nil {
 		var ee *exec.ExitError
 		if errors.As(err, &ee) {

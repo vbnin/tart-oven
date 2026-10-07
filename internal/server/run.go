@@ -46,6 +46,7 @@ func Run(statePath, listenOverride string) error {
 	m.mdmCopier = mdm.NewSFTPProfileCopier()
 	m.mdmResolveIP = m.resolveMDMIPWithTart
 	m.load()
+	m.loadIPSWCache()
 	if listenOverride != "" {
 		m.cfg.Listen = listenOverride
 	}
@@ -71,6 +72,10 @@ func Run(statePath, listenOverride string) error {
 	m.hostIP = localIP()
 
 	go m.schedulerLoop()
+	if !m.cfg.FirstRunCompleted {
+		go m.prefetchIPSW() // the Setup Wizard's IPSW step will want the list
+	}
+	go m.leaseLoop()
 	go m.updateCheckLoop()
 
 	// Background monitor: keep storage status, VM states and timers fresh even

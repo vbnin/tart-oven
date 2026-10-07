@@ -77,8 +77,9 @@ func Fetch(ctx context.Context, client *http.Client, url string) ([]Entry, error
 	return Parse(resp.Body)
 }
 
-// DefaultClient suits the feed: a few MB, but a slow link shouldn't hang forever.
-func DefaultClient() *http.Client { return &http.Client{Timeout: 2 * time.Minute} }
+// DefaultClient suits the feed: about 5 MB compressed, so five minutes covers a
+// link as slow as 150 kbit/s without letting it hang forever.
+func DefaultClient() *http.Client { return &http.Client{Timeout: 5 * time.Minute} }
 
 // Parse reads the feed (gzip or plain JSON) and returns the signed, active
 // https restore images for virtual Macs, newest first. The raw feed is tens of

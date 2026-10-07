@@ -36,6 +36,10 @@ Commands:
   token generate  create (or rotate) the dashboard access token; printed once
   token revoke    remove the token so the dashboard needs no login
   token status    show whether a token is set
+  token agent create <name>   create an agent-scope token (limited to /api/agent/*); printed once
+  token agent list            list agent tokens
+  token agent revoke <name>   remove an agent token
+  mcp             serve the agent API to an AI client over stdio (MCP); see README
   help            show this help
 
 Flags (serve only):
@@ -126,8 +130,13 @@ func (c *cli) token(args []string) error {
 		fmt.Println("  " + tok)
 		fmt.Println()
 		fmt.Println("All earlier tokens and signed-in browsers stop working.")
+	case "agent":
+		return c.agentToken(dir, args[1:])
 	case "revoke":
 		if err := auth.Remove(dir); err != nil {
+			return err
+		}
+		if err := auth.RemoveAgentTokens(dir); err != nil {
 			return err
 		}
 		fmt.Println("Access token removed; the dashboard no longer asks for a login.")
@@ -140,7 +149,54 @@ func (c *cli) token(args []string) error {
 			fmt.Println("No access token; the dashboard needs no login.")
 		}
 	default:
-		return fmt.Errorf("unknown token command %q (use generate, rotate, revoke or status)", sub)
+		return fmt.Errorf("unknown token command %q (use generate, rotate, revoke, status or agent)", sub)
+	}
+	return nil
+}
+
+// agentToken handles `tart-oven token agent create|list|revoke`. Agent tokens
+// only open /api/agent/* and only matter next to a dashboard token, so create
+// refuses to run without one.
+func (c *cli) agentToken(dir string, args []string) error {
+	sub := "list"
+	if len(args) > 0 {
+		sub = args[0]
+	}
+	switch sub {
+	case "create":
+		if len(args) < 2 {
+			return errors.New("usage: tart-oven token agent create <name>")
+		}
+		if hash, err := auth.Load(dir); err != nil || hash == "" {
+			return errors.New("set the dashboard access token first (tart-oven token generate): agent tokens only limit access when a login is required")
+		}
+		tok, err := auth.AddAgentToken(dir, args[1])
+		if err != nil {
+			return err
+		}
+		fmt.Printf("New agent token %q (shown once, store it safely):\n\n  %s\n\n", args[1], tok)
+		fmt.Println("It can only use /api/agent/*. Enable the agent API in Configuration > Server Settings.")
+	case "list":
+		tokens, err := auth.LoadAgentTokens(dir)
+		if err != nil {
+			return err
+		}
+		if len(tokens) == 0 {
+			fmt.Println("No agent tokens.")
+		}
+		for _, t := range tokens {
+			fmt.Printf("%-24s created %s\n", t.Name, t.CreatedAt.Local().Format("2006-01-02 15:04"))
+		}
+	case "revoke":
+		if len(args) < 2 {
+			return errors.New("usage: tart-oven token agent revoke <name>")
+		}
+		if err := auth.RevokeAgentToken(dir, args[1]); err != nil {
+			return err
+		}
+		fmt.Printf("Agent token %q removed.\n", args[1])
+	default:
+		return fmt.Errorf("unknown agent token command %q (use create, list or revoke)", sub)
 	}
 	return nil
 }
@@ -164,6 +220,8 @@ func runCommand(cmd, statePath string, args ...string) int {
 		}
 	case "token":
 		err = c.token(args)
+	case "mcp":
+		return runMCP(statePath)
 	case "help", "-h", "--help":
 		fmt.Print(usage)
 		return 0

@@ -1150,6 +1150,7 @@ function wizardGlobals(extra) {
     selectedWizardRole: "testing", wizardRoleChosen: false, wizardTartPending: false, wizardTartBaseTask: "", wizardSource: "", wizardStarted: "", wizardCheck: null,
     location: { origin: "http://127.0.0.1:9000" },
     isConfigDirty: () => false, markConfigClean: () => {},
+    wizardFeaturesTouched: false, applyJamfVisibility: () => {}, applyAgentVisibility: () => {},
   }, extra);
 }
 
@@ -1204,7 +1205,7 @@ test("openOnboardingWizard and closeOnboardingWizard toggle modal and persist co
     api: mockApi,
   }));
   const definitions = ["wizardGB", "setWizardStatus", "wizardInstallTask", "renderWizardEnv", "renderWizardStorage", "refreshWizardChecks",
-    "updateWizardReview", "selectWizardStep", "fixWizardHeight", "openOnboardingWizard", "closeOnboardingWizard"].map(extractFunction).join("\n");
+    "wizardFeatureFields", "wizardFeatureValues", "fillWizardFeatures", "updateWizardReview", "selectWizardStep", "fixWizardHeight", "openOnboardingWizard", "closeOnboardingWizard"].map(extractFunction).join("\n");
   vm.runInContext(definitions + "; globalThis.bundle = { openOnboardingWizard, closeOnboardingWizard };", context);
   const { openOnboardingWizard, closeOnboardingWizard } = context.bundle;
 
@@ -1281,7 +1282,7 @@ test("selectWizardStep, nextWizardStep, and prevWizardStep navigate through 5 st
     latest: { config: {} },
   }));
 
-  const definitions = ["wizardGB", "updateWizardReview", "selectWizardStep", "nextWizardStep", "prevWizardStep"].map(extractFunction).join("\n");
+  const definitions = ["wizardGB", "wizardFeatureFields", "wizardFeatureValues", "updateWizardReview", "selectWizardStep", "nextWizardStep", "prevWizardStep"].map(extractFunction).join("\n");
   vm.runInContext(definitions + "; globalThis.bundle = { selectWizardStep, nextWizardStep, prevWizardStep };", context);
   const { selectWizardStep, nextWizardStep, prevWizardStep } = context.bundle;
 
@@ -1319,7 +1320,7 @@ test("selectWizardRole marks the card and the review shows the chosen purpose's 
     querySelectorAll(sel) { return sel.includes("[data-role]") ? roleCards : []; },
   };
   const context = vm.createContext(wizardGlobals({ document, latest: { config: { paused: true } } }));
-  vm.runInContext(["wizardGB", "updateWizardReview", "selectWizardRole"].map(extractFunction).join("\n") +
+  vm.runInContext(["wizardGB", "wizardFeatureFields", "wizardFeatureValues", "updateWizardReview", "selectWizardRole"].map(extractFunction).join("\n") +
     "; globalThis.selectWizardRole = selectWizardRole;", context);
 
   context.selectWizardRole("demo");
@@ -1385,7 +1386,7 @@ test("startWizardIpsw builds a macOS IPSW create request, startWizardPull pulls 
     toast: () => {},
     api: async (url, opts) => { calls.push({ url, body: JSON.parse(opts.body) }); return { ok: true, text: async () => "" }; },
   }));
-  vm.runInContext(["wizardGB", "updateWizardReview", "startWizardIpsw", "startWizardPull"].map(extractFunction).join("\n") +
+  vm.runInContext(["wizardGB", "wizardFeatureFields", "wizardFeatureValues", "updateWizardReview", "wizardIpswSource", "startWizardIpsw", "startWizardPull"].map(extractFunction).join("\n") +
     "; globalThis.b = { startWizardIpsw, startWizardPull };", context);
 
   await context.b.startWizardIpsw();
@@ -1636,4 +1637,211 @@ test("IPSW options mark downloaded images in green and select the local copy", (
   assert.match(els.note.textContent, /Downloaded/);
   context.f.ipswDownloadedNote("note", fresh.url, [fresh, have]);
   assert.equal(els.note.textContent, "");
+});
+
+test("agent template choices list existing VMs, hide agent VMs and keep missing saved names", () => {
+  const f = evaluateFunctions(["isOCI", "agentTemplateChoices", "agentTemplatesSummary"], "agentTemplateChoices", {});
+  const summary = evaluateFunctions(["isOCI", "agentTemplateChoices", "agentTemplatesSummary"], "agentTemplatesSummary", {});
+  const vms = [
+    { name: "zeta", state: "stopped", source: "local" },
+    { name: "base-TEMPLATE", state: "stopped", template: true, source: "local" },
+    { name: "agent-build-1", state: "running", lease: { owner: "claude" } },
+    { name: "ghcr.io/cirruslabs/macos-sequoia-base:latest", state: "stopped", source: "OCI" },
+    { name: "busy", state: "running" },
+  ];
+  const rows = f(vms, ["base-TEMPLATE", "deleted-vm"]);
+  assert.deepEqual(rows.map(r => r.name), ["base-TEMPLATE", "busy", "deleted-vm", "ghcr.io/cirruslabs/macos-sequoia-base:latest", "zeta"]);
+  assert.ok(!rows.some(r => r.name === "agent-build-1"), "agent VMs are not offered as templates");
+  assert.equal(rows.find(r => r.name === "deleted-vm").note, "not found");
+  assert.equal(rows.find(r => r.name === "base-TEMPLATE").note, "template");
+  assert.equal(rows.find(r => r.name === "busy").note, "running");
+  assert.match(rows.find(r => r.name.startsWith("ghcr")).note, /OCI image/);
+
+  assert.equal(summary([]), "");
+  assert.equal(summary(["a"]), "a");
+  assert.equal(summary(["a", "b"]), "a, b");
+  assert.equal(summary(["a", "b", "c"]), "3 VMs selected");
+});
+
+test("the Agentic AI access panel is shown only when the feature toggle is on", () => {
+  const classes = new Set();
+  const panel = { classList: { toggle: (name, on) => (on ? classes.add(name) : classes.delete(name)) } };
+  const apply = evaluateFunction("applyAgentVisibility", { document: { getElementById: id => (id === "panel-agent-access" ? panel : null) } });
+  apply(false);
+  assert.ok(classes.has("agent-off"), "hidden by default");
+  apply(true);
+  assert.ok(!classes.has("agent-off"), "shown when enabled");
+  apply(false);
+  assert.ok(classes.has("agent-off"));
+});
+
+test("the wizard's extra features start from the saved settings and are applied only when changed", async () => {
+  const boxes = { wizardShowJamf: { checked: false }, wizardShowAgent: { checked: false }, showJamfFeatures: { checked: false }, showAgentFeatures: { checked: false } };
+  const text = {};
+  const modal = { classList: createMockClassList(["hidden"]) };
+  const document = {
+    getElementById(id) {
+      if (id === "onboardingModal") return modal;
+      if (boxes[id]) return boxes[id];
+      if (id.startsWith("wizardReview")) return (text[id] = text[id] || { textContent: "" });
+      return null;
+    },
+    querySelectorAll() { return []; },
+  };
+  const applied = [];
+  const calls = [];
+  const names = ["wizardGB", "setWizardStatus", "wizardInstallTask", "renderWizardEnv", "renderWizardStorage", "refreshWizardChecks", "wizardFeatureFields",
+    "wizardFeatureValues", "fillWizardFeatures", "onWizardFeatureChange", "updateWizardReview", "selectWizardStep", "fixWizardHeight", "openOnboardingWizard", "closeOnboardingWizard"];
+  const context = vm.createContext(wizardGlobals({
+    document, currentWizardStep: 1,
+    latest: { config: { showJamfFeatures: true, showAgentFeatures: false }, tartInstalled: true },
+    api: (url, opts) => { calls.push(JSON.parse(opts.body)); return Promise.resolve({ ok: true, json: () => Promise.resolve({}) }); },
+    applyJamfVisibility: on => applied.push(["jamf", on]),
+    applyAgentVisibility: on => applied.push(["agent", on]),
+  }));
+  vm.runInContext(names.map(extractFunction).join("\n") + "; globalThis.f = { " + names.join(", ") + " };", context);
+  const f = context.f;
+
+  // Opening shows what is saved: Jamf on, agentic AI off.
+  f.openOnboardingWizard(1);
+  assert.equal(boxes.wizardShowJamf.checked, true);
+  assert.equal(boxes.wizardShowAgent.checked, false);
+  assert.equal(text.wizardReviewFeatures.textContent, "Jamf");
+
+  // Completing without touching them leaves the settings alone.
+  await f.closeOnboardingWizard(true);
+  assert.deepEqual(calls[0], { firstRunCompleted: true });
+  assert.deepEqual(applied, []);
+
+  // Changing them updates the review at once, and completion saves and applies both.
+  calls.length = 0;
+  f.openOnboardingWizard(1);
+  boxes.wizardShowJamf.checked = false;
+  boxes.wizardShowAgent.checked = true;
+  f.onWizardFeatureChange();
+  assert.equal(text.wizardReviewFeatures.textContent, "Agentic AI");
+  boxes.wizardShowJamf.checked = true;
+  f.onWizardFeatureChange();
+  assert.equal(text.wizardReviewFeatures.textContent, "Jamf, Agentic AI");
+  boxes.wizardShowJamf.checked = false;
+  boxes.wizardShowAgent.checked = false;
+  f.onWizardFeatureChange();
+  assert.equal(text.wizardReviewFeatures.textContent, "None");
+  boxes.wizardShowAgent.checked = true;
+  f.onWizardFeatureChange();
+  await f.closeOnboardingWizard(true);
+  assert.deepEqual(calls[0], { firstRunCompleted: true, showJamfFeatures: false, showAgentFeatures: true });
+  assert.deepEqual(applied, [["jamf", false], ["agent", true]]);
+  assert.equal(boxes.showAgentFeatures.checked, true, "the Configuration form follows");
+  assert.equal(boxes.showJamfFeatures.checked, false);
+
+  // Closing the wizard without completing applies nothing.
+  calls.length = 0;
+  f.openOnboardingWizard(1);
+  boxes.wizardShowJamf.checked = true;
+  f.onWizardFeatureChange();
+  await f.closeOnboardingWizard(false);
+  assert.equal(calls.length, 0);
+});
+
+test("the dashboard no longer says a token is required while one is active", async () => {
+  const els = {
+    authStatus: { textContent: "Checking…", style: {} },
+    authGenerateBtn: { textContent: "" },
+    authRevokeBtn: { classList: createMockClassList() }, authLogoutBtn: { classList: createMockClassList() },
+    secWarning: { textContent: "", classList: createMockClassList() },
+    tlsInfo: { textContent: "" },
+  };
+  let enabled = true;
+  const context = vm.createContext({
+    document: { getElementById: id => els[id] || null },
+    fetch: async url => ({ json: async () => (url === "/api/auth/status" ? { enabled, exposed: false, tls: false } : {}) }),
+    loadAgentTokens: () => {},
+  });
+  vm.runInContext(extractFunction("loadSecurity") + "; globalThis.loadSecurity = loadSecurity;", context);
+  await context.loadSecurity();
+  assert.equal(els.authStatus.textContent, "", "no sentence when a token is active");
+  assert.equal(els.authStatus.style.display, "none");
+  assert.equal(els.authGenerateBtn.textContent, "Rotate token");
+
+  enabled = false;
+  await context.loadSecurity();
+  assert.match(els.authStatus.textContent, /No token set/);
+  assert.equal(els.authStatus.style.display, "");
+});
+
+test("the wizard builds from a local IPSW file, which wins over the online list and works while it is unavailable", async () => {
+  const calls = [];
+  const els = {
+    wizardIpswSelect: { value: "", selectedIndex: 0, options: [{ textContent: "Loading…" }] },
+    wizardIpswPath: { value: "" },
+    wizardIpswName: { value: "macos-$AUTONUM" },
+    wizardIpswBtn: { textContent: "Download and create VM" },
+    wizardIpswNote: { textContent: "" },
+    wizardPullStatus: { textContent: "", style: {} },
+  };
+  const fn = ["wizardGB", "wizardFeatureFields", "wizardFeatureValues", "updateWizardReview", "wizardIpswSource", "updateWizardIpswAction",
+    "updateWizardIpswNote", "onWizardIpswSelect", "onWizardIpswPath", "browseWizardIpsw", "startWizardIpsw"];
+  let picked = { path: "/Users/me/Downloads/UniversalMac_27.0.1_26A434_Restore.ipsw" };
+  const context = vm.createContext(wizardGlobals({
+    document: { getElementById: id => els[id] || null, querySelectorAll: () => [] },
+    latest: { config: {} },
+    ipswSources: { entries: [] },
+    ipswDownloadedNote: () => {},
+    toast: (...a) => calls.push({ toast: a }),
+    api: async (url, opts) => {
+      if (url === "/api/ipsw/choose-file") return { json: async () => picked };
+      calls.push({ url, body: JSON.parse(opts.body) });
+      return { ok: true, text: async () => "" };
+    },
+  }));
+  vm.runInContext(fn.map(extractFunction).join("\n") + "; globalThis.w = { " + fn.join(", ") + " };", context);
+  const w = context.w;
+
+  // Nothing chosen: no request, and the user is told what to pick.
+  await w.startWizardIpsw();
+  assert.equal(calls.filter(c => c.url).length, 0);
+  assert.match(calls[0].toast[1], /macOS version or an IPSW file/);
+
+  // Browse fills the path; the button now says what will happen.
+  const btn = { textContent: "Browse…", disabled: false };
+  await w.browseWizardIpsw(btn);
+  assert.equal(els.wizardIpswPath.value, picked.path);
+  assert.equal(btn.textContent, "Browse…", "the button is restored");
+  assert.equal(btn.disabled, false);
+  assert.equal(els.wizardIpswBtn.textContent, "Create VM from file");
+
+  // The file is used as is, even though the online list never loaded.
+  calls.length = 0;
+  await w.startWizardIpsw();
+  assert.equal(calls[0].url, "/api/vm/create");
+  assert.equal(calls[0].body.mode, "ipsw");
+  assert.equal(calls[0].body.fromIpsw, picked.path);
+  assert.equal(context.wizardStarted, "Building a VM from UniversalMac_27.0.1_26A434_Restore.ipsw");
+
+  // Picking a version clears the file; typing a file clears the version.
+  els.wizardIpswSelect.value = "https://cdn.test/a.ipsw";
+  w.onWizardIpswSelect();
+  assert.equal(els.wizardIpswPath.value, "");
+  assert.equal(els.wizardIpswBtn.textContent, "Download and create VM");
+  els.wizardIpswPath.value = "/tmp/x.ipsw";
+  w.onWizardIpswPath();
+  assert.equal(els.wizardIpswSelect.value, "");
+  assert.equal(els.wizardIpswBtn.textContent, "Create VM from file");
+
+  // A URL typed into the file box is still a download, not a local file.
+  els.wizardIpswPath.value = "https://cdn.test/b.ipsw";
+  w.onWizardIpswPath();
+  assert.equal(els.wizardIpswBtn.textContent, "Download and create VM");
+
+  // The Finder window can fail or be cancelled: the path is left alone.
+  els.wizardIpswPath.value = "";
+  picked = { error: "The Finder window only opens on the Mac running Tart Oven. Type the path instead." };
+  calls.length = 0;
+  await w.browseWizardIpsw({ textContent: "Browse…", disabled: false });
+  assert.equal(els.wizardIpswPath.value, "");
+  assert.match(calls[0].toast[1], /only opens on the Mac/);
+  picked = { cancelled: true };
+  await w.browseWizardIpsw({ textContent: "Browse…", disabled: false });
+  assert.equal(els.wizardIpswPath.value, "");
 });

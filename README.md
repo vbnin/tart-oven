@@ -4,7 +4,7 @@ Tart Oven is a local web console for managing [Tart](https://github.com/openai/t
 
 Tart Oven runs on macOS and manages macOS virtual machines.
 
-Current release: **2.0.1** · [Changelog](CHANGELOG.md)
+Current release: **2.1.0** · [Changelog](CHANGELOG.md)
 
 <p align="center">
   <img src="assets/screenshots/Tart%20Oven%20Screenshot%201.png" alt="Tart Oven screenshot 1" width="900">
@@ -28,19 +28,20 @@ Tart Oven limits the host to two running VMs at a time. Apple's macOS license al
 
 ### 1. Install Tart Oven
 
-Download `TartOven-2.0.1.pkg` from the [release page](https://github.com/vbnin/tart-oven/releases).
+Download `TartOven-2.1.0.pkg` from the [release page](https://github.com/vbnin/tart-oven/releases).
 
 Open the package in Finder or install it from Terminal:
 
 ```sh
 cd "$HOME/Downloads"
-sudo installer -pkg "./TartOven-2.0.1.pkg" -target /
+sudo installer -pkg "./TartOven-2.1.0.pkg" -target /
 ```
 
 The package installs:
 
 - `/Library/Application Support/Tart Oven/tart-oven`
 - `/Library/LaunchAgents/com.tartoven.agent.plist`
+- `/Applications/Tart Oven.app`, a shortcut that starts Tart Oven if it is stopped and opens the dashboard (see [Starting and stopping Tart Oven](#starting-and-stopping-tart-oven))
 - `/usr/local/bin/tart-oven`, a link to the binary (see [Starting and stopping Tart Oven](#starting-and-stopping-tart-oven))
 - The Tart guest agent installer, which Tart Oven copies into the shared folder of every guest
 
@@ -123,11 +124,11 @@ On the Dashboard:
 
 The **Setup Wizard** (Configuration) opens by itself on a first run with no VMs, and you can relaunch it any time. It has five steps:
 
-1. **Environment** checks that the Mac has an Apple silicon chip, and that Tart is installed and up to date. It can install or update Tart for you, and shows a green check once Tart is in place.
+1. **Environment** checks that the Mac has an Apple silicon chip, and that Tart is installed and up to date. It can install or update Tart for you, and shows a green check once Tart is in place. Below that, **Extra features** turns on the optional Jamf and agentic AI sections of the dashboard; both are off by default, and you can change them later under **Server Settings**.
 2. **Storage & Server** shows the VM storage path, which you can change, and the free space there. Tart Oven recommends 40 GB or more, and warns if there is less, but you can continue. It also shows the server address.
-3. **First VM** offers two routes. **Pull an OCI image** is the quickest: it downloads a prepared macOS image you can clone. **Build a fresh VM from an IPSW** starts from Apple's restore image for a clean install, in the macOS version you choose. Pick one, then pull the image or choose a version from the list; versions already downloaded are marked in green. You can also skip this step.
+3. **First VM** offers two routes. **Pull an OCI image** is the quickest: it downloads a prepared macOS image you can clone. **Build a fresh VM from an IPSW** starts from Apple's restore image for a clean install, in the macOS version you choose. Pick one, then pull the image or choose a version from the list; versions already downloaded are marked in green. To use a restore image you already have, type its path under **Or a file on this Mac** or click **Browse…** (the Finder window opens on the Mac running Tart Oven; from another computer, type the path). A file works even while the online list is still loading. You can also skip this step.
 4. **Purpose** sets starting defaults. **Testing / Troubleshooting** keeps the scheduler off and runs VMs with a full display and audio. **Demo / Data Generation** turns the scheduler on and runs scheduled VMs headless with audio off. Change any of it later in Configuration.
-5. **Review** summarises your choices.
+5. **Review** summarises your choices, including the extra features.
 
 ### Updates
 
@@ -144,7 +145,9 @@ Pull an image once, then create local clones as needed. You can start a pull fro
 
 ### Starting and stopping Tart Oven
 
-The package installs a `tart-oven` command in `/usr/local/bin`. From Terminal:
+If Tart Oven is stopped and you would rather not use Terminal, open **Tart Oven** from Applications (or Spotlight). It starts the server if needed, waits until it answers, and then opens the dashboard in your default browser. It uses the address and HTTP or HTTPS setting from Tart Oven's saved settings, shows no window of its own, and only displays an alert if the server cannot be started. If the dashboard is already running, it just opens it.
+
+The package also installs a `tart-oven` command in `/usr/local/bin`. From Terminal:
 
 ```sh
 tart-oven open      # start if needed, then open the dashboard
@@ -178,6 +181,8 @@ Tart Oven only manages macOS guests; Linux VMs are not supported.
 
 Official `ghcr.io/cirruslabs/macos-*-base` images include the Tart guest agent. Guest commands can then use `tart exec` without SSH credentials or guest networking.
 
+Those images start the agent only once someone logs in. The agent package that Tart Oven installs (**⋯ → Install Agent**) starts it at boot instead, so commands also work while nobody is logged in, such as on a freshly started VM sitting at the login window. A VM's details window shows **Agent starts: At boot** or **At login**. To switch an existing VM, run **Install Agent** on it once (it needs SSH or a logged-in session the first time), then clone from it.
+
 For a custom guest without the agent, use **⋯ → Install Agent** (requires SSH), or manually install it from the VM's shared folder (Finder → My Shared Files → host_resources → tart-guest-agent → double-click the .pkg; **VM Management → Tart guest agent** also has a **Download PKG** button). Install it once on a base VM before cloning.
 
 ### Guest commands
@@ -188,7 +193,7 @@ Each VM on the Dashboard has a **`>_`** button next to its **Stop** button. Clic
 2. Enter a sudo password only if the command requires one.
 3. Click **Run** or press Enter.
 
-Commands execute with the privileges available inside the guest. The terminal window shows live guest agent and SSH status at the top, and each VM remembers its own console output, command draft, and sudo password across open/close cycles.
+Commands run as the VM's SSH user (`admin` unless you changed it under **Edit VM**), whether or not that user is logged in. When they are, commands run inside their desktop session, so scripts that drive apps still work; with nobody logged in there is no desktop session to drive. The terminal window shows live guest agent and SSH status at the top, and each VM remembers its own console output, command draft, and sudo password across open/close cycles.
 
 Shortcut buttons below the command field let you run common Jamf commands in one click: `jamf manage`, `jamf recon`, `jamf policy`, and `jamf checkJSSConnection`. They appear when **Configuration → Server Settings → Display Jamf-related features** is on.
 
@@ -338,6 +343,61 @@ Stream updates:
 curl -N http://127.0.0.1:9000/events
 ```
 
+## AI agents
+
+Tart Oven can hand disposable macOS VMs to an AI agent such as Claude Code. The agent clones a template you prepared, runs commands in the clone, and destroys it. Nothing else on the server is reachable with an agent's token, and every VM is deleted when its lease ends, so a forgotten VM never holds one of the host's two VM slots.
+
+### Preparing a template
+
+Build the template once, by hand, and keep it stopped:
+
+1. Install the Tart guest agent with **⋯ → Install Agent**, so commands work from boot without anyone logging in. Official `macos-*-base` images already have an agent, but it starts at login; run **Install Agent** once to switch it. Turn on automatic login only if your jobs need a desktop session.
+2. Install whatever your projects need, such as Xcode command line tools, Homebrew and git.
+3. If commands need `sudo`, enable passwordless sudo for the guest user. The agent API never sends a password.
+4. Leave out credentials. Anyone who can use the agent token can read the template's contents through a clone.
+5. Add `TEMPLATE` to the name (for example `agent-base-TEMPLATE`) so the scheduler never starts it.
+
+### Turning it on
+
+1. Generate the dashboard access token (**Configuration → Server Settings → Access token**). Agent tokens only limit access when a login is required.
+2. Switch on **Display agentic AI features** under **Configuration → Server Settings**, then in the **Agentic AI access** section above it switch on **Allow AI agents to lease VMs**, pick the templates agents may clone from the **Agent templates** dropdown (tick one or more existing VMs), and set the longest lease.
+3. Click **Create agent token**, give it a name such as `claude`, and copy it. It is shown once. From Terminal: `tart-oven token agent create claude`; `tart-oven token agent list` and `tart-oven token agent revoke claude` manage them.
+4. Save the configuration.
+
+### Connecting an agent
+
+Claude Code, or any client that speaks the Model Context Protocol, starts `tart-oven mcp` as a subprocess:
+
+```sh
+claude mcp add tart-oven --env TART_OVEN_TOKEN=<agent token> -- tart-oven mcp
+```
+
+It talks to the local server by default. Set `TART_OVEN_URL` to reach another one (add `TART_OVEN_INSECURE=1` for a self-signed certificate). The tools are `tart_oven_info`, `create_vm`, `vm_status`, `list_vms`, `exec`, `extend_vm` and `destroy_vm`.
+
+Without MCP, the same operations are plain HTTP under `/api/agent/`. The server describes itself at `/api/agent/guide` (Markdown) and `/api/agent/openapi.json`:
+
+```sh
+TOKEN=<agent token>
+curl -H "Authorization: Bearer $TOKEN" http://127.0.0.1:9000/api/agent/info
+curl -H "Authorization: Bearer $TOKEN" -X POST http://127.0.0.1:9000/api/agent/vms \
+  -d '{"template":"agent-base-TEMPLATE","label":"build","ttlMinutes":60}'
+curl -H "Authorization: Bearer $TOKEN" "http://127.0.0.1:9000/api/agent/vms/<name>/wait"
+curl -H "Authorization: Bearer $TOKEN" -X POST http://127.0.0.1:9000/api/agent/vms/<name>/exec \
+  -d '{"command":"sw_vers"}'
+curl -H "Authorization: Bearer $TOKEN" -X DELETE http://127.0.0.1:9000/api/agent/vms/<name>
+```
+
+### How it behaves
+
+- An agent VM is cloned from an allowed template, runs headless on the shared (NAT) network, and appears on the Dashboard with an **agent** tag and its lease time in the Timer column. The scheduler never starts or stops it.
+- The host runs at most two VMs at once, shared with you and with other agents. When no slot is free, creating a VM fails with `capacity`.
+- A lease defaults to 60 minutes. An expired lease is checked every 30 seconds; the VM is then stopped and **deleted**, with everything inside it.
+- Each VM has its own shared folder (`<shared directory>/agent/<vm name>` on the host, `/Volumes/My Shared Files/host_resources/agent/<vm name>` in the guest). That is how an agent gets files in and out. It is kept for a day after the VM is gone.
+- Commands run through the guest agent, in a fresh shell each time. Output is capped at 1 MiB per stream, and a command is abandoned after its timeout (120 seconds by default, 30 minutes at most), though processes it started can keep running in the guest.
+- A VM that fails to build or boot is deleted automatically, and the reason stays available to the agent for an hour.
+- If Tart Oven restarts, running agent VMs are stopped; the agent sees phase `stopped` and creates a new one.
+- You can still stop, inspect or delete an agent VM from the Dashboard at any time. Tart Oven logs each agent action, with the first 100 characters of every command, in the Logs tab.
+
 ## Security
 
 Tart Oven is an administrative control plane: whoever can reach it can run commands in your guests. By default it listens on `127.0.0.1` and needs no login. If you open it to a network, turn on both protections below. On the internet, prefer a VPN or a reverse proxy in front of it.
@@ -349,6 +409,7 @@ In **Configuration → Server Settings**, choose **Generate token**. From then o
 - Browsers show a sign-in prompt and keep an HttpOnly session for 7 days. Five wrong tries lock that address out for a minute.
 - Scripts send `Authorization: Bearer <token>`. Only the page shell, the icon, and the `/api/health` and `/api/auth/*` sign-in routes work without it.
 - **Rotate token** in the dashboard, or `tart-oven token generate` in Terminal, replaces the token and signs everyone out. `tart-oven token revoke` removes it. The Terminal commands work when you have lost the token, because they act on the files in `~/.tart-oven`, and the running server notices the change at once.
+- Agent tokens (see [AI agents](#ai-agents)) are separate credentials that can only use `/api/agent/*`. Removing the dashboard token removes them too.
 - `tart-oven stop` and `restart` keep working with a token set.
 
 ### HTTPS

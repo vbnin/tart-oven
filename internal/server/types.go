@@ -64,6 +64,7 @@ type Config struct {
 	SSHFallbackEnabled      bool          `json:"sshFallbackEnabled"`     // allow SSH when a guest has no Tart guest agent
 	PrioritizeSSHShutdown   bool          `json:"prioritizeSshShutdown"`  // try a clean SSH shutdown before the fast tart stop
 	ShowJamfFeatures        bool          `json:"showJamfFeatures"`       // opt-in: show Jamf-specific UI (base VM prep, jamf shortcuts)
+	ShowAgentFeatures       bool          `json:"showAgentFeatures"`      // opt-in: show the Agentic AI access panel in Configuration
 	DisableTartUpdateCheck  bool          `json:"disableTartUpdateCheck"` // opt-out of the daily Tart release check
 	DisableOvenUpdateCheck  bool          `json:"disableOvenUpdateCheck"` // opt-out of the daily Tart Oven release check
 	SSHTimeoutSec           int           `json:"sshTimeoutSec"`          // ssh connect timeout
@@ -80,6 +81,10 @@ type Config struct {
 	TLSEnabled              bool          `json:"tlsEnabled"`             // serve HTTPS instead of HTTP (applies on restart)
 	TLSCertPath             string        `json:"tlsCertPath"`            // PEM certificate; empty = managed self-signed cert
 	TLSKeyPath              string        `json:"tlsKeyPath"`             // PEM private key; empty = managed self-signed cert
+
+	AgentEnabled   bool     `json:"agentEnabled"`   // opt-in: serve /api/agent/* so AI agents can lease VMs
+	AgentTemplates []string `json:"agentTemplates"` // VM names an agent may clone; nothing else is cloneable
+	AgentMaxTTLMin int      `json:"agentMaxTtlMin"` // longest lease (and extension) an agent may ask for
 }
 
 type configView struct {
@@ -171,6 +176,8 @@ func defaultConfig() Config {
 		LogPath:                 "~/Library/Logs/tart-oven.log",
 		FirstRunCompleted:       false,
 		OperatorRole:            "",
+		AgentTemplates:          []string{},
+		AgentMaxTTLMin:          480,
 	}
 }
 
@@ -260,6 +267,7 @@ type VM struct {
 
 	AgentOK        bool      `json:"agentOk"`                  // guest agent answered the last probe
 	AgentCheckedAt time.Time `json:"agentCheckedAt,omitempty"` // zero means never probed
+	AgentMode      string    `json:"agentMode,omitempty"`      // "boot" = exec is served from boot, "login" = only after a login; "" = not checked
 	Info           string    `json:"info,omitempty"`           // last "Refresh info" (status command) output
 	InfoAt         time.Time `json:"infoAt,omitempty"`         // when Info was last fetched
 
@@ -282,6 +290,8 @@ type VM struct {
 	SSHPassword string   `json:"sshPassword,omitempty"` // custom SSH/sudo password; persisted, but masked before every client-facing response
 
 	LastError string `json:"lastError,omitempty"`
+
+	Lease *Lease `json:"lease,omitempty"` // set on VMs created through the agent API; see lease.go
 
 	// Computed for the UI in stateSnapshot (not persisted meaningfully).
 	Template bool `json:"template"`
@@ -335,6 +345,8 @@ type createBatch struct {
 
 // Manager holds everything, guarded by mu.
 type Manager struct {
+	agentOps             map[string]*agentOp     // in-flight and recently failed agent provisioning, by VM name; lazily initialised
+	reaping              map[string]bool         // agent VMs whose expired lease is being torn down; lazily initialised
 	batches              map[string]*createBatch // in-flight create batches; lazily initialised
 	authOnce             sync.Once
 	authSt               *authState // UI access token + sessions; see auth.go
@@ -364,6 +376,7 @@ type Manager struct {
 	ipswMu               sync.Mutex                                // guards the restore image list below and serializes its refresh
 	ipswEntries          []ipsw.Entry                              // cached AppleDB list of installable macOS restore images
 	ipswFetched          time.Time                                 // when ipswEntries was fetched
+	ipswFlight           *ipswFlight                               // the download in progress, if any; guarded by ipswMu
 	ipswFetch            ipswFetchFunc                             // nil = fetchIPSWFeed; replaced in tests
 	ipswPicker           func(ctx context.Context) (string, error) // nil = chooseIPSWFile; replaced in tests
 	guestAgent           guestAgentInfo                            // bundled guest agent PKG discovery and staging state

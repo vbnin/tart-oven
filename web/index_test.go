@@ -583,3 +583,150 @@ func TestSecuritySettingsAndLoginControls(t *testing.T) {
 		}
 	}
 }
+
+func TestAgentAccessControls(t *testing.T) {
+	b, err := Content.ReadFile("index.html")
+	if err != nil {
+		t.Fatal(err)
+	}
+	html := string(b)
+	for _, want := range []string{
+		`id="agentEnabled"`, `id="agentMaxTtlMin"`, `id="agentTemplates"`, `id="agentTemplatesBtn"`, `id="agentTemplatesList"`, `id="agentTokenName"`,
+		`id="agentTokenCreateBtn"`, `id="agentTokenList"`, `id="agentTokenReveal"`, `id="agentTokenCopyBtn"`,
+		`agentEnabled: chk("agentEnabled")`, `agentMaxTtlMin: num("agentMaxTtlMin")`, `agentTemplates: agentTemplatesSelected.slice()`,
+		`/api/auth/agent-tokens`, `vm.lease`, `.pill.agent`,
+	} {
+		if !strings.Contains(html, want) {
+			t.Errorf("agent access UI missing %q", want)
+		}
+	}
+}
+
+// The new agent token must appear below the field that creates it.
+func TestAgentTokenListIsBelowTheCreateField(t *testing.T) {
+	b, err := Content.ReadFile("index.html")
+	if err != nil {
+		t.Fatal(err)
+	}
+	html := string(b)
+	create := strings.Index(html, `id="agentTokenCreateBtn"`)
+	reveal := strings.Index(html, `id="agentTokenReveal"`)
+	list := strings.Index(html, `id="agentTokenList"`)
+	if create < 0 || reveal < 0 || list < 0 || !(create < reveal && reveal < list) {
+		t.Errorf("want create field (%d) < token reveal (%d) < token list (%d)", create, reveal, list)
+	}
+}
+
+// Agent settings live in their own panel, above Server Settings, and the panel
+// is shown by a toggle in Server Settings (like the Jamf features).
+func TestAgentAccessHasItsOwnPanelAboveServerSettings(t *testing.T) {
+	b, err := Content.ReadFile("index.html")
+	if err != nil {
+		t.Fatal(err)
+	}
+	html := string(b)
+	panel := strings.Index(html, `id="panel-agent-access"`)
+	server := strings.Index(html, `id="panel-server-settings"`)
+	if panel < 0 || server < 0 || panel > server {
+		t.Fatalf("want panel-agent-access (%d) above panel-server-settings (%d)", panel, server)
+	}
+	if !strings.Contains(html[panel:server], "<h2>Agentic AI access</h2>") {
+		t.Error("the panel needs the title \"Agentic AI access\"")
+	}
+	for _, id := range []string{"agentEnabled", "agentMaxTtlMin", "agentTemplatesBtn", "agentTokenCreateBtn", "agentTokenList"} {
+		if !strings.Contains(html[panel:server], `id="`+id+`"`) {
+			t.Errorf("%s should be inside the Agentic AI access panel", id)
+		}
+		if strings.Contains(html[server:], `id="`+id+`"`) {
+			t.Errorf("%s is still in Server Settings", id)
+		}
+	}
+	// The toggle that shows the panel belongs to Server Settings.
+	if !strings.Contains(html[server:], `id="showAgentFeatures"`) {
+		t.Error("Server Settings needs the Display agentic AI features toggle")
+	}
+	for _, want := range []string{`showAgentFeatures: chk("showAgentFeatures")`, `applyAgentVisibility(state.config.showAgentFeatures === true)`, `.agent-off { display: none !important; }`} {
+		if !strings.Contains(html, want) {
+			t.Errorf("missing %q", want)
+		}
+	}
+}
+
+// Step 1 of the Setup Wizard offers the opt-in Jamf and agentic AI features.
+func TestWizardStepOneOffersExtraFeatures(t *testing.T) {
+	b, err := Content.ReadFile("index.html")
+	if err != nil {
+		t.Fatal(err)
+	}
+	html := string(b)
+	step1 := strings.Index(html, `id="wizardStep1"`)
+	step2 := strings.Index(html, `id="wizardStep2"`)
+	if step1 < 0 || step2 < step1 {
+		t.Fatal("wizard step 1 not found")
+	}
+	for _, want := range []string{"Extra features", `id="wizardShowJamf"`, `id="wizardShowAgent"`, "onWizardFeatureChange()"} {
+		if !strings.Contains(html[step1:step2], want) {
+			t.Errorf("wizard step 1 is missing %q", want)
+		}
+	}
+	for _, want := range []string{`id="wizardReviewFeatures"`, "function fillWizardFeatures", "wizardFeatureValues()"} {
+		if !strings.Contains(html, want) {
+			t.Errorf("missing %q", want)
+		}
+	}
+	if strings.Contains(html, "A token is required to use this dashboard.") {
+		t.Error("the \"token is required\" sentence should be gone")
+	}
+}
+
+// The wizard's IPSW step can use a file on this Mac as well as the online list.
+func TestWizardIPSWStepOffersALocalFile(t *testing.T) {
+	b, err := Content.ReadFile("index.html")
+	if err != nil {
+		t.Fatal(err)
+	}
+	html := string(b)
+	start := strings.Index(html, `id="wizardIpswPanel"`)
+	end := strings.Index(html, `id="wizardPullStatus"`)
+	if start < 0 || end < start {
+		t.Fatal("wizard IPSW panel not found")
+	}
+	panel := html[start:end]
+	for _, want := range []string{`id="wizardIpswSelect"`, `id="wizardIpswPath"`, `id="wizardIpswBrowseBtn"`, `browseWizardIpsw(this)`, `Or a file on this Mac`} {
+		if !strings.Contains(panel, want) {
+			t.Errorf("wizard IPSW panel is missing %q", want)
+		}
+	}
+	for _, want := range []string{"function wizardIpswSource", "/api/ipsw/choose-file"} {
+		if !strings.Contains(html, want) {
+			t.Errorf("missing %q", want)
+		}
+	}
+}
+
+// The OCI Images header has the pull button, progress and Cancel, but no Show logs
+// button (the create panel in VM Management keeps its own).
+func TestOCIImagesHeaderHasNoShowLogsButton(t *testing.T) {
+	b, err := Content.ReadFile("index.html")
+	if err != nil {
+		t.Fatal(err)
+	}
+	html := string(b)
+	start := strings.Index(html, `id="ociPanel"`)
+	end := strings.Index(html, `id="ociImageRows"`)
+	if start < 0 || end < start {
+		t.Fatal("OCI Images panel not found")
+	}
+	panel := html[start:end]
+	if strings.Contains(panel, "Show logs") || strings.Contains(html, `id="pullShowLogs"`) {
+		t.Error("the OCI Images section should not have a Show logs button")
+	}
+	for _, keep := range []string{`id="pullOciBtn"`, `id="pullProgress"`, `id="pullCancel"`} {
+		if !strings.Contains(panel, keep) {
+			t.Errorf("OCI Images header lost %s", keep)
+		}
+	}
+	if !strings.Contains(html, `id="createShowLogs"`) {
+		t.Error("the create panel's own Show logs button should stay")
+	}
+}

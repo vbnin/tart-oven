@@ -22,10 +22,14 @@ func main() {
 		cmd, args = args[0], args[1:]
 	}
 
-	// `token generate -state path`: the subcommand precedes the flags too.
+	// `token agent create name -state path`: the subcommand words precede the flags too.
 	var sub []string
-	if cmd == "token" && len(args) > 0 && !strings.HasPrefix(args[0], "-") {
-		sub, args = args[:1], args[1:]
+	if cmd == "token" {
+		n := 0
+		for n < len(args) && !strings.HasPrefix(args[n], "-") {
+			n++
+		}
+		sub, args = args[:n], args[n:]
 	}
 
 	flags := flag.NewFlagSet("tart-oven", flag.ExitOnError)
