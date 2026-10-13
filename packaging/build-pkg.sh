@@ -24,6 +24,7 @@
 #   /Library/LaunchAgents/com.tartoven.agent.plist                                  (auto-start agent)
 #   /usr/local/bin/tart-oven -> the binary                                          (symlink, made by postinstall)
 # and its postinstall loads the agent and opens http://127.0.0.1:9000.
+# The package refuses to install on macOS earlier than 26 (packaging/distribution.xml).
 #
 #   /Applications/Tart Oven.app                                                     (launcher: starts the server if needed, opens the dashboard)
 # Set INCLUDE_LAUNCHER_APP=false to leave the launcher app out.
@@ -263,12 +264,9 @@ if [ "$INCLUDE_LAUNCHER_APP" = true ]; then
 fi
 
 echo "==> Running pkgbuild…"
-PKG_SIGN_ARGS=()
-if [ "$DO_SIGN" = true ]; then
-    PKG_SIGN_ARGS=(--sign "$PKG_SIGN_IDENTITY")
-    echo "    signing PKG with: $(describe_signing_identity "$PKG_SIGN_IDENTITY")"
-fi
-
+# The payload goes into a component package, which productbuild then wraps in a
+# distribution package: only a distribution can state a minimum macOS version.
+COMPONENT_PKG="$BUILD/TartOven-component.pkg"
 pkgbuild \
     --root "$PKG_ROOT" \
     --identifier "$PKG_ID" \
@@ -276,6 +274,19 @@ pkgbuild \
     --scripts "$REPO/packaging/scripts" \
     --install-location "/" \
     ${COMPONENT_ARGS[@]+"${COMPONENT_ARGS[@]}"} \
+    "$COMPONENT_PKG"
+
+echo "==> Running productbuild (requires macOS 26 or later)…"
+PKG_SIGN_ARGS=()
+if [ "$DO_SIGN" = true ]; then
+    PKG_SIGN_ARGS=(--sign "$PKG_SIGN_IDENTITY")
+    echo "    signing PKG with: $(describe_signing_identity "$PKG_SIGN_IDENTITY")"
+fi
+DISTRIBUTION="$BUILD/distribution.xml"
+sed "s/@VERSION@/$VERSION/" "$REPO/packaging/distribution.xml" > "$DISTRIBUTION"
+productbuild \
+    --distribution "$DISTRIBUTION" \
+    --package-path "$BUILD" \
     ${PKG_SIGN_ARGS[@]+"${PKG_SIGN_ARGS[@]}"} \
     "$OUT"
 

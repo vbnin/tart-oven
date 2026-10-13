@@ -15,7 +15,7 @@ Current release: **2.1.1** · [Changelog](CHANGELOG.md)
 You need:
 
 - An Apple Silicon Mac.
-- macOS 13 Ventura or later.
+- macOS 26 Tahoe or later. The installer package refuses to install on earlier versions.
 - An administrator account for package installation.
 - An active Wi-Fi or Ethernet connection with DHCP. Tart Oven uses bridged networking for its guests.
 - At least 25 GiB free in the VM storage location. Allow more space for images and local clones.
