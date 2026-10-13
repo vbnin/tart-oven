@@ -14,6 +14,10 @@ A few terms appear throughout:
 
 ## 2.1.1 (2026-10-13)
 
+### Added
+
+- **Uninstall script.** `scripts/uninstall-tart-oven.sh` offers a menu to reset Tart Oven's settings, delete Tart Oven, delete Tart Oven and Tart, or delete everything including all VMs. See [Uninstall Tart Oven](README.md#uninstall-tart-oven).
+
 ### Fixed
 
 - **Base VM preparation no longer needs SSH.** **Enable Auto-Enrollment Capabilities on Base VM** (Run script and Check compatibility) and Auto Enroll VM's commands now go through the guest agent when the VM has one, and use SSH only when it does not. Before, they always used SSH, so they failed on a VM with the agent but no Remote Login. The standalone `scripts/prep-golden-image.sh` takes a VM name (guest agent) or an IP address (SSH).

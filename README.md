@@ -521,6 +521,25 @@ The HTTP request may still return `{"ok":true}` because startup runs in the back
 
 On macOS 15 or later, Tart may require the host user's `login.keychain` to exist and be unlocked. See the [Tart headless-host guidance](https://tart.run/faq/#headless-machines).
 
+## Uninstall Tart Oven
+
+`scripts/uninstall-tart-oven.sh` resets or removes Tart Oven. Run it from the repository (or paste it into a Jamf Pro script) with `sudo`; it shows a menu:
+
+```bash
+sudo ./scripts/uninstall-tart-oven.sh
+```
+
+| Option | What it does | What stays |
+|---|---|---|
+| 1. Reset settings | Clears the saved settings, tokens, HTTPS certificate and sign-in, then restarts Tart Oven. | The app, Tart and your VMs |
+| 2. Delete Tart Oven | Removes the app, its launch agent, settings and logs. | Tart and your VMs |
+| 3. Delete Tart Oven + Tart | Also removes Tart and stops any running VM. | Your VMs |
+| 4. Delete everything | Also deletes every VM and downloaded image. | Nothing |
+
+Options 1–3 ask for confirmation. Option 4 shows the storage folder it will delete and needs you to type `DELETE`. To skip the menu, pass the option number, for example `sudo ./scripts/uninstall-tart-oven.sh 2`; it then asks no questions.
+
+The script does not remove a Tart installed with Homebrew (`brew uninstall tart`) or a guest agent installed inside a VM.
+
 ## Build from source
 
 Building requires Go 1.24.3 or later.
