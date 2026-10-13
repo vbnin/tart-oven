@@ -22,24 +22,18 @@ type enrollReadiness struct {
 // checkEnrollReadiness runs three quick, read-only guest probes, each with
 // its own bounded timeout.
 //
-// These call sshExecContext directly rather than the agent-preferring
-// execInGuest, for two independent reasons:
+// They go through execInGuest, so they use the guest agent when it answers and
+// SSH otherwise, and they report on the same transport prepGoldenImageScript and
+// autoEnrollScript run over: the Automation and Accessibility grants belong to
+// the process that runs osascript (SSH's "sshd-keygen-wrapper", or the guest
+// agent), so a probe over a different transport would answer for the wrong one.
 //
-//  1. Correctness: the whole point of these checks is whether the
-//     "sshd-keygen-wrapper" TCC identity (SSH's exec helper — what
-//     autoEnrollScript and prepGoldenImageScript actually run as) has its
-//     grants. The guest agent, if installed, execs as a different process
-//     entirely, so checking through it would answer a question about the
-//     wrong identity.
-//  2. Reliability: execInGuest tries the agent first, and on a VM without it
-//     installed (the normal case here — these are un-agented base images),
-//     tart exec's own connection attempt doesn't fail fast; it can run past
-//     any reasonable per-probe timeout. When that happens execViaAgent's
-//     `if ctxErr := ctx.Err(); ctxErr != nil { ...; return res, true }`
-//     reports OUR timeout as "the agent handled this call, with an error"
-//     instead of "fall back to SSH" — so every probe silently comes back
-//     "unknown" no matter how long the timeout is, since the SSH fallback
-//     never runs at all. Going straight to SSH sidesteps this entirely.
+// A guest without the agent makes `tart exec` wait out its own ~30s connection
+// timeout before execInGuest falls back to SSH, and execViaAgent reports our
+// shorter probe deadline as "the agent handled this call", which would leave
+// every probe at "unknown". So the agent is probed once up front (without our
+// deadline) when it has not been checked since boot; after that execInGuest
+// knows which transport to use and answers within the probe timeout.
 func (m *Manager) checkEnrollReadiness(parent context.Context, name string) enrollReadiness {
 	r := enrollReadiness{Autologin: "unknown", Accessibility: "unknown", Profile: "unknown"}
 
@@ -61,8 +55,10 @@ func (m *Manager) checkEnrollReadiness(parent context.Context, name string) enro
 	// bound is just a generous ceiling for them, not a real constraint.
 	const probeTimeout = 15 * time.Second
 
+	m.guestAgentAvailable(name) // settles which transport execInGuest will use
+
 	autologinCtx, cancel := context.WithTimeout(parent, probeTimeout)
-	res := m.sshExecContext(autologinCtx, name, "defaults read /Library/Preferences/com.apple.loginwindow autoLoginUser 2>/dev/null", "")
+	res := m.execInGuest(autologinCtx, name, "defaults read /Library/Preferences/com.apple.loginwindow autoLoginUser 2>/dev/null", "")
 	cancel()
 	if res.Error == "" {
 		if res.ExitCode == 0 && strings.TrimSpace(res.Stdout) != "" {
@@ -73,7 +69,7 @@ func (m *Manager) checkEnrollReadiness(parent context.Context, name string) enro
 	}
 
 	accessibilityCtx, cancel := context.WithTimeout(parent, probeTimeout)
-	res = m.sshExecContext(accessibilityCtx, name, `osascript -e 'tell application "System Events" to get name of every window of process "System Settings"'`, "")
+	res = m.execInGuest(accessibilityCtx, name, `osascript -e 'tell application "System Events" to get name of every window of process "System Settings"'`, "")
 	cancel()
 	if res.Error == "" {
 		if res.ExitCode == 0 {
@@ -84,7 +80,7 @@ func (m *Manager) checkEnrollReadiness(parent context.Context, name string) enro
 	}
 
 	profileCtx, cancel := context.WithTimeout(parent, probeTimeout)
-	res = m.sshExecContext(profileCtx, name, `test -f "$HOME/Desktop/mdm_enroll.mobileconfig" && echo yes || echo no`, "")
+	res = m.execInGuest(profileCtx, name, `test -f "$HOME/Desktop/mdm_enroll.mobileconfig" && echo yes || echo no`, "")
 	cancel()
 	if res.Error == "" && res.ExitCode == 0 {
 		switch strings.TrimSpace(res.Stdout) {
@@ -126,7 +122,7 @@ fi
 
 open "x-apple.systempreferences:com.apple.preference.security?Privacy_Accessibility" 2>/dev/null
 
-log "Waiting for the Automation prompt (click Allow on the VM's screen) and for sshd-keygen-wrapper to be enabled in Privacy & Security > Accessibility"
+log "Waiting for the Automation prompt (click Allow on the VM's screen) and for the process running this script (sshd-keygen-wrapper over SSH, the Tart guest agent otherwise) to be enabled in Privacy & Security > Accessibility"
 for i in $(seq 1 90); do
   if osascript -e 'tell application "System Events" to get name of every window of process "System Settings"' >/dev/null 2>&1; then
     log "Both grants confirmed — this VM is ready to be a golden image"
@@ -146,7 +142,8 @@ exit 1
 // Auto-Enrollment Capabilities on Base VM" panel: it needs the VM already
 // running (unlike auto-enroll, it never boots one — priming only makes sense
 // on a base VM you're actively watching over Screen Sharing), and it never
-// touches the guest's password since nothing in this script types one.
+// touches the guest's password since nothing in this script types one. It runs
+// over the guest agent or SSH, whichever the VM has (see execInGuest).
 func (m *Manager) runPrepGoldenImageTask(name string) {
 	t := m.newTask("prep-golden", name)
 	m.broadcast()
@@ -165,7 +162,7 @@ func (m *Manager) runPrepGoldenImageTask(name string) {
 	} else if state != "running" {
 		err = fmt.Errorf("VM %q is not running", name)
 	} else {
-		res := m.sshExecContext(t.ctx, name, prepGoldenImageScript, "")
+		res := m.execInGuest(t.ctx, name, prepGoldenImageScript, "")
 		m.appendTaskOutput(t, res.Stdout)
 		if res.Stderr != "" {
 			m.appendTaskOutput(t, res.Stderr)

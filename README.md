@@ -4,7 +4,7 @@ Tart Oven is a local web console for managing [Tart](https://github.com/openai/t
 
 Tart Oven runs on macOS and manages macOS virtual machines.
 
-Current release: **2.1.0** · [Changelog](CHANGELOG.md)
+Current release: **2.1.1** · [Changelog](CHANGELOG.md)
 
 <p align="center">
   <img src="assets/screenshots/Tart%20Oven%20Screenshot%201.png" alt="Tart Oven screenshot 1" width="900">
@@ -28,13 +28,13 @@ Tart Oven limits the host to two running VMs at a time. Apple's macOS license al
 
 ### 1. Install Tart Oven
 
-Download `TartOven-2.1.0.pkg` from the [release page](https://github.com/vbnin/tart-oven/releases).
+Download `TartOven-2.1.1.pkg` from the [release page](https://github.com/vbnin/tart-oven/releases).
 
 Open the package in Finder or install it from Terminal:
 
 ```sh
 cd "$HOME/Downloads"
-sudo installer -pkg "./TartOven-2.1.0.pkg" -target /
+sudo installer -pkg "./TartOven-2.1.1.pkg" -target /
 ```
 
 The package installs:
@@ -278,14 +278,14 @@ Prior to execute this script, complete the following requirements:
 4. Enable autologin for the main user
 5. Install Tart guest agent (or enable key-based SSH access)
 
-Keep Screen Sharing open to the VM while this script runs as it triggers a one-time TCC permission prompt to enable "sshd-keygen-wrapper" in Privacy settings. The script completes once a confirmation popup displays on the VM.
+Keep Screen Sharing open to the VM while this script runs as it triggers a one-time TCC permission prompt to enable "sshd-keygen-wrapper" (over SSH) or the Tart guest agent (when the VM has it) in Privacy settings. The script completes once a confirmation popup displays on the VM.
 
 **VM Management → Prepare VM for Jamf → Enable Auto-Enrollment Capabilities on Base VM** runs it:
 
 1. Enable autologin on the base VM yourself first (**System Settings → Users & Groups → Login Options**). FileVault must be off for that option to be available.
 2. Start the base VM and keep Screen Sharing open to it.
 3. Select it under **Target Running VM** and click **Run script**.
-4. Click **Allow** on the Automation prompt it triggers, and enable "sshd-keygen-wrapper" in the Accessibility settings it opens for you.
+4. Click **Allow** on the Automation prompt it triggers, and enable "sshd-keygen-wrapper" (or the Tart guest agent, if the VM has it) in the Accessibility settings it opens for you.
 5. Watch for the confirmation dialog on the VM's own screen, or the banner in Tart Oven, once both grants are confirmed.
 
 Use **Check compatibility** at any time to see a VM's current Autologin and Accessibility status. A check reports Unknown rather than guessing when it can't complete — that is not the same as "not compatible."
@@ -520,6 +520,25 @@ The HTTP request may still return `{"ok":true}` because startup runs in the back
 ### A headless host cannot start a VM
 
 On macOS 15 or later, Tart may require the host user's `login.keychain` to exist and be unlocked. See the [Tart headless-host guidance](https://tart.run/faq/#headless-machines).
+
+## Uninstall Tart Oven
+
+`scripts/uninstall-tart-oven.sh` resets or removes Tart Oven. Run it from the repository (or paste it into a Jamf Pro script) with `sudo`; it shows a menu:
+
+```bash
+sudo ./scripts/uninstall-tart-oven.sh
+```
+
+| Option | What it does | What stays |
+|---|---|---|
+| 1. Reset settings | Clears the saved settings, tokens, HTTPS certificate and sign-in, then restarts Tart Oven. | The app, Tart and your VMs |
+| 2. Delete Tart Oven | Removes the app, its launch agent, settings and logs. | Tart and your VMs |
+| 3. Delete Tart Oven + Tart | Also removes Tart and stops any running VM. | Your VMs |
+| 4. Delete everything | Also deletes every VM and downloaded image. | Nothing |
+
+Options 1–3 ask for confirmation. Option 4 shows the storage folder it will delete and needs you to type `DELETE`. To skip the menu, pass the option number, for example `sudo ./scripts/uninstall-tart-oven.sh 2`; it then asks no questions.
+
+The script does not remove a Tart installed with Homebrew (`brew uninstall tart`) or a guest agent installed inside a VM.
 
 ## Build from source
 

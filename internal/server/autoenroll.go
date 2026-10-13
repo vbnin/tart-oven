@@ -3,6 +3,8 @@ package server
 import (
 	"context"
 	cryptorand "crypto/rand"
+	"encoding/base64"
+	"errors"
 	"fmt"
 	"net"
 	"strings"
@@ -60,9 +62,11 @@ func (m *Manager) copyMDMProfileToVM(ctx context.Context, name, profileID, sshUs
 	if sshTimeout < 1 {
 		sshTimeout = 30
 	}
+	// A VM with a working guest agent needs neither SSH credentials nor an IP.
+	viaAgent := vmCopy.State == "running" && m.guestAgentAvailable(name)
 	baseURL, baseURLErr := normalizeJamfBaseURL(targetProfile.BaseURL)
 	if baseURLErr != nil || baseURL == "" || strings.TrimSpace(targetProfile.InvitationCode) == "" ||
-		strings.TrimSpace(username) == "" || strings.TrimSpace(password) == "" {
+		(!viaAgent && (strings.TrimSpace(username) == "" || strings.TrimSpace(password) == "")) {
 		return "", "", fmt.Errorf("MDM profile configuration is incomplete (Jamf server URL, invitation code, or SSH credentials missing)")
 	}
 	if vmCopy.State != "running" {
@@ -70,7 +74,7 @@ func (m *Manager) copyMDMProfileToVM(ctx context.Context, name, profileID, sshUs
 	}
 
 	ip := strings.TrimSpace(vmCopy.IP)
-	if ip == "" {
+	if ip == "" && !viaAgent {
 		if m.mdmResolveIP == nil {
 			return "", "", fmt.Errorf("IP resolver unavailable")
 		}
@@ -88,7 +92,7 @@ func (m *Manager) copyMDMProfileToVM(ctx context.Context, name, profileID, sshUs
 	if err != nil {
 		return "", "", fmt.Errorf("generate profile: %w", err)
 	}
-	if m.mdmCopier == nil {
+	if m.mdmCopier == nil && !viaAgent {
 		return "", "", fmt.Errorf("profile copy service unavailable")
 	}
 
@@ -98,10 +102,51 @@ func (m *Manager) copyMDMProfileToVM(ctx context.Context, name, profileID, sshUs
 		Password: password,
 		Timeout:  time.Duration(sshTimeout) * time.Second,
 	}
-	if err := m.mdmCopier.CopyAndVerify(ctx, target, profile, uuid); err != nil {
+	if err := m.copyProfile(ctx, name, viaAgent, target, profile, uuid); err != nil {
 		return "", "", fmt.Errorf("copy profile: %w", err)
 	}
 	return mdm.ProfileDisplayPath, uuid, nil
+}
+
+// copyProfile puts the enrollment profile on the guest's Desktop and checks it
+// arrived intact: through the guest agent when viaAgent, otherwise over SFTP.
+func (m *Manager) copyProfile(ctx context.Context, name string, viaAgent bool, target mdm.TransferTarget, profile []byte, payloadUUID string) error {
+	if viaAgent {
+		return m.copyProfileViaAgent(ctx, name, profile, payloadUUID)
+	}
+	return m.mdmCopier.CopyAndVerify(ctx, target, profile, payloadUUID)
+}
+
+// copyProfileViaAgent is the guest-agent counterpart of the SFTP copier: it
+// writes the profile with a shell command (base64 keeps the XML out of the
+// quoting), then reads it back and compares, as the SFTP copier does. The
+// command, and so the invitation code inside the profile, is visible in the
+// host's process list for the moment `tart exec` runs.
+func (m *Manager) copyProfileViaAgent(ctx context.Context, name string, profile []byte, payloadUUID string) error {
+	const remote = `"$HOME/` + mdm.ProfileRemotePath + `"`
+	write := fmt.Sprintf(`mkdir -p "$HOME/Desktop" && printf %%s '%s' | /usr/bin/base64 -D > %s && chmod 600 %s`,
+		base64.StdEncoding.EncodeToString(profile), remote, remote)
+	res, handled := m.execViaAgent(ctx, name, write, "")
+	switch {
+	case !handled:
+		return &mdm.StageError{Stage: mdm.StageAgent, Err: errors.New("the guest agent did not respond")}
+	case res.Error != "":
+		return &mdm.StageError{Stage: mdm.StageAgent, Err: fmt.Errorf("write remote profile: %s", res.Error)}
+	case res.ExitCode != 0:
+		return &mdm.StageError{Stage: mdm.StageAgent, Err: fmt.Errorf("write remote profile: exit %d: %s", res.ExitCode, strings.TrimSpace(res.Stderr))}
+	}
+
+	res, handled = m.execViaAgent(ctx, name, "cat "+remote, "")
+	if !handled || res.Error != "" || res.ExitCode != 0 {
+		return &mdm.StageError{Stage: mdm.StageVerification, Err: errors.New("read remote profile failed")}
+	}
+	if res.Stdout != string(profile) {
+		return &mdm.StageError{Stage: mdm.StageVerification, Err: errors.New("remote profile does not match generated profile")}
+	}
+	if !strings.Contains(res.Stdout, payloadUUID) {
+		return &mdm.StageError{Stage: mdm.StageVerification, Err: errors.New("remote profile does not contain generated UUID")}
+	}
+	return nil
 }
 
 // autoEnrollScript drives a guest end-to-end from wherever it currently is —
@@ -122,10 +167,11 @@ func (m *Manager) copyMDMProfileToVM(ctx context.Context, name, profileID, sshUs
 // before being folded in here; see the design discussion for the dead ends
 // (VNC-level input, direct TCC.db writes) that were deliberately not taken.
 //
-// Runs as a single SSH exec (mirrors sshExec's one-shot model): the script
+// Runs as a single guest exec, over the guest agent or SSH (mirrors sshExec's
+// one-shot model): the script
 // writes its own AppleScript helper files under /tmp/ae on the guest via
 // heredocs, so no separate file transfer is needed. The guest's sudo/SecurityAgent
-// password is read from stdin (fed the same way sshExecContext already feeds a
+// password is read from stdin (fed the same way execInGuest already feeds a
 // sudo password) rather than embedded in the script text, so it never appears in
 // argv or in the "ssh sudo exec" log line.
 //
@@ -620,9 +666,9 @@ func (m *Manager) autoEnroll(t *Task, name, profileID string) error {
 		}
 	}
 
-	m.appendTaskOutput(t, "Waiting for SSH to be reachable\n")
-	if !m.waitForSSHReady(t.ctx, name, 2*time.Minute) {
-		return fmt.Errorf("SSH never became reachable")
+	m.appendTaskOutput(t, "Waiting for the guest to accept commands\n")
+	if !m.waitForGuestReady(t.ctx, name, 2*time.Minute) {
+		return fmt.Errorf("the guest never accepted commands over the guest agent or SSH")
 	}
 
 	// An explicitly chosen Jamf server profile is always pushed, replacing any
@@ -644,7 +690,7 @@ func (m *Manager) autoEnroll(t *Task, name, profileID string) error {
 		if _, _, err := m.copyMDMProfileToVM(t.ctx, name, profileID, "", ""); err != nil {
 			return fmt.Errorf("could not push enrollment profile: %v", err)
 		}
-	} else if existsRes := m.sshExecContext(t.ctx, name, `test -f "$HOME/Desktop/mdm_enroll.mobileconfig" && echo yes || echo no`, ""); existsRes.Error == "" && existsRes.ExitCode == 0 && strings.TrimSpace(existsRes.Stdout) == "yes" {
+	} else if existsRes := m.execInGuest(t.ctx, name, `test -f "$HOME/Desktop/mdm_enroll.mobileconfig" && echo yes || echo no`, ""); existsRes.Error == "" && existsRes.ExitCode == 0 && strings.TrimSpace(existsRes.Stdout) == "yes" {
 		m.appendTaskOutput(t, "Reusing the enrollment profile already on the guest Desktop\n")
 	} else {
 		m.appendTaskOutput(t, "No enrollment profile found on the guest Desktop — pushing a fresh one\n")
@@ -660,7 +706,7 @@ func (m *Manager) autoEnroll(t *Task, name, profileID string) error {
 	_, password := effectiveSSHCredentials(cfg, &vmCopy)
 
 	m.appendTaskOutput(t, "Running the enrollment script (OOBE skip if needed, then Install/Enroll)\n")
-	res := m.sshExecContext(t.ctx, name, autoEnrollScript, password)
+	res := m.execInGuest(t.ctx, name, autoEnrollScript, password)
 	m.appendTaskOutput(t, res.Stdout)
 	if res.Stderr != "" {
 		m.appendTaskOutput(t, res.Stderr)
@@ -716,15 +762,16 @@ func (m *Manager) waitForState(ctx context.Context, name, want string, timeout t
 	return false
 }
 
-// waitForSSHReady polls a trivial guest command until it succeeds, so the
-// enrollment script never races a VM that has an IP but hasn't finished booting.
-func (m *Manager) waitForSSHReady(ctx context.Context, name string, timeout time.Duration) bool {
+// waitForGuestReady polls a trivial guest command (guest agent or SSH, see
+// execInGuest) until it succeeds, so the enrollment script never races a VM that
+// has an IP but hasn't finished booting.
+func (m *Manager) waitForGuestReady(ctx context.Context, name string, timeout time.Duration) bool {
 	deadline := time.Now().Add(timeout)
 	for time.Now().Before(deadline) {
 		if ctx.Err() != nil {
 			return false
 		}
-		res := m.sshExecContext(ctx, name, "echo ok", "")
+		res := m.execInGuest(ctx, name, "echo ok", "")
 		if res.Error == "" && res.ExitCode == 0 {
 			return true
 		}
