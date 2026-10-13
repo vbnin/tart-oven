@@ -26,6 +26,7 @@ const (
 	StageIP             Stage = "ip"
 	StageAuthentication Stage = "authentication"
 	StageSFTP           Stage = "sftp"
+	StageAgent          Stage = "agent"
 	StageVerification   Stage = "verification"
 )
 

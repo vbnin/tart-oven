@@ -72,6 +72,8 @@ func safeMDMStageError(stage mdm.Stage) (int, string) {
 		return http.StatusBadGateway, "SSH authentication failed"
 	case mdm.StageSFTP:
 		return http.StatusBadGateway, "SFTP upload failed"
+	case mdm.StageAgent:
+		return http.StatusBadGateway, "guest agent upload failed"
 	case mdm.StageVerification:
 		return http.StatusBadGateway, "uploaded profile verification failed"
 	default:
@@ -161,9 +163,11 @@ func (m *Manager) handleMDMProfile(w http.ResponseWriter, r *http.Request) {
 	if sshTimeout < 1 {
 		sshTimeout = 30
 	}
+	// A VM with a working guest agent needs neither SSH credentials nor an IP.
+	viaAgent := vmCopy.State == "running" && m.guestAgentAvailable(name)
 	baseURL, baseURLErr := normalizeJamfBaseURL(targetProfile.BaseURL)
 	if baseURLErr != nil || baseURL == "" || strings.TrimSpace(targetProfile.InvitationCode) == "" ||
-		strings.TrimSpace(username) == "" || strings.TrimSpace(password) == "" {
+		(!viaAgent && (strings.TrimSpace(username) == "" || strings.TrimSpace(password) == "")) {
 		status, message := safeMDMStageError(mdm.StageConfiguration)
 		writeMDMProfileError(w, status, name, mdm.StageConfiguration, message)
 		return
@@ -175,7 +179,7 @@ func (m *Manager) handleMDMProfile(w http.ResponseWriter, r *http.Request) {
 	}
 
 	ip := strings.TrimSpace(vmCopy.IP)
-	if ip == "" {
+	if ip == "" && !viaAgent {
 		if m.mdmResolveIP == nil {
 			log.Printf("MDM profile copy failed for VM %q at stage %s", name, mdm.StageIP)
 			writeMDMProfileError(w, http.StatusInternalServerError, name, mdm.StageIP, "IP resolver unavailable")
@@ -201,7 +205,7 @@ func (m *Manager) handleMDMProfile(w http.ResponseWriter, r *http.Request) {
 		writeMDMProfileError(w, status, name, mdm.StageConfiguration, message)
 		return
 	}
-	if m.mdmCopier == nil {
+	if m.mdmCopier == nil && !viaAgent {
 		log.Printf("MDM profile copy failed for VM %q at stage %s", name, mdm.StageSFTP)
 		writeMDMProfileError(w, http.StatusInternalServerError, name, mdm.StageSFTP, "profile copy service unavailable")
 		return
@@ -213,8 +217,11 @@ func (m *Manager) handleMDMProfile(w http.ResponseWriter, r *http.Request) {
 		Password: password,
 		Timeout:  time.Duration(sshTimeout) * time.Second,
 	}
-	if err := m.mdmCopier.CopyAndVerify(r.Context(), target, profile, payloadUUID); err != nil {
+	if err := m.copyProfile(r.Context(), name, viaAgent, target, profile, payloadUUID); err != nil {
 		stage := mdm.StageSFTP
+		if viaAgent {
+			stage = mdm.StageAgent
+		}
 		var stageErr *mdm.StageError
 		if errors.As(err, &stageErr) {
 			stage = stageErr.Stage

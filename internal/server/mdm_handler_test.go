@@ -56,6 +56,7 @@ func newMDMHandlerManager() *Manager {
 		vms: map[string]*VM{
 			"base": {Name: "base", State: "running", IP: "192.0.2.10"},
 		},
+		agentProbedSinceBoot: map[string]bool{"base": true}, // no guest agent: SFTP path
 	}
 }
 

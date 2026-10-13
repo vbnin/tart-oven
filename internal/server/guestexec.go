@@ -170,6 +170,19 @@ func (m *Manager) execInGuest(ctx context.Context, name, command, sudoPassword s
 	return m.sshExecContext(ctx, name, command, sudoPassword)
 }
 
+// guestAgentAvailable reports whether name's guest agent answers. It uses the
+// result of the last check this boot, and runs a check (which can take ~30s on a
+// guest without the agent) only when there is none yet.
+func (m *Manager) guestAgentAvailable(name string) bool {
+	m.mu.Lock()
+	unavailable, probed := m.agentProbedSinceBoot[name]
+	m.mu.Unlock()
+	if !probed {
+		return m.probeAgent(name)
+	}
+	return !unavailable
+}
+
 // setAgentOK records whether the guest agent answered, for display only.
 func (m *Manager) setAgentOK(name string, ok bool) {
 	m.mu.Lock()
