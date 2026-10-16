@@ -11,6 +11,7 @@ import (
 	"net"
 	"net/http"
 	"os"
+	"path/filepath"
 	"strconv"
 	"strings"
 	"time"
@@ -351,6 +352,10 @@ func (m *Manager) routes() *http.ServeMux {
 			http.Error(w, err.Error(), http.StatusBadRequest)
 			return
 		}
+		if msg := m.runConflict(body.Name); msg != "" {
+			writeJSON(w, map[string]string{"error": msg})
+			return
+		}
 		go m.doRun(body.Name, "manual", runOptions{Headless: body.Headless, Override: body.Override})
 		writeJSON(w, map[string]bool{"ok": true})
 	})
@@ -362,6 +367,19 @@ func (m *Manager) routes() *http.ServeMux {
 			return
 		}
 		go m.doStop(name)
+		writeJSON(w, map[string]bool{"ok": true})
+	})
+
+	mux.HandleFunc("/api/suspend", func(w http.ResponseWriter, r *http.Request) {
+		name, err := decodeName(r)
+		if err != nil {
+			http.Error(w, err.Error(), http.StatusBadRequest)
+			return
+		}
+		if err := m.doSuspend(name); err != nil {
+			writeJSON(w, map[string]string{"error": err.Error()})
+			return
+		}
 		writeJSON(w, map[string]bool{"ok": true})
 	})
 
@@ -389,17 +407,71 @@ func (m *Manager) routes() *http.ServeMux {
 		var body struct {
 			Name         string `json:"name"`
 			Command      string `json:"command"`
+			Script       string `json:"script"`       // a whole script, run instead of Command
+			ScriptName   string `json:"scriptName"`   // for the log only
 			SudoPassword string `json:"sudoPassword"` // transient; never stored or logged
 		}
 		if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
 			http.Error(w, err.Error(), http.StatusBadRequest)
 			return
 		}
-		if body.Name == "" || body.Command == "" {
+		if body.Name == "" || (body.Command == "" && body.Script == "") {
 			http.Error(w, "name and command required", http.StatusBadRequest)
 			return
 		}
-		writeJSON(w, m.sshExec(body.Name, body.Command, body.SudoPassword))
+		// A command that uses sudo gets a password in this order: the one typed
+		// in the terminal, the VM's own SSH password, the default SSH password.
+		// With none, sudo is told never to ask, so it fails at once.
+		text := body.Command
+		if body.Script != "" {
+			text = body.Script
+		}
+		sudoPassword, sudoFrom := body.SudoPassword, ""
+		usesSudo := sudoPattern.MatchString(text)
+		if usesSudo {
+			if sudoPassword != "" {
+				sudoFrom = "terminal"
+			} else {
+				sudoPassword, sudoFrom = m.savedSudoPassword(body.Name)
+			}
+		} else {
+			sudoPassword = "" // nothing to feed
+		}
+		mode := sudoAsIs
+		switch {
+		case usesSudo && sudoPassword != "":
+			mode = sudoStdin
+		case usesSudo:
+			mode = sudoNoPrompt
+		}
+
+		command := body.Command
+		if body.Script != "" {
+			var err error
+			if command, err = scriptCommand(body.Script, mode); err != nil {
+				writeJSON(w, execResult{Error: err.Error()})
+				return
+			}
+			if sudoPassword != "" {
+				sudoPassword = repeatSudoPassword(sudoPassword)
+			}
+			m.logln("terminal: running script %q (%d bytes) on %s", filepath.Base(body.ScriptName), len(body.Script), body.Name)
+		} else if mode == sudoNoPrompt {
+			command = rewriteSudoNoPrompt(command)
+		}
+		runID := shortID()
+		command = ": " + runMarker(runID) + "; " + command
+
+		// Tied to the request, so the Stop button (which aborts it) also
+		// ends the tart or ssh process; killGuestRun ends the guest side.
+		ctx, cancel := context.WithTimeout(r.Context(), 30*time.Minute)
+		defer cancel()
+		res := m.execInGuest(ctx, body.Name, command, sudoPassword)
+		res.SudoFrom = sudoFrom
+		if ctx.Err() != nil {
+			m.killGuestRun(body.Name, runID)
+		}
+		writeJSON(w, res)
 	})
 
 	mux.HandleFunc("/api/info", func(w http.ResponseWriter, r *http.Request) {
@@ -573,6 +645,13 @@ func (m *Manager) routes() *http.ServeMux {
 			writeJSON(w, map[string]string{"error": "stop the VM before renaming it"})
 			return
 		}
+		m.mu.Lock()
+		inUse := m.familyInUseLocked(b.Name)
+		m.mu.Unlock()
+		if inUse != "" {
+			writeJSON(w, map[string]string{"error": "stop " + inUse + " before renaming " + b.Name})
+			return
+		}
 		// The new name is a template, like when creating VMs: $RAND8 and
 		// $AUTONUM are expanded, and a taken name gets -1, -2, ... added.
 		if err := validateNameTemplate(b.NewName); err != nil {
@@ -605,6 +684,7 @@ func (m *Manager) routes() *http.ServeMux {
 			}
 			m.save()
 			m.mu.Unlock()
+			m.followRename(b.Name, b.NewName)
 		}
 		m.reconcile()
 		m.broadcast()
@@ -616,21 +696,24 @@ func (m *Manager) routes() *http.ServeMux {
 	})
 
 	mux.HandleFunc("/api/vm/delete", func(w http.ResponseWriter, r *http.Request) {
-		name, err := decodeName(r)
-		if err != nil {
-			http.Error(w, err.Error(), http.StatusBadRequest)
+		var body struct {
+			Name      string `json:"name"`
+			Snapshots string `json:"snapshots"` // "delete" | "promote", needed when the VM has snapshots
+			Promote   string `json:"promote"`   // the snapshot that becomes the VM
+		}
+		if err := json.NewDecoder(r.Body).Decode(&body); err != nil || strings.TrimSpace(body.Name) == "" {
+			http.Error(w, "missing name", http.StatusBadRequest)
 			return
 		}
+		name := body.Name
 		if m.isActive(name) {
 			writeJSON(w, map[string]string{"error": "stop the VM before deleting it"})
 			return
 		}
-		out, derr := m.tartCmd(m.storage(), "delete", name).CombinedOutput()
-		m.reconcile()
-		m.broadcast()
-		res := map[string]string{"output": string(out)}
+		out, derr := m.deleteVM(name, body.Snapshots, body.Promote)
+		res := map[string]string{"output": out}
 		if derr != nil {
-			res["error"] = derr.Error() + ": " + string(out)
+			res["error"] = derr.Error()
 		}
 		writeJSON(w, res)
 	})
@@ -665,6 +748,11 @@ func (m *Manager) routes() *http.ServeMux {
 
 			Hostname         *string `json:"hostname,omitempty"`
 			HostnameFromName *bool   `json:"hostnameFromName,omitempty"`
+
+			// A blank user or password means "keep", so removing a custom one
+			// (to fall back to the defaults) needs to be said outright.
+			ClearSSHUser     bool `json:"clearSshUser"`
+			ClearSSHPassword bool `json:"clearSshPassword"`
 		}
 		if err := json.NewDecoder(r.Body).Decode(&b); err != nil {
 			http.Error(w, err.Error(), http.StatusBadRequest)
@@ -681,12 +769,7 @@ func (m *Manager) routes() *http.ServeMux {
 			}
 		}
 		// Filter empty tags
-		var tags []string
-		for _, t := range b.Tags {
-			if t = strings.TrimSpace(t); t != "" {
-				tags = append(tags, t)
-			}
-		}
+		tags := cleanTags(b.Tags)
 		m.mu.Lock()
 		vm := m.vms[b.Name]
 		if vm == nil {
@@ -699,11 +782,17 @@ func (m *Manager) routes() *http.ServeMux {
 		// Omitted by the dashboard's notes-only editor, so a blank submission means
 		// "leave it unchanged" — matching the password below. Assigning it
 		// unconditionally silently wiped a VM's custom user when saving a note.
+		if b.ClearSSHUser {
+			vm.SSHUser = ""
+		}
 		if user := strings.TrimSpace(b.SSHUser); user != "" {
 			vm.SSHUser = user
 		}
 		// Write-only: the client never receives the stored password back, so a
 		// blank submission means "leave it unchanged", not "clear it".
+		if b.ClearSSHPassword {
+			vm.SSHPassword = ""
+		}
 		if pw := strings.TrimSpace(b.SSHPassword); pw != "" {
 			vm.SSHPassword = pw
 		}
@@ -884,6 +973,7 @@ func (m *Manager) routes() *http.ServeMux {
 	mux.HandleFunc("/events", m.handleEvents)
 
 	m.registerAuthRoutes(mux)
+	m.registerSnapshotRoutes(mux)
 	m.registerTLSRoutes(mux)
 	m.registerSetupRoutes(mux)
 	m.registerAgentRoutes(mux)
@@ -1029,10 +1119,10 @@ func (m *Manager) handleConfig(w http.ResponseWriter, r *http.Request) {
 			m.cfg.NoGraphics = v
 		}
 	}
-	if raw, ok := fields["noAudio"]; ok {
+	if raw, ok := fields["suspendable"]; ok {
 		var v bool
 		if json.Unmarshal(raw, &v) == nil {
-			m.cfg.NoAudio = v
+			m.cfg.Suspendable = v
 		}
 	}
 	if raw, ok := fields["jamfRecon"]; ok {
@@ -1368,4 +1458,20 @@ func (m *Manager) handleEvents(w http.ResponseWriter, r *http.Request) {
 			flusher.Flush()
 		}
 	}
+}
+
+// cleanTags trims tags, drops empty ones and repeats that differ only in case
+// ("macOS26" and "MacOS26"), keeping the first spelling.
+func cleanTags(in []string) []string {
+	var out []string
+	seen := map[string]bool{}
+	for _, t := range in {
+		t = strings.Join(strings.Fields(t), " ")
+		if t == "" || seen[strings.ToLower(t)] {
+			continue
+		}
+		seen[strings.ToLower(t)] = true
+		out = append(out, t)
+	}
+	return out
 }

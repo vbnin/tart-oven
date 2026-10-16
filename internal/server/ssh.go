@@ -20,6 +20,11 @@ type execResult struct {
 	Error    string `json:"error,omitempty"`
 
 	Truncated bool `json:"truncated,omitempty"` // output was cut at the per-call cap (agent API only)
+
+	User string `json:"user,omitempty"` // the guest account the command was sent as
+	Via  string `json:"via,omitempty"`  // "agent" or "ssh": the transport that ran it
+
+	SudoFrom string `json:"sudoFrom,omitempty"` // where the sudo password came from: "terminal", "VM setting" or "default"
 }
 
 // sshOutcome distills an execResult into (ok, displayable text) for the SSH
@@ -121,6 +126,7 @@ func (m *Manager) sshExecContext(ctx context.Context, name, command, sudoPasswor
 	args = append(args, "--", fmt.Sprintf("%s@%s", user, ip), remoteCmd)
 
 	cmd := exec.CommandContext(ctx, "ssh", args...)
+	cmd.WaitDelay = cancelGrace
 	if sudoPassword != "" {
 		cmd.Stdin = strings.NewReader(sudoPassword + "\n")
 	}

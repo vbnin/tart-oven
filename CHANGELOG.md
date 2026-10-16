@@ -12,6 +12,39 @@ A few terms appear throughout:
 - **MDM / Jamf Pro** — the system that manages enrolled Macs. Tart Oven can prepare
   a VM for enrollment and report whether a guest is enrolled.
 
+## 2.2.0 (2026-10-16)
+
+### Added
+
+- **VM snapshots.** **⋯ → VM Snapshots** (or the number in the new **Snapshots** column) opens a window to create, run, restore and delete snapshots of a VM, each with a timestamp and a comment about why you took it. A snapshot is a full copy that keeps the VM's serial number and MAC address, so a VM and its snapshots never run at the same time. Snapshots are not listed as VMs and the scheduler never starts them. Restoring replaces the VM with the snapshot, and deleting a VM with snapshots asks whether to delete them too or to use one as the VM. See [Snapshots and suspend](README.md#snapshots-and-suspend).
+- **Suspend and resume.** **Suspend VM** (⋯ menu) saves a running VM's memory and stops it; **Resume** brings it back in seconds. It needs the VM to be started with **Suspendable** (**Run with arguments**, or the new **Configuration → Tart Settings → Start VMs suspendable**, on for new installations and off for existing ones, because it turns off the VM's audio and entropy devices). A VM started without it can't be suspended, since Tart would save a state that can never be restored.
+- **Snapshots with memory.** A snapshot of a suspended VM keeps its memory, and running it resumes at that moment. For a running suspendable VM, **Include memory** pauses it for a few seconds while the snapshot is taken.
+- **Run a script in the terminal.** **Run script…** picks a `.sh` file in Finder (or drop one on the window), shows its first lines, and runs it in the VM only after you confirm.
+- **The terminal shows who commands run as.** **Sending commands as: admin** names the account, with a link to change it. The window also checks which account the guest really uses and warns if it differs, for example when the account doesn't exist and the guest agent runs commands as `root`.
+
+- **A VM's custom SSH user and password can be removed.** Before, a blank field in **Edit VM** meant "keep", so a custom value could be replaced but never taken off. Now **Edit VM** says when a custom password is set and has **Remove** boxes for the user and the password, which bring the VM back to the defaults in **Configuration**.
+
+### Changed
+
+- **The terminal works like a terminal.** The prompt is at the bottom, below the output; Enter runs, Shift+Enter adds a line, Up and Down bring back earlier commands, and **Stop** ends a running command.
+- **Create / clone VMs also opens as a window.** **+ Create VM** on the Dashboard opens the form without leaving the page; the same form stays in **VM Management**, where the progress, **Show logs** and **Cancel** are. After you click **Create VMs** in the window it closes.
+- **Tags are picked, not typed from memory.** In **Edit VM**, tags in use on other VMs appear as clickable suggestions, and a new tag typed in any capitalisation takes the spelling already in use, so `macos26` never sits beside `macOS26`. Duplicates that differ only by case are dropped.
+
+- **The Disable audio setting is gone** from the scheduler section. Suspendable VMs have no audio anyway, and **Run with arguments** still offers **No audio** for one run. A saved Disable audio choice no longer has any effect.
+
+### Fixed
+
+- **sudo in the terminal no longer hangs.** Every `sudo` now either reads a password or is told never to ask, so it fails at once with a clear message. When you leave the **Custom sudo password** field blank, Tart Oven uses the VM's own SSH password, then the default one.
+- **Stop in the terminal now stops the command in the VM.** Before, it only stopped waiting: the process kept running in the guest and could hold up later commands.
+- **Stopping a suspended VM** now discards its saved memory instead of reporting it stopped while the memory was still there.
+- A guest command that is cancelled can no longer hold the server waiting for a leftover process.
+
+## 2.1.2 (2026-10-16)
+
+### Fixed
+
+- **The dashboard no longer freezes when a running VM's IP address changes.** After a network or DHCP change, the server could lock up while recording the new address: the dashboard stayed on "connecting…" with empty tables, and restarting from the dashboard did not help. It had to be stopped and started from Terminal.
+
 ## 2.1.1 (2026-10-13)
 
 ### Added

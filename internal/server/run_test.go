@@ -27,29 +27,6 @@ func TestRunWantsNoGraphics(t *testing.T) {
 	}
 }
 
-func TestRunWantsNoAudio(t *testing.T) {
-	testCases := []struct {
-		name       string
-		trigger    string
-		cfgNoAudio bool
-		extra      []string
-		want       bool
-	}{
-		{"manual run, config on", "manual", true, nil, false},
-		{"scheduler run, config on", "scheduler", true, nil, true},
-		{"scheduler run, config off", "scheduler", false, nil, false},
-		{"explicit --no-audio wins", "manual", false, []string{"--no-audio"}, true},
-	}
-	for _, tc := range testCases {
-		t.Run(tc.name, func(t *testing.T) {
-			got := runWantsNoAudio(tc.trigger, tc.cfgNoAudio, tc.extra)
-			if got != tc.want {
-				t.Errorf("got %v, want %v", got, tc.want)
-			}
-		})
-	}
-}
-
 func TestTakeAutoEnroll(t *testing.T) {
 	testCases := []struct {
 		name        string

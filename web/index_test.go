@@ -141,7 +141,7 @@ func TestOCIImagesAreCloneOnlyAndHiddenByRunningFilter(t *testing.T) {
 	}
 	clone := sourceSection(t, html, `function cloneFromOCI`, `function renderOCIImages`)
 	for _, want := range []string{
-		`showTab("vmm")`, `setCreateMode("clone")`, `cloneSource.value = name`,
+		`openCreateVmModal(`, `mode: "clone"`, `source: name`,
 	} {
 		if !strings.Contains(clone, want) {
 			t.Errorf("OCI clone handoff missing %q", want)
@@ -359,7 +359,6 @@ func TestJamfCommandControlsAndSchedulerOptions(t *testing.T) {
 		`id="terminalSudoPassword"`,
 		`id="terminalConsole"`,
 		`id="noGraphics"`,
-		`id="noAudio"`,
 	} {
 		if !strings.Contains(html, requiredID) {
 			t.Errorf("missing required element %s in index.html", requiredID)
@@ -728,5 +727,139 @@ func TestOCIImagesHeaderHasNoShowLogsButton(t *testing.T) {
 	}
 	if !strings.Contains(html, `id="createShowLogs"`) {
 		t.Error("the create panel's own Show logs button should stay")
+	}
+}
+
+func TestTerminalIsARealTerminalLayout(t *testing.T) {
+	b, err := Content.ReadFile("index.html")
+	if err != nil {
+		t.Fatal(err)
+	}
+	html := string(b)
+	for _, id := range []string{
+		`id="terminalUser"`, `id="terminalPrompt"`, `id="terminalStopBtn"`, `id="terminalScriptFile"`,
+		`id="terminalScript"`, `id="terminalScriptRun"`, `Sending commands as:`,
+	} {
+		if !strings.Contains(html, id) {
+			t.Errorf("terminal is missing %s", id)
+		}
+	}
+	// The command line sits below the output, as in a real terminal.
+	out := strings.Index(html, `id="terminalConsole"`)
+	in := strings.Index(html, `id="terminalCommand"`)
+	if out < 0 || in < 0 || in < out {
+		t.Errorf("the command field (%d) must come after the output (%d)", in, out)
+	}
+	if !strings.Contains(html, `<textarea id="terminalCommand"`) {
+		t.Error("the command field should be a textarea so a command can span lines")
+	}
+}
+
+func TestCreateFormStaysInVMManagementAndOpensAsAModalFromTheDashboard(t *testing.T) {
+	b, err := Content.ReadFile("index.html")
+	if err != nil {
+		t.Fatal(err)
+	}
+	html := string(b)
+	// The full form is always available in VM Management, with its progress controls.
+	vmm := sourceSection(t, html, `id="tab-vmm"`, `id="panel-prep-jamf"`)
+	for _, want := range []string{
+		`id="createFormBody"`, `id="createBtn"`, `id="cloneSource"`, `id="createNameTemplate"`, `id="createRandMac"`,
+		`id="provisioningEnabled"`, `id="createProgress"`, `id="createCancel"`, `id="createShowLogs"`,
+	} {
+		if !strings.Contains(vmm, want) {
+			t.Errorf("VM Management lost %s", want)
+		}
+	}
+	if strings.Contains(vmm, `+ New VM`) {
+		t.Error("the form is inline again; the +New VM stand-in button should be gone")
+	}
+	// The Dashboard opens the same form in a window, by moving it, not copying it.
+	modal := sourceSection(t, html, `id="createVmModal"`, `<!-- Terminal modal -->`)
+	if !strings.Contains(modal, `id="createModalSlot"`) || strings.Contains(modal, `id="createBtn"`) {
+		t.Error("the window should only hold a slot; the form must exist once")
+	}
+	dash := sourceSection(t, html, `id="tab-dashboard"`, `id="tab-performance"`)
+	if !strings.Contains(dash, `openCreateVmModal()`) || strings.Contains(dash, `goToCreatePanel`) {
+		t.Error("the Dashboard's + Create VM button should open the create window")
+	}
+	for _, want := range []string{`slot.appendChild(body)`, `panel.appendChild(body)`} {
+		if !strings.Contains(html, want) {
+			t.Errorf("the form is not moved in and out of the window: missing %q", want)
+		}
+	}
+	if strings.Count(html, `id="createBtn"`) != 1 {
+		t.Error("createBtn must exist exactly once")
+	}
+}
+
+func TestEditVMTagsArePickedFromThoseInUse(t *testing.T) {
+	b, err := Content.ReadFile("index.html")
+	if err != nil {
+		t.Fatal(err)
+	}
+	html := string(b)
+	for _, want := range []string{`id="editVmTagBox"`, `id="editVmTagSuggest"`, `id="editVmTags"`, `function canonicalTag(`, `function tagUsage(`, `In use:`} {
+		if !strings.Contains(html, want) {
+			t.Errorf("tag picker is missing %q", want)
+		}
+	}
+	if strings.Contains(html, `Tags (comma-separated)`) {
+		t.Error("the free-text tag field should be replaced by the picker")
+	}
+}
+
+func TestSnapshotsHaveAColumnAMenuEntryAndAWindow(t *testing.T) {
+	b, err := Content.ReadFile("index.html")
+	if err != nil {
+		t.Fatal(err)
+	}
+	html := string(b)
+	for _, want := range []string{
+		`<th data-sort="snapshots">Snapshots</th>`, `snapshotsCell(vm)`, `openSnapshotsModal(`, `>VM Snapshots</button>`,
+		`id="snapshotsModal"`, `id="snapshotRows"`, `id="snapshotComment"`, `id="snapshotCreateBtn"`,
+		`id="deleteVmModal"`, `name="deleteVmChoice"`, `/api/vm/snapshot/restore`, `/api/vm/snapshot/comment`,
+	} {
+		if !strings.Contains(html, want) {
+			t.Errorf("snapshots UI is missing %q", want)
+		}
+	}
+	// Snapshots are not listed as VMs on the dashboard: the window is the only place.
+	if strings.Contains(sourceSection(t, html, `function renderTable(`, `// keep "time remaining"`), `vm.snapshots.map`) {
+		t.Error("renderTable must not list snapshots as rows")
+	}
+}
+
+func TestSuspendableLivesInTartSettingsAndNoAudioIsGone(t *testing.T) {
+	b, err := Content.ReadFile("index.html")
+	if err != nil {
+		t.Fatal(err)
+	}
+	html := string(b)
+	tart := sourceSection(t, html, `id="panel-tart-settings"`, `id="updateTartBtn"`)
+	if !strings.Contains(tart, `id="suspendable"`) {
+		t.Error("Start VMs suspendable belongs in Tart Settings")
+	}
+	sched := sourceSection(t, html, `id="panel-scheduler"`, `id="panel-tart-settings"`)
+	if strings.Contains(sched, `id="suspendable"`) || strings.Contains(sched, `id="noAudio"`) {
+		t.Error("the scheduler section should have neither Start VMs suspendable nor Disable audio")
+	}
+	if strings.Contains(html, `id="noAudio"`) || strings.Contains(html, "noAudio") {
+		t.Error("nothing should refer to the removed noAudio setting")
+	}
+}
+
+func TestEditVMCanRemoveCustomSSHCredentials(t *testing.T) {
+	b, err := Content.ReadFile("index.html")
+	if err != nil {
+		t.Fatal(err)
+	}
+	html := string(b)
+	for _, want := range []string{
+		`id="editVmClearSshPassword"`, `id="editVmClearSshUser"`, `vm.sshPasswordSet`, `clearSshPassword`, `clearSshUser`,
+	} {
+		if !strings.Contains(html, want) {
+			t.Errorf("Edit VM can't remove custom credentials: missing %q", want)
+		}
 	}
 }

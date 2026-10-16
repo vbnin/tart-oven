@@ -19,7 +19,7 @@ func eligibleForScheduler(vm *VM, excludeOCI bool, excluded map[string]bool, bus
 	if vm == nil || vm.State != "stopped" || busy {
 		return false
 	}
-	if strings.Contains(vm.Name, templateMarker) || excluded[vm.Name] || vm.Lease != nil {
+	if strings.Contains(vm.Name, templateMarker) || excluded[vm.Name] || vm.Lease != nil || vm.SnapshotOf != "" {
 		return false
 	}
 	return !excludeOCI || !isOCI(vm.Source)
@@ -86,7 +86,7 @@ func (m *Manager) tick() {
 	var fresh, failed []string
 	if within && mounted && running-len(toStop) < maxc {
 		for name, vm := range m.vms {
-			if !eligibleForScheduler(vm, excludeOCI, excluded, m.busy[name]) {
+			if !eligibleForScheduler(vm, excludeOCI, excluded, m.busy[name]) || m.familyConflictLocked(name) != "" {
 				continue
 			}
 			if vm.BootFailed {

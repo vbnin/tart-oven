@@ -95,14 +95,11 @@ func runWantsNoGraphics(trigger string, headless, cfgNoGraphics bool, extra []st
 	return trigger == "scheduler" && cfgNoGraphics
 }
 
-// runWantsNoAudio reports whether a VM run should use --no-audio. The scheduler
-// config only applies to scheduled runs; manual runs respect an explicit
-// --no-audio in Custom run arguments.
-func runWantsNoAudio(trigger string, cfgNoAudio bool, extra []string) bool {
-	if hasArg(extra, "--no-audio") {
-		return true
-	}
-	return trigger == "scheduler" && cfgNoAudio
+// runWantsSuspendable reports whether a start should use --suspendable: the
+// setting, an explicit choice in Run with arguments, or resuming a suspended
+// VM (its saved state needs the same devices).
+func runWantsSuspendable(cfgSuspendable bool, extra []string, wasSuspended bool) bool {
+	return cfgSuspendable || wasSuspended || hasArg(extra, "--suspendable")
 }
 
 func (m *Manager) doRun(name, trigger string, opts runOptions) {
@@ -127,6 +124,14 @@ func (m *Manager) doRun(name, trigger string, opts runOptions) {
 		m.logln("deferred start of %s: host is under critical memory pressure", name)
 		return
 	}
+	// A VM and its snapshots share one MAC address, so only one runs at a time.
+	if other := m.familyConflictLocked(name); other != "" {
+		vm.LastError = "not started: " + runConflictText(name, other)
+		m.mu.Unlock()
+		m.broadcast()
+		m.logln("refusing to start %s: %s is running (same MAC address)", name, other)
+		return
+	}
 	// Hard concurrency ceiling: Virtualization.framework allows at most 2 VMs.
 	// Enforced here so it covers manual runs as well as the scheduler.
 	active := 0
@@ -143,6 +148,7 @@ func (m *Manager) doRun(name, trigger string, opts runOptions) {
 		return
 	}
 	now := time.Now()
+	wasSuspended := vm.State == "suspended"
 	m.setBusy(name, true)
 	vm.State = "starting"
 	vm.LastError = ""
@@ -165,6 +171,7 @@ func (m *Manager) doRun(name, trigger string, opts runOptions) {
 		extra = append([]string(nil), opts.Override.Args...)
 	}
 	statusCmd := m.cfg.StatusCommand
+	cfgSuspendable := m.cfg.Suspendable
 	window := time.Duration(m.cfg.WindowMinutes) * time.Minute
 	bootTimeout := m.cfg.BootTimeoutSec
 	netPriority := m.cfg.NetPriority
@@ -210,8 +217,9 @@ func (m *Manager) doRun(name, trigger string, opts runOptions) {
 	if runWantsNoGraphics(trigger, headless, m.cfg.NoGraphics, extra) && !hasArg(extra, "--no-graphics") {
 		runArgs = append(runArgs, "--no-graphics")
 	}
-	if runWantsNoAudio(trigger, m.cfg.NoAudio, extra) && !hasArg(extra, "--no-audio") {
-		runArgs = append(runArgs, "--no-audio")
+	suspendable := runWantsSuspendable(cfgSuspendable, extra, wasSuspended)
+	if suspendable && !hasArg(extra, "--suspendable") {
+		runArgs = append(runArgs, "--suspendable")
 	}
 	runArgs = append(runArgs, extra...)
 	if pendingProvisioning != "" && supportsProvisioning {
@@ -312,6 +320,7 @@ func (m *Manager) doRun(name, trigger string, opts runOptions) {
 	bootedAt := vm.StartedAt
 	vm.StopAt = time.Now().Add(window)
 	vm.Headless = runWantsNoGraphics(trigger, headless, m.cfg.NoGraphics, extra)
+	vm.Suspendable = suspendable
 	vm.BootFailed = false // a clean boot clears any previous failure flag
 	vm.LastError = ""
 	vm.SSHOK = false // pending check; UI shows "checking…"
@@ -387,6 +396,7 @@ func (m *Manager) doStop(name string) {
 		m.mu.Unlock()
 		return
 	}
+	wasSuspended := vm.State == "suspended"
 	m.setBusy(name, true)
 	vm.State = "stopping"
 	home := m.cfg.VMStoragePath
@@ -407,7 +417,10 @@ func (m *Manager) doStop(name string) {
 	// guest agent or SSH), bounded to sshPriorityShutdownWait. The connection
 	// usually drops as the guest powers off, so the command's own result is
 	// ignored — what matters is whether the VM actually stops within the deadline.
-	if prioritizeSSH && (agentOK || ip != "") {
+	// A suspended VM has no guest to ask; tart stop just discards its saved
+	// memory. Going through the clean shutdown would see "not running" and
+	// call that stopped while the saved state was still there.
+	if prioritizeSSH && !wasSuspended && (agentOK || ip != "") {
 		deadline := time.Now().Add(sshPriorityShutdownWait)
 		m.logln("clean shutdown %s: %q", name, sshPriorityShutdownCommand)
 		sshCtx, cancel := context.WithDeadline(context.Background(), deadline)
@@ -491,6 +504,58 @@ func (m *Manager) doStop(name string) {
 	m.mu.Unlock()
 	m.broadcast()
 	log.Printf("stopped %q", name)
+}
+
+// doSuspend saves a running VM's memory and stops it, so the next start resumes
+// where it left off (a few seconds, no boot). Only a VM started with
+// --suspendable can be: tart suspends any VM "successfully", but the state of
+// one started without the flag can never be restored.
+func (m *Manager) doSuspend(name string) error {
+	m.mu.Lock()
+	vm := m.vms[name]
+	var err error
+	switch {
+	case vm == nil:
+		err = fmt.Errorf("VM %q does not exist", name)
+	case m.busy[name]:
+		err = fmt.Errorf("%s is busy; try again in a moment", name)
+	case vm.State != "running":
+		err = fmt.Errorf("%s is not running", name)
+	case !vm.Suspendable:
+		err = fmt.Errorf("%s was not started with Suspendable, so its state could not be restored. Stop it and start it again with Suspendable on (Run with arguments, or Configuration)", name)
+	}
+	if err != nil {
+		m.mu.Unlock()
+		return err
+	}
+	m.setBusy(name, true)
+	vm.State = "stopping"
+	home := m.cfg.VMStoragePath
+	m.mu.Unlock()
+	m.broadcast()
+
+	m.logln("$ tart suspend %s", name)
+	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
+	out, serr := m.tartCmdCtx(ctx, home, "suspend", name).CombinedOutput()
+	cancel()
+	if serr != nil {
+		m.logln("tart suspend %s → %v%s", name, serr, prefixIfNotEmpty(" ", strings.TrimSpace(string(out))))
+		// Still running as before.
+		m.mu.Lock()
+		vm.State = "running"
+		vm.LastError = "suspend failed: " + lastLine(string(out))
+		m.setBusy(name, false)
+		m.mu.Unlock()
+		m.broadcast()
+		return fmt.Errorf("tart suspend %s: %v: %s", name, serr, strings.TrimSpace(string(out)))
+	}
+	// `tart run` exits once the state is saved.
+	for i := 0; i < 60 && m.isRunning(name); i++ {
+		time.Sleep(500 * time.Millisecond)
+	}
+	m.finishVMRun(name, "suspended")
+	m.logln("%s suspended", name)
+	return nil
 }
 
 func (m *Manager) runSSHOperation(ctx context.Context, name, command, password string) execResult {

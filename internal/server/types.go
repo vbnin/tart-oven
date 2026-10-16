@@ -49,7 +49,7 @@ type Config struct {
 	Excluded                []string      `json:"excluded"`                // VM names never auto-selected
 	ExcludeOCIFromScheduler bool          `json:"excludeOciFromScheduler"` // keep cached OCI images clone-only by default
 	NoGraphics              bool          `json:"noGraphics"`              // run VMs headless without a GUI window (--no-graphics)
-	NoAudio                 bool          `json:"noAudio"`                 // disable host audio pass-through (--no-audio)
+	Suspendable             bool          `json:"suspendable"`             // start every VM with --suspendable so it can be suspended (turns off audio and entropy devices)
 	JamfRecon               bool          `json:"jamfRecon"`               // run `jamf recon` after start/stop
 	Paused                  bool          `json:"paused"`                  // global scheduler pause
 	DailyEnabled            bool          `json:"dailyEnabled"`            // gate auto-runs to a daily time window
@@ -157,7 +157,7 @@ func defaultConfig() Config {
 		Excluded:                []string{},
 		ExcludeOCIFromScheduler: true,
 		NoGraphics:              false,
-		NoAudio:                 false,
+		Suspendable:             true, // new configs only: a stored config without the key stays off
 		JamfRecon:               false,
 		Paused:                  true, // scheduler OFF until the user turns it on
 		DailyEnabled:            true,
@@ -293,10 +293,16 @@ type VM struct {
 
 	Lease *Lease `json:"lease,omitempty"` // set on VMs created through the agent API; see lease.go
 
+	Suspendable bool `json:"suspendable,omitempty"` // started with --suspendable, so tart suspend leaves a state that can be resumed
+
+	Snapshots  []Snapshot `json:"snapshots,omitempty"`  // on an original VM: the copies taken of it (snapshots.go)
+	SnapshotOf string     `json:"snapshotOf,omitempty"` // on a snapshot's own VM: the original it copies; hidden from the dashboard and the scheduler
+
 	// Computed for the UI in stateSnapshot (not persisted meaningfully).
-	Template bool `json:"template"`
-	Excluded bool `json:"excluded"`
-	Busy     bool `json:"busy"`
+	SSHPasswordSet bool `json:"sshPasswordSet,omitempty"` // this VM has its own SSH password (the value is never sent)
+	Template       bool `json:"template"`
+	Excluded       bool `json:"excluded"`
+	Busy           bool `json:"busy"`
 }
 
 // RunEvent is one entry in the run history: a VM that was turned on. StoppedAt
@@ -345,9 +351,10 @@ type createBatch struct {
 
 // Manager holds everything, guarded by mu.
 type Manager struct {
-	agentOps             map[string]*agentOp     // in-flight and recently failed agent provisioning, by VM name; lazily initialised
-	reaping              map[string]bool         // agent VMs whose expired lease is being torn down; lazily initialised
-	batches              map[string]*createBatch // in-flight create batches; lazily initialised
+	resumeHook           func(name string, opts runOptions) // tests: stands in for doRun after a snapshot with memory
+	agentOps             map[string]*agentOp                // in-flight and recently failed agent provisioning, by VM name; lazily initialised
+	reaping              map[string]bool                    // agent VMs whose expired lease is being torn down; lazily initialised
+	batches              map[string]*createBatch            // in-flight create batches; lazily initialised
 	authOnce             sync.Once
 	authSt               *authState // UI access token + sessions; see auth.go
 	tlsActive            bool       // the listener is serving HTTPS

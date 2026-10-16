@@ -46,6 +46,9 @@ func (m *Manager) reconcile() {
 			vm.StopAt = time.Time{}
 			vm.Headless = false
 			vm.RunOverride = nil
+			if t.State != "suspended" {
+				vm.Suspendable = false // a full stop: the next start decides again
+			}
 		}
 	}
 	// Drop VMs that no longer exist in tart (and aren't mid-operation).
@@ -54,6 +57,7 @@ func (m *Manager) reconcile() {
 			delete(m.vms, name)
 		}
 	}
+	m.reconcileSnapshotsLocked(seen)
 }
 
 // ensureSharedDir creates the host_resources bind-mount folder if it's
