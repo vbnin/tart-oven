@@ -593,12 +593,25 @@ if [ "$GOT_PROMPT" = "1" ]; then
   # anonymous button is always the primary action), this dialog's first
   # anonymous button is Enroll and the last is Cancel — clicking "last" here
   # silently cancels enrollment instead of completing it.
-  RES=$(osascript /tmp/ae/clickexact.scpt "Enroll" "SecurityAgent" 2>&1)
-  echo "$RES" | tee -a "$LOG"
-  case "$RES" in
-    clicked*) ;;
-    *) osascript /tmp/ae/clickgeneric.scpt 1 "SecurityAgent" | tee -a "$LOG" ;;
-  esac
+  # The label follows the guest's language: British, Australian and other
+  # non-US English spell it "Enrol", so try both before the anonymous-button
+  # fallback.
+  CLICKED=0
+  for LABEL in "Enroll" "Enrol"; do
+    RES=$(osascript /tmp/ae/clickexact.scpt "$LABEL" "SecurityAgent" 2>&1)
+    echo "$RES" | tee -a "$LOG"
+    case "$RES" in
+      clicked*) CLICKED=1; break ;;
+    esac
+  done
+  if [ "$CLICKED" != "1" ]; then
+    RES=$(osascript /tmp/ae/clickgeneric.scpt 1 "SecurityAgent" 2>&1)
+    echo "$RES" | tee -a "$LOG"
+    case "$RES" in
+      clicked*) ;;
+      *) log "No Enroll button matched; SecurityAgent contents: $(dumpproc SecurityAgent | tr '\n' ';')" ;;
+    esac
+  fi
 else
   log "No password prompt appeared - profile may have failed to install earlier"
 fi

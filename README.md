@@ -4,7 +4,7 @@ Tart Oven is a local web console for managing [Tart](https://github.com/openai/t
 
 Tart Oven runs on macOS and manages macOS virtual machines.
 
-Current release: **2.2.0** · [Changelog](CHANGELOG.md)
+Current release: **2.2.1** · [Changelog](CHANGELOG.md)
 
 <p align="center">
   <img src="assets/screenshots/Tart%20Oven%20Screenshot%201.png" alt="Tart Oven screenshot 1" width="900">
@@ -28,13 +28,13 @@ Tart Oven limits the host to two running VMs at a time. Apple's macOS license al
 
 ### 1. Install Tart Oven
 
-Download `TartOven-2.2.0.pkg` from the [release page](https://github.com/vbnin/tart-oven/releases).
+Download `TartOven-2.2.1.pkg` from the [release page](https://github.com/vbnin/tart-oven/releases).
 
 Open the package in Finder or install it from Terminal:
 
 ```sh
 cd "$HOME/Downloads"
-sudo installer -pkg "./TartOven-2.2.0.pkg" -target /
+sudo installer -pkg "./TartOven-2.2.1.pkg" -target /
 ```
 
 The package installs:
@@ -177,7 +177,7 @@ The Dashboard provides **Run** and **Stop** next to each VM, plus a "⋯" menu w
 - **Start Screen Sharing** (⋯ menu) opens macOS Screen Sharing when the guest has an IP and Screen Sharing is enabled.
 - **Edit VM** (⋯ menu) opens a window with the VM's hardware (CPU, memory, disk, display), **Rename to** (accepts the same `$RAND8` and `$AUTONUM` variables as a name template), new random MAC and serial, hostname, SSH credentials (tick **Remove** beside a custom user or password to go back to the defaults), enrollment, and tags and notes. Tags already used on other VMs appear under **In use:** to click; typing a tag in any capitalisation uses the spelling already in use, so `macos26` never sits beside `macOS26`. While the VM runs, only tags, notes, SSH credentials and auto-enroll can change; stop it for the rest.
 - **Hostname** (Edit VM, or Create / clone VMs) sets the guest's computer name, local hostname and hostname with `scutil`, either to a custom name or **Same as VM name**. It's applied while the VM is running, or at its next boot, and needs the guest agent or SSH plus the guest's sudo password. Characters other than letters, digits and hyphens become hyphens in the network names.
-- **Auto enroll at next boot** (Edit VM → Enrollment, experimental) — see [Auto-enrolling VMs at boot](#auto-enrolling-vms-at-boot-experimental) below.
+- **Auto enroll at next boot** (Edit VM → Enrollment) — see [Auto-enrolling VMs at boot](#auto-enrolling-vms-at-boot-experimental) below.
 - **Delete VM** (⋯ menu) permanently deletes that VM, after a confirmation prompt. A VM with snapshots asks whether to delete them too, or to use one of them as the VM.
 
 Tart Oven only manages macOS guests; Linux VMs are not supported.
@@ -326,7 +326,7 @@ Because the chosen profile is pushed to the clone, the base VM doesn't need one:
 
 Both handle the full first-boot Setup Assistant walkthrough automatically when it appears: `--random-serial` gives a clone a hardware identity macOS has never seen, so it re-runs the entire OOBE (network, Apple Account, FileVault) on its very first boot. The script recognizes and clicks through that before ever touching the enrollment profile. macOS 27 does not have this behavior, so a clone lands straight on the desktop and the script skips this step entirely.
 
-This feature is experimental: it drives the same System Settings UI a person would, so a macOS point release that changes that UI's wording or layout can require an update.
+This feature is experimental, as the **?** next to the field says: it drives the same System Settings UI a person would, so a macOS point release that changes that UI's wording or layout can require an update. The guest must also be set to English, because the script finds buttons and panes by their English names; it can't enroll a VM in another language.
 
 ## Automation
 

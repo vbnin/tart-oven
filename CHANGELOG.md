@@ -12,6 +12,16 @@ A few terms appear throughout:
 - **MDM / Jamf Pro** — the system that manages enrolled Macs. Tart Oven can prepare
   a VM for enrollment and report whether a guest is enrolled.
 
+## 2.2.1 (2026-10-21)
+
+### Changed
+
+- **Auto enroll fields no longer say "(experimental)".** A **?** beside them now explains that it is experimental, that the VM must be set to English, and that its source VM needs **Enable Auto-Enrollment Capabilities on Base VM** first.
+
+### Fixed
+
+- **Auto-enroll now clicks the Enrol button on guests set to non-US English.** The password dialog labels its button "Enrol" there, and the enrollment script only looked for "Enroll", so it typed the password and then timed out without confirming. If neither label matches, the task log now lists what the dialog contains.
+
 ## 2.2.0 (2026-10-16)
 
 ### Added

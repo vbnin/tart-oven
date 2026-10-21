@@ -984,7 +984,7 @@
         <div class="field"><label>Disk size (GB)<button type="button" class="help-tip" data-help="For IPSW: initial size. For clone: grow only (blank = keep)" aria-label="About Disk size (GB)" aria-expanded="false">?</button></label><input type="number" id="createDisk" min="0" value="80"></div>
         <div class="field"><label>Display (WxH)</label><input type="text" id="createDisplay" value="1440x900"></div>
         <div class="field" id="createAutoEnrollField">
-          <label for="createAutoEnrollProfile">Auto enroll at first boot (experimental)</label>
+          <label for="createAutoEnrollProfile">Auto enroll at first boot<button type="button" class="help-tip" data-help-src="autoEnrollHelp" aria-label="About auto enroll" aria-expanded="false">?</button></label>
           <select id="createAutoEnrollProfile" data-enroll-profiles><option value="">None</option></select>
         </div>
         <div class="field" id="createHostnameField"><label>Hostname</label><input type="text" id="createHostname" maxlength="63" placeholder="blank = keep the source's"><label class="radio" style="font-size: 13px; margin-top: 4px;"><input type="checkbox" id="createHostnameFromName"> Same as VM name</label></div>
@@ -1373,7 +1373,7 @@
       <h3 style="font-size: 12px; text-transform: uppercase; color: var(--muted); margin: 16px 0 10px; font-weight: 600;">Enrollment</h3>
       <div class="grid">
         <div class="field">
-          <label for="editVmAutoEnrollProfile">Auto enroll at next boot (experimental)</label>
+          <label for="editVmAutoEnrollProfile">Auto enroll at next boot<button type="button" class="help-tip" data-help-src="autoEnrollHelp" aria-label="About auto enroll" aria-expanded="false">?</button></label>
           <select id="editVmAutoEnrollProfile" data-enroll-profiles><option value="">None</option></select>
         </div>
       </div>
@@ -6323,6 +6323,14 @@ connect();
     <li>Enable autologin for the main user</li>
     <li>Install Tart guest agent (or enable key-based SSH access)</li>
   </ol>
+</template>
+<template id="autoEnrollHelp">
+  <h4>Experimental feature</h4>
+  <p>Auto enroll drives System Settings by clicking its buttons, so a macOS update that changes that screen can break it.</p>
+  <ul>
+    <li>The VM must be set to English. The script finds buttons by their English names.</li>
+    <li>The VM must be cloned from a base VM that already ran <b>Enable Auto-Enrollment Capabilities on Base VM</b> (VM Management → Prepare VM for Jamf), or be that VM itself.</li>
+  </ul>
 </template>
 <div id="helpPopover" class="popover hidden" role="dialog" aria-label="Help"></div>
 </body>
