@@ -16,6 +16,10 @@ import (
 // /sbin (where shutdown lives). macOS sudo has no secure_path, so it inherits it.
 const guestPATHExport = `export PATH="/usr/local/bin:/opt/homebrew/bin:/usr/bin:/bin:/usr/sbin:/sbin:$PATH"; `
 
+// cancelGrace is how long a cancelled guest command may keep the output pipes
+// open (a stray child of the killed process) before the call gives up waiting.
+const cancelGrace = 2 * time.Second
+
 var sudoPattern = regexp.MustCompile(`(^|[\s;&|(])sudo(\s)`)
 
 // rewriteSudoForStdin makes every sudo in the command read its password from stdin
@@ -23,6 +27,87 @@ var sudoPattern = regexp.MustCompile(`(^|[\s;&|(])sudo(\s)`)
 // agent and SSH paths so both behave identically.
 func rewriteSudoForStdin(command string) string {
 	return sudoPattern.ReplaceAllString(command, `${1}sudo -S -p ''${2}`)
+}
+
+// rewriteSudoNoPrompt makes every sudo in the command fail at once when it needs
+// a password (`sudo -n`), instead of waiting for one nobody can type. A sudo that
+// already says how it gets its password (-n, -S, -A) is left alone.
+func rewriteSudoNoPrompt(command string) string {
+	var b strings.Builder
+	last := 0
+	for _, loc := range sudoPattern.FindAllStringIndex(command, -1) {
+		end := loc[1] // just after the whitespace that follows "sudo"
+		rest := command[end:]
+		tok := rest
+		if i := strings.IndexAny(rest, " \t\r\n"); i >= 0 {
+			tok = rest[:i]
+		}
+		b.WriteString(command[last:end])
+		short := strings.HasPrefix(tok, "-") && !strings.HasPrefix(tok, "--")
+		if !(short && strings.ContainsAny(tok, "nSA")) {
+			b.WriteString("-n ")
+		}
+		last = end
+	}
+	b.WriteString(command[last:])
+	return b.String()
+}
+
+// runMarker tags a terminal command so everything it starts can be found in the
+// guest afterwards: the colon builtin ignores it, but every shell and sudo in
+// the chain carries it on its command line.
+func runMarker(id string) string { return "tart-oven-run-" + id }
+
+// killRunScript ends the process tree of a run, deepest first. The [t] keeps the
+// script from matching its own command line.
+const killRunScript = `pids=""
+kt() { for c in $(/usr/bin/pgrep -P "$1" 2>/dev/null); do kt "$c"; done; pids="$pids $1"; }
+for p in $(/usr/bin/pgrep -f '[t]art-oven-run-%s' 2>/dev/null); do kt "$p"; done
+[ -n "$pids" ] && { /bin/kill -TERM $pids 2>/dev/null; /bin/sleep 1; /bin/kill -KILL $pids 2>/dev/null; }
+exit 0`
+
+// killGuestRun stops what a cancelled command left running in the guest.
+// Abandoning `tart exec` or ssh only drops the connection; the process in the
+// guest carries on, and a stuck one would pile up behind the next commands.
+func (m *Manager) killGuestRun(name, id string) {
+	script := fmt.Sprintf(killRunScript, id)
+	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
+	defer cancel()
+	m.mu.Lock()
+	home := m.cfg.VMStoragePath
+	fallback := m.cfg.SSHFallbackEnabled
+	agentGone := m.agentProbedSinceBoot[name]
+	m.mu.Unlock()
+	if !agentGone {
+		// No user: the agent's own account, which is root when the agent is a daemon.
+		cmd := m.tartCmdCtx(ctx, home, agentExecArgs(name, "", script, false)...)
+		cmd.WaitDelay = cancelGrace
+		if err := cmd.Run(); err == nil {
+			m.logln("terminal: stopped the command on %s", name)
+			return
+		}
+	}
+	if fallback {
+		if res := m.sshExecContext(ctx, name, script, ""); res.Error == "" {
+			m.logln("terminal: stopped the command on %s (over SSH)", name)
+			return
+		}
+	}
+	m.logln("terminal: could not stop the command on %s; it may still be running there", name)
+}
+
+// savedSudoPassword is the VM's own SSH password if it has one, else the default
+// one, with where it came from. Both can be empty.
+func (m *Manager) savedSudoPassword(name string) (string, string) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	if vm := m.vms[name]; vm != nil && vm.SSHPassword != "" {
+		return vm.SSHPassword, "VM setting"
+	}
+	if m.cfg.SSHPassword != "" {
+		return m.cfg.SSHPassword, "default"
+	}
+	return "", ""
 }
 
 // exitCodeError carries a guest command's exit status.
@@ -105,6 +190,7 @@ func (m *Manager) execViaAgent(ctx context.Context, name, command, sudoPassword 
 	}
 
 	cmd := m.tartCmdCtx(ctx, home, agentExecArgs(name, user, guestPATHExport+remote, sudoPassword != "")...)
+	cmd.WaitDelay = cancelGrace
 	if sudoPassword != "" {
 		cmd.Stdin = strings.NewReader(sudoPassword + "\n")
 	}
@@ -147,11 +233,16 @@ func (m *Manager) execViaAgent(ctx context.Context, name, command, sudoPassword 
 func (m *Manager) execInGuest(ctx context.Context, name, command, sudoPassword string) execResult {
 	m.mu.Lock()
 	knownUnavailable := m.agentProbedSinceBoot[name]
+	user, _ := effectiveSSHCredentials(m.cfg, m.vms[name])
 	m.mu.Unlock()
+	if strings.TrimSpace(user) == "" {
+		user = "admin"
+	}
 
 	if !knownUnavailable {
 		if res, handled := m.execViaAgent(ctx, name, command, sudoPassword); handled {
 			m.setAgentOK(name, true)
+			res.User, res.Via = user, "agent"
 			return res
 		}
 		m.setAgentOK(name, false)
@@ -167,7 +258,9 @@ func (m *Manager) execInGuest(ctx context.Context, name, command, sudoPassword s
 		return execResult{Error: "the Tart guest agent did not respond and the SSH fallback is turned off — " +
 			"install the agent on this VM, or re-enable the SSH fallback in Configuration"}
 	}
-	return m.sshExecContext(ctx, name, command, sudoPassword)
+	res := m.sshExecContext(ctx, name, command, sudoPassword)
+	res.User, res.Via = user, "ssh"
+	return res
 }
 
 // guestAgentAvailable reports whether name's guest agent answers. It uses the
@@ -253,13 +346,23 @@ func (m *Manager) refreshVMIP(name string) {
 	if err != nil || ip == "" {
 		return
 	}
+	m.applyVMIP(name, ip)
+}
+
+// applyVMIP records a running VM's new IP. It logs after releasing m.mu, because
+// logln takes the lock itself.
+func (m *Manager) applyVMIP(name, ip string) {
 	m.mu.Lock()
-	if vm := m.vms[name]; vm != nil && vm.State == "running" && vm.IP != ip {
-		m.logln("ip %s: now %s (was %s)", name, ip, vm.IP)
-		vm.IP = ip
-		m.save()
+	vm := m.vms[name]
+	if vm == nil || vm.State != "running" || vm.IP == ip {
+		m.mu.Unlock()
+		return
 	}
+	old := vm.IP
+	vm.IP = ip
+	m.save()
 	m.mu.Unlock()
+	m.logln("ip %s: now %s (was %s)", name, ip, old)
 }
 
 // probeSSH records whether SSH itself answers. With the SSH fallback off it

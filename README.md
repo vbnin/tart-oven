@@ -4,7 +4,7 @@ Tart Oven is a local web console for managing [Tart](https://github.com/openai/t
 
 Tart Oven runs on macOS and manages macOS virtual machines.
 
-Current release: **2.1.1** · [Changelog](CHANGELOG.md)
+Current release: **2.2.1** · [Changelog](CHANGELOG.md)
 
 <p align="center">
   <img src="assets/screenshots/Tart%20Oven%20Screenshot%201.png" alt="Tart Oven screenshot 1" width="900">
@@ -28,13 +28,13 @@ Tart Oven limits the host to two running VMs at a time. Apple's macOS license al
 
 ### 1. Install Tart Oven
 
-Download `TartOven-2.1.1.pkg` from the [release page](https://github.com/vbnin/tart-oven/releases).
+Download `TartOven-2.2.1.pkg` from the [release page](https://github.com/vbnin/tart-oven/releases).
 
 Open the package in Finder or install it from Terminal:
 
 ```sh
 cd "$HOME/Downloads"
-sudo installer -pkg "./TartOven-2.1.1.pkg" -target /
+sudo installer -pkg "./TartOven-2.2.1.pkg" -target /
 ```
 
 The package installs:
@@ -72,7 +72,7 @@ A cached OCI image is a source for cloning. It is not the local VM you will run.
 
 1. Return to **Dashboard**.
 2. Under **OCI Images**, click **Clone** beside the image you pulled.
-3. In **VM Management**, enter a **Name template**, such as `sequoia-$AUTONUM`.
+3. In the **Create / clone VMs** window that opens, enter a **Name template**, such as `sequoia-$AUTONUM`.
 4. Leave **How many to create** set to `1`.
 5. Review **CPU cores**, **Memory (MB)**, and **Disk size (GB)**.
 6. Keep **Random MAC** and **Random serial** selected.
@@ -108,15 +108,16 @@ The tabs along the top are:
 
 - **Dashboard:** your **Local VMs** and the cached **OCI Images**.
 - **Performance:** host CPU, memory, memory pressure and disk use, with up to 24 hours of one-minute samples.
-- **VM Management:** create, clone and pull VMs, prepare a base VM for Jamf, and the bundled Tart guest agent.
+- **VM Management:** create, clone and pull VMs (with their progress), prepare a base VM for Jamf, and the bundled Tart guest agent.
 - **Configuration:** scheduler, Tart, SSH and server settings, and the Setup Wizard.
 - **Logs:** Tart logs, **Activity** (pulls and clones in progress) and run history.
 - **Helper Guide:** this document.
 
 On the Dashboard:
 
-- **+ Create VM** jumps to **Create / clone VMs**. **Scheduler** and **Refresh** sit beside it, and **Show All / Show Running** filters the list. **Refresh** also runs **Refresh info** on every running VM.
+- **+ Create VM** opens the **Create / clone VMs** window without leaving the Dashboard. It is the same form as under **VM Management → Create / clone VMs**, which stays there too; once you click **Create VMs** the window closes and the progress, **Show logs** and **Cancel** appear under **VM Management**. **Scheduler** and **Refresh** sit beside it, and **Show All / Show Running** filters the list. **Refresh** also runs **Refresh info** on every running VM.
 - Click a column name, or its arrows, to sort the **Local VMs** and **OCI Images** tables. The choice is remembered.
+- The **Snapshots** column counts each VM's [snapshots](#snapshots-and-suspend). Click the number to open them.
 - The **Access** column shows whether commands can reach the guest: **Agent** (the Tart guest agent answers) or **SSH** (the fallback). When the agent works, only it is shown. A stopped VM keeps its last known status, faded.
 - The **ⓘ** button opens **VM details**: state, IP, last start and stop, uptime, hardware, Access, MDM enrollment, the last **Refresh info** output, tags and notes. It updates live.
 - Click a **?** beside a setting for its help text. Click a section title to collapse it; Tart Oven remembers which are open. The switch in the header toggles dark and light mode.
@@ -141,7 +142,7 @@ Tart Oven keeps two kinds of entries separate:
 - **OCI Images** are cached registry images used as clone sources.
 - **Local VMs** are runnable, editable copies.
 
-Pull an image once, then create local clones as needed. You can start a pull from **Dashboard → OCI Images**, or directly from **VM Management → Create / clone VMs** by picking **Pull OCI Image** alongside **Clone from template** and **Create from IPSW**.
+Pull an image once, then create local clones as needed. You can start a pull from **Dashboard → OCI Images**, or from the **Create / clone VMs** window (**+ Create VM**, or **VM Management → + New VM**) by picking **Pull OCI Image** alongside **Clone from template** and **Create from IPSW**.
 
 ### Starting and stopping Tart Oven
 
@@ -165,17 +166,19 @@ tart-oven token revoke     # remove the token
 
 The Dashboard provides **Run** and **Stop** next to each VM, plus a "⋯" menu with the rest:
 
-- **Run** starts a stopped VM.
+- **Run** starts a stopped VM. On a suspended VM the button reads **Resume**.
 - **Run with arguments** (⋯ menu) opens a window to choose `tart run` options for one run: display (headless, Screen Sharing, or Virtualization VNC, which works before login and in recovery), network (shared NAT, host only, Softnet) and options such as no audio or boot into recovery. The choice replaces **Custom run arguments** for that run, and **Restart VM** keeps it. It opens pre-filled with what a normal run would use.
 - **Restart VM** (⋯ menu) restarts a running VM, keeping the options chosen in **Run with arguments**.
 - **Stop** asks Tart to stop it with a short timeout and may force termination. Enable **Prioritize clean shutdown** in **Configuration → SSH & Commands** to instead ask the guest to shut down cleanly (via the guest agent or SSH) first (up to 30 seconds) before falling back to the fast stop — safer for guests that need time to flush state on power-off.
+- **Suspend VM** (⋯ menu) saves a running VM's memory and stops it; **Resume** brings it back in seconds. It is only available for a VM started with **Suspendable** (see [Snapshots and suspend](#snapshots-and-suspend)).
+- **VM Snapshots** (⋯ menu) opens the VM's snapshots.
 - **Refresh info** (⋯ menu) re-checks the VM's IP, its Agent and SSH status and its MDM enrollment, then runs the configured status command inside the guest to collect its info again. Changing a running VM's hostname runs it automatically.
 - **Install Agent** (⋯ menu) installs the bundled Tart guest agent package into a running guest over SSH, so it no longer needs SSH fallback for commands.
 - **Start Screen Sharing** (⋯ menu) opens macOS Screen Sharing when the guest has an IP and Screen Sharing is enabled.
-- **Edit VM** (⋯ menu) opens a window with the VM's hardware (CPU, memory, disk, display), **Rename to** (accepts the same `$RAND8` and `$AUTONUM` variables as a name template), new random MAC and serial, hostname, SSH credentials, enrollment, and tags and notes. While the VM runs, only tags, notes, SSH credentials and auto-enroll can change; stop it for the rest.
+- **Edit VM** (⋯ menu) opens a window with the VM's hardware (CPU, memory, disk, display), **Rename to** (accepts the same `$RAND8` and `$AUTONUM` variables as a name template), new random MAC and serial, hostname, SSH credentials (tick **Remove** beside a custom user or password to go back to the defaults), enrollment, and tags and notes. Tags already used on other VMs appear under **In use:** to click; typing a tag in any capitalisation uses the spelling already in use, so `macos26` never sits beside `macOS26`. While the VM runs, only tags, notes, SSH credentials and auto-enroll can change; stop it for the rest.
 - **Hostname** (Edit VM, or Create / clone VMs) sets the guest's computer name, local hostname and hostname with `scutil`, either to a custom name or **Same as VM name**. It's applied while the VM is running, or at its next boot, and needs the guest agent or SSH plus the guest's sudo password. Characters other than letters, digits and hyphens become hyphens in the network names.
-- **Auto enroll at next boot** (Edit VM → Enrollment, experimental) — see [Auto-enrolling VMs at boot](#auto-enrolling-vms-at-boot-experimental) below.
-- **Delete VM** (⋯ menu) permanently deletes that VM, after a confirmation prompt.
+- **Auto enroll at next boot** (Edit VM → Enrollment) — see [Auto-enrolling VMs at boot](#auto-enrolling-vms-at-boot-experimental) below.
+- **Delete VM** (⋯ menu) permanently deletes that VM, after a confirmation prompt. A VM with snapshots asks whether to delete them too, or to use one of them as the VM.
 
 Tart Oven only manages macOS guests; Linux VMs are not supported.
 
@@ -185,17 +188,37 @@ Those images start the agent only once someone logs in. The agent package that T
 
 For a custom guest without the agent, use **⋯ → Install Agent** (requires SSH), or manually install it from the VM's shared folder (Finder → My Shared Files → host_resources → tart-guest-agent → double-click the .pkg; **VM Management → Tart guest agent** also has a **Download PKG** button). Install it once on a base VM before cloning.
 
+### Snapshots and suspend
+
+A **snapshot** is a full copy of a VM, taken on demand, to go back to or to try something risky. Open **⋯ → VM Snapshots** (or click the number in the **Snapshots** column) to create, run, restore and delete them.
+
+- **Create snapshot** copies the VM, with a **comment** for why you took it (edit it later in the list). The VM can be running or stopped. Copies are instant and take almost no space until the VM and the snapshot drift apart.
+- A snapshot keeps the VM's serial number and MAC address, so a VM and its snapshots **never run at the same time**: Tart Oven refuses to start one while another runs. Snapshots of different VMs are independent.
+- Snapshots are not listed as VMs, and the scheduler never starts them. Run one from the snapshot list when you want to look inside.
+- **Restore** replaces the VM with that snapshot: the snapshot becomes the VM, with its name and settings (tags, notes, credentials), and the VM's current state is discarded. Take a new snapshot first to keep it. Both must be stopped.
+- **Delete** removes a snapshot. Deleting or renaming a VM takes its snapshots into account: renaming renames them too, and deleting asks whether to delete them as well or to use one as the VM.
+
+**Suspend** saves a running VM's memory to disk and stops it. **Resume** (the Run button on a suspended VM) continues exactly where it left off, in a few seconds, without booting. **Stop** on a suspended VM discards the saved memory.
+
+It only works for a VM started with the **Suspendable** option: **Run with arguments → Suspendable** for one run, or **Configuration → Tart Settings → Start VMs suspendable** for every start. It is on for a new installation and off for one that existed before (turn it on there). Suspendable VMs have no audio or entropy device (a Tart limitation), so switch it off if a VM needs sound. A VM started without it can't be suspended: Tart saves a state that can never be restored, so Tart Oven disables **Suspend VM** for it.
+
+Snapshots and suspend work together. A snapshot of a suspended VM keeps its memory (tagged **memory**): running it resumes at the moment the snapshot was taken. For a running suspendable VM, switch on **Include memory** when creating the snapshot: the VM pauses for a few seconds while it is copied, then resumes.
+
 ### Guest commands
 
 Each VM on the Dashboard has a **`>_`** button next to its **Stop** button. Click it to open that VM's terminal window.
 
-1. Enter a command, such as `sw_vers`.
-2. Enter a sudo password only if the command requires one.
-3. Click **Run** or press Enter.
+1. Type a command at the prompt at the bottom, such as `sw_vers`. Enter runs it; Shift+Enter adds a line for a multi-line command. Up and Down bring back earlier commands.
+2. If the command uses `sudo`, Tart Oven supplies the password: the one you type in the **Custom sudo password** field, otherwise the VM's own custom SSH password if it has one (**Edit VM**), otherwise the default one (**Configuration → SSH & Commands**). With no password available, `sudo` fails at once instead of waiting.
+3. The output appears above, like a terminal. **Stop** ends a running command, in the VM as well. **Clear** empties the window.
 
-Commands run as the VM's SSH user (`admin` unless you changed it under **Edit VM**), whether or not that user is logged in. When they are, commands run inside their desktop session, so scripts that drive apps still work; with nobody logged in there is no desktop session to drive. The terminal window shows live guest agent and SSH status at the top, and each VM remembers its own console output, command draft, and sudo password across open/close cycles.
+The line under the title says **Sending commands as:** and names the guest account (a **VM setting**, or the **default**), with **Change** to open Edit VM. The window checks which account the guest really runs commands as, and warns if that differs: when the account doesn't exist, the guest agent quietly runs commands as `root`.
 
-Shortcut buttons below the command field let you run common Jamf commands in one click: `jamf manage`, `jamf recon`, `jamf policy`, and `jamf checkJSSConnection`. They appear when **Configuration → Server Settings → Display Jamf-related features** is on.
+To run a whole script, click **Run script…** and pick a `.sh` file in Finder, or drop one on the window. You see its name, size and first lines first, and nothing runs until you click **Run script**. A script that starts with `#!` runs under that interpreter; any other runs in bash. Scripts up to 200 KB work, and `sudo` inside them gets its password the same way. **Stop** ends the script and everything it started in the VM.
+
+Commands run as the VM's SSH user (`admin` unless you changed it under **Edit VM**), whether or not that user is logged in. When they are, commands run inside their desktop session, so scripts that drive apps still work; with nobody logged in there is no desktop session to drive. The window shows live guest agent and SSH status at the top, and each VM remembers its own console output, command history, draft and sudo password across open/close cycles.
+
+Shortcut buttons above the prompt let you run common Jamf commands in one click: `jamf manage`, `jamf recon`, `jamf policy`, and `jamf checkJSSConnection`. They appear when **Configuration → Server Settings → Display Jamf-related features** is on.
 
 ## Configuration
 
@@ -303,7 +326,7 @@ Because the chosen profile is pushed to the clone, the base VM doesn't need one:
 
 Both handle the full first-boot Setup Assistant walkthrough automatically when it appears: `--random-serial` gives a clone a hardware identity macOS has never seen, so it re-runs the entire OOBE (network, Apple Account, FileVault) on its very first boot. The script recognizes and clicks through that before ever touching the enrollment profile. macOS 27 does not have this behavior, so a clone lands straight on the desktop and the script skips this step entirely.
 
-This feature is experimental: it drives the same System Settings UI a person would, so a macOS point release that changes that UI's wording or layout can require an update.
+This feature is experimental, as the **?** next to the field says: it drives the same System Settings UI a person would, so a macOS point release that changes that UI's wording or layout can require an update. The guest must also be set to English, because the script finds buttons and panes by their English names; it can't enroll a VM in another language.
 
 ## Automation
 

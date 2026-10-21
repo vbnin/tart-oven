@@ -25,11 +25,16 @@ func (m *Manager) snapshot() stateSnapshot {
 
 	vms := make([]*VM, 0, len(m.vms))
 	for _, vm := range m.vms {
+		if vm.SnapshotOf != "" {
+			continue // snapshots are listed under their original, not as VMs
+		}
 		// Make a copy with computed UI flags so we don't mutate stored state.
 		v := *vm
+		v.Snapshots = m.snapshotsForUILocked(vm)
 		v.Template = strings.Contains(v.Name, templateMarker)
 		v.Excluded = excluded[v.Name]
 		v.Busy = m.busy[v.Name]
+		v.SSHPasswordSet = vm.SSHPassword != ""
 		v.SSHPassword = "" // write-only from clients; never echo the stored value
 		vms = append(vms, &v)
 	}

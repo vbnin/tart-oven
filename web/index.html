@@ -567,6 +567,8 @@
   .s-running .dot  { background: var(--green); box-shadow: 0 0 6px rgba(16, 185, 129, 0.6); }
   .s-stopped  { color: var(--muted); border-color: var(--border); background: var(--panel2); }
   .s-stopped .dot  { background: var(--grey); }
+  .s-suspended { color: var(--accent); border-color: rgba(79, 140, 255, 0.35); background: rgba(79, 140, 255, 0.08); font-weight: 600; }
+  .s-suspended .dot { background: var(--accent); }
   .s-starting { color: var(--amber); border-color: rgba(245, 158, 11, 0.35); background: rgba(245, 158, 11, 0.08); font-weight: 600; }
   .s-starting .dot { background: var(--amber); animation: pulse 1s infinite; }
   .s-stopping { color: var(--amber); border-color: rgba(245, 158, 11, 0.35); background: rgba(245, 158, 11, 0.08); font-weight: 600; }
@@ -631,6 +633,40 @@
 
   #terminalConsole:empty::before { content: "No output yet."; color: var(--grey); }
   .clog { color: var(--muted); } .cok { color: var(--green); } .cbad { color: var(--red); }
+  .tag-box { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; padding: 6px 8px; border: 1px solid var(--border); border-radius: 6px; background: var(--panel2); min-height: 38px; cursor: text; }
+  .tag-box:focus-within { border-color: var(--accent); }
+  .tag-box .tag { margin-left: 0; }
+  .tag-box .tag button { background: none; border: 0; padding: 0 0 0 2px; color: var(--muted); font-size: 13px; line-height: 1; cursor: pointer; }
+  .tag-box .tag button:hover { color: var(--red); }
+  .tag-box input { flex: 1; min-width: 120px; border: 0; background: transparent; box-shadow: none; outline: none; padding: 3px 2px; font-size: 13px; }
+  .tag-suggest { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; margin-top: 8px; }
+  .tag-suggest .muted { font-size: 12px; }
+  .tag-suggest button.tag { cursor: pointer; font-family: inherit; }
+  .tag-suggest button.tag:hover { border-color: var(--accent); color: var(--text); }
+  .snap-count { background: none; border: 0; padding: 2px 8px; border-radius: 5px; color: var(--accent); font-weight: 600; font-size: 13px; cursor: pointer; text-decoration: underline; text-underline-offset: 3px; }
+  .snap-count:hover { background: var(--btn-ghost-hover); }
+  .snap-count.zero { color: var(--muted); font-weight: 400; text-decoration: none; }
+  .snap-create { display: flex; gap: 10px; margin-bottom: 14px; }
+  .snap-create input { flex: 1; }
+  #snapshotRows input.snap-comment { width: 100%; min-width: 160px; font-size: 13px; }
+  #snapshotRows td { vertical-align: middle; }
+  .modal-content.term-window { width: 780px; max-width: 92vw; max-height: 90vh; display: flex; flex-direction: column; }
+  .term-meta { display: flex; align-items: center; gap: 8px 12px; flex-wrap: wrap; margin-bottom: 10px; font-size: 12px; }
+  .term-user { line-height: 1.5; }
+  .term-user b { font-family: ui-monospace, Menlo, Monaco, monospace; font-weight: 600; }
+  .term-user.warn { color: var(--amber); }
+  .term-link { background: none; border: 0; padding: 0; color: var(--accent); font-size: 12px; cursor: pointer; text-decoration: underline; }
+  #terminalConsole { background: var(--code-bg); border: 1px solid var(--border); border-radius: 8px; padding: 12px 14px; font-family: ui-monospace, Menlo, Monaco, monospace; font-size: 12.5px; white-space: pre-wrap; overflow: auto; flex: 1; min-height: 240px; color: var(--text); }
+  #terminalConsole.dragover { outline: 2px dashed var(--accent); outline-offset: -6px; }
+  .term-input { display: flex; align-items: flex-start; gap: 8px; margin-top: 10px; background: var(--code-bg); border: 1px solid var(--border); border-radius: 8px; padding: 8px 10px; }
+  .term-input:focus-within { border-color: var(--accent); }
+  .term-prompt { font-family: ui-monospace, Menlo, Monaco, monospace; font-size: 13px; color: var(--green); padding-top: 3px; white-space: nowrap; max-width: 40%; overflow: hidden; text-overflow: ellipsis; }
+  .modal-content .term-input textarea { flex: 1; width: auto; min-height: 0; max-height: 140px; resize: none; border: 0; background: transparent; box-shadow: none; outline: none; padding: 2px 0; font-family: ui-monospace, Menlo, Monaco, monospace; font-size: 13px; line-height: 1.45; }
+  .term-tools { display: flex; align-items: center; gap: 8px; margin-top: 8px; flex-wrap: wrap; }
+  .term-tools input[type="password"] { width: 200px; font-size: 13px; }
+  .term-script { margin-top: 10px; border: 1px solid var(--border); border-radius: 8px; padding: 10px 12px; background: var(--panel2); }
+  .term-script-head { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; font-size: 13px; }
+  .term-script pre { margin: 8px 0 0; max-height: 120px; overflow: auto; font-family: ui-monospace, Menlo, Monaco, monospace; font-size: 12px; color: var(--muted); white-space: pre; }
   .logbox {
     margin: 0; background: var(--code-bg); border: 1px solid var(--border); border-radius: 8px;
     padding: 14px 16px; font-family: ui-monospace, Menlo, Monaco, monospace; font-size: 12px;
@@ -816,7 +852,7 @@
       <div style="display:flex;align-items:center;justify-content:space-between;gap:12px;flex-wrap:wrap;margin-bottom:14px">
         <h2 style="margin:0; display:flex; align-items:baseline; gap:8px">Local VMs <span id="localVmCount" class="title-count"></span></h2>
         <div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap">
-          <button type="button" onclick="goToCreatePanel()">+ Create VM</button>
+          <button type="button" onclick="openCreateVmModal()">+ Create VM</button>
           <button type="button" id="pauseBtn">…</button>
           <button type="button" id="refreshBtn" class="ghost" title="Re-check all VMs against Tart, clear stuck statuses, and run Refresh info on running VMs">⟳ Refresh</button>
           <button type="button" id="showRunningOnly" class="ghost" aria-pressed="false">Show All</button>
@@ -825,8 +861,8 @@
       </div>
       <div class="table-wrap">
         <table>
-          <thead id="localVmHead"><tr><th data-sort="name">Name</th><th data-sort="state">State</th><th data-sort="ip">IP</th><th data-sort="access">Access</th><th data-sort="info">Info</th><th data-sort="mdm">MDM</th><th data-sort="lastRun">Last run</th><th data-sort="remaining">Timer</th><th>Actions</th></tr></thead>
-          <tbody id="localVmRows"><tr><td colspan="9" class="muted">loading…</td></tr></tbody>
+          <thead id="localVmHead"><tr><th data-sort="name">Name</th><th data-sort="state">State</th><th data-sort="ip">IP</th><th data-sort="access">Access</th><th data-sort="info">Info</th><th data-sort="mdm">MDM</th><th data-sort="snapshots">Snapshots</th><th data-sort="lastRun">Last run</th><th data-sort="remaining">Timer</th><th>Actions</th></tr></thead>
+          <tbody id="localVmRows"><tr><td colspan="10" class="muted">loading…</td></tr></tbody>
         </table>
       </div>
     </div>
@@ -917,6 +953,7 @@
       <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:14px">
         <h2 style="margin:0">Create / clone VMs</h2>
       </div>
+      <div id="createFormBody">
       <div class="segmented-control" style="margin-bottom:14px">
         <button type="button" class="subtab-btn active" id="createModeCloneBtn" onclick="setCreateMode('clone')">Clone from template</button>
         <button type="button" class="subtab-btn" id="createModeIpswBtn" onclick="setCreateMode('ipsw')">Create from IPSW</button>
@@ -947,7 +984,7 @@
         <div class="field"><label>Disk size (GB)<button type="button" class="help-tip" data-help="For IPSW: initial size. For clone: grow only (blank = keep)" aria-label="About Disk size (GB)" aria-expanded="false">?</button></label><input type="number" id="createDisk" min="0" value="80"></div>
         <div class="field"><label>Display (WxH)</label><input type="text" id="createDisplay" value="1440x900"></div>
         <div class="field" id="createAutoEnrollField">
-          <label for="createAutoEnrollProfile">Auto enroll at first boot (experimental)</label>
+          <label for="createAutoEnrollProfile">Auto enroll at first boot<button type="button" class="help-tip" data-help-src="autoEnrollHelp" aria-label="About auto enroll" aria-expanded="false">?</button></label>
           <select id="createAutoEnrollProfile" data-enroll-profiles><option value="">None</option></select>
         </div>
         <div class="field" id="createHostnameField"><label>Hostname</label><input type="text" id="createHostname" maxlength="63" placeholder="blank = keep the source's"><label class="radio" style="font-size: 13px; margin-top: 4px;"><input type="checkbox" id="createHostnameFromName"> Same as VM name</label></div>
@@ -983,8 +1020,9 @@
       <div class="actions">
         <button id="createBtn">Create VMs</button>
         <span id="createProgress" class="progress-spinner hidden"><span class="spinner-dot"></span><span id="createProgressText">Creating...</span></span>
-        <button id="createShowLogs" class="ghost" onclick="showTab('logs'); scrollToPanel('panel-activity');">Show logs</button>
+        <button id="createShowLogs" class="ghost" onclick="closeCreateVmModal(); showTab('logs'); scrollToPanel('panel-activity');">Show logs</button>
         <button id="createCancel" class="danger ghost hidden" onclick="cancelCreateTasks()">Cancel</button>
+      </div>
       </div>
     </div>
 
@@ -1140,7 +1178,6 @@
         <div class="field"><label>&nbsp;</label><label class="radio"><span class="toggle"><input type="checkbox" id="dailyEnabled"><span class="slider"></span></span> Limit scheduler to daily hours</label></div>
         <div class="field"><label>&nbsp;</label><label class="radio"><span class="toggle"><input type="checkbox" id="excludeOciFromScheduler"><span class="slider"></span></span> Exclude OCI images from scheduler</label></div>
         <div class="field"><label>&nbsp;</label><label class="radio"><span class="toggle"><input type="checkbox" id="noGraphics"><span class="slider"></span></span> Headless mode</label></div>
-        <div class="field"><label>&nbsp;</label><label class="radio"><span class="toggle"><input type="checkbox" id="noAudio"><span class="slider"></span></span> Disable audio</label></div>
         <div class="field" style="grid-column: 1 / -1;"><label>Excluded VM names (one per line or comma-separated)</label><textarea id="excluded"></textarea></div>
       </div>
     </div>
@@ -1155,6 +1192,7 @@
         <div class="field" style="grid-column: 1 / -1;"><label>Custom run arguments (appended to every <span class="mono">tart run</span>)<button type="button" class="help-tip" data-help="Quote values with spaces, e.g. --dir=&quot;~/My Shared Folder&quot;" aria-label="About Custom run arguments (appended to every tart run)" aria-expanded="false">?</button></label><input type="text" id="runArgs" placeholder='e.g. --vnc --no-audio --net-host'></div>
         <div class="field"><label>Boot timeout (s)<button type="button" class="help-tip" data-help="Wait for IP before declaring boot failure" aria-label="About Boot timeout (s)" aria-expanded="false">?</button></label><input type="number" id="bootTimeoutSec" min="10"></div>
         <div class="field"><label>Network interface<button type="button" class="help-tip" data-help="Which network to use for VM bridging." aria-label="About Network interface" aria-expanded="false">?</button></label><select id="netPriority"><option value="auto">Auto (first available)</option><option value="wifi">Prioritize Wi-Fi</option><option value="ethernet">Prioritize Ethernet</option><option value="shared">Shared (NAT) — no bridging</option></select></div>
+        <div class="field"><label>&nbsp;</label><label class="radio"><span class="toggle"><input type="checkbox" id="suspendable"><span class="slider"></span></span> Start VMs suspendable<button type="button" class="help-tip" data-help="Lets you suspend a VM and resume it in seconds, and take snapshots that keep its memory. Turns off the VM's audio and entropy devices, and applies to every start." aria-label="About Start VMs suspendable" aria-expanded="false">?</button></label></div>
         <div class="field"><label>&nbsp;</label><label class="radio"><span class="toggle"><input type="checkbox" id="checkTartUpdates"><span class="slider"></span></span> Check for Tart updates</label></div>
       </div>
       <div class="actions">
@@ -1327,15 +1365,15 @@
 
     <h3 style="font-size: 12px; text-transform: uppercase; color: var(--muted); margin: 16px 0 10px; font-weight: 600;">SSH Settings</h3>
     <div class="grid">
-      <div class="field"><label>Custom SSH user</label><input type="text" id="editVmSshUser" placeholder="blank = use default"></div>
-      <div class="field"><label>Custom SSH password</label><input type="password" id="editVmSshPassword" autocomplete="new-password" placeholder="blank = keep current"></div>
+      <div class="field"><label>Custom SSH user</label><input type="text" id="editVmSshUser" placeholder="blank = use default"><label class="radio hidden" id="editVmClearSshUserField" style="font-size: 13px; margin-top: 4px;"><input type="checkbox" id="editVmClearSshUser"> Remove this VM's user and use the default</label></div>
+      <div class="field"><label>Custom SSH password</label><input type="password" id="editVmSshPassword" autocomplete="new-password" placeholder="blank = use default"><label class="radio hidden" id="editVmClearSshPasswordField" style="font-size: 13px; margin-top: 4px;"><input type="checkbox" id="editVmClearSshPassword"> Remove this VM's password and use the default</label></div>
     </div>
 
     <div id="editVmEnrollmentSection">
       <h3 style="font-size: 12px; text-transform: uppercase; color: var(--muted); margin: 16px 0 10px; font-weight: 600;">Enrollment</h3>
       <div class="grid">
         <div class="field">
-          <label for="editVmAutoEnrollProfile">Auto enroll at next boot (experimental)</label>
+          <label for="editVmAutoEnrollProfile">Auto enroll at next boot<button type="button" class="help-tip" data-help-src="autoEnrollHelp" aria-label="About auto enroll" aria-expanded="false">?</button></label>
           <select id="editVmAutoEnrollProfile" data-enroll-profiles><option value="">None</option></select>
         </div>
       </div>
@@ -1343,7 +1381,11 @@
 
     <h3 style="font-size: 12px; text-transform: uppercase; color: var(--muted); margin: 16px 0 10px; font-weight: 600;">Tags & Notes</h3>
     <div class="grid">
-      <div class="field"><label>Tags (comma-separated)</label><input type="text" id="editVmTags" placeholder="e.g. demo, production, test"></div>
+      <div class="field" id="editVmTagsField" style="grid-column: 1 / -1;">
+        <label for="editVmTags">Tags</label>
+        <div class="tag-box" id="editVmTagBox"><input type="text" id="editVmTags" placeholder="Add a tag" autocomplete="off" autocapitalize="off" spellcheck="false"></div>
+        <div class="tag-suggest" id="editVmTagSuggest"></div>
+      </div>
       <div class="field" style="grid-column: span 2"><label>Notes</label><textarea id="editVmNotes" rows="2" placeholder="Notes about this VM"></textarea></div>
     </div>
 
@@ -1627,11 +1669,11 @@
         <div style="display: grid; grid-template-columns: 1fr; gap: 12px;">
           <div class="role-card" data-role="testing" onclick="selectWizardRole('testing')" style="border: 2px solid var(--border); border-radius: 8px; padding: 16px; cursor: pointer; background: var(--bg);">
             <div style="font-weight: 600; font-size: 15px; margin-bottom: 6px;">Testing / Troubleshooting</div>
-            <p class="muted" style="margin: 0; font-size: 13px; line-height: 1.4;">You start and stop VMs yourself and work in them. The scheduler stays off, and VMs run with a full display and audio.</p>
+            <p class="muted" style="margin: 0; font-size: 13px; line-height: 1.4;">You start and stop VMs yourself and work in them. The scheduler stays off, and VMs run with a full display.</p>
           </div>
           <div class="role-card" data-role="demo" onclick="selectWizardRole('demo')" style="border: 2px solid var(--border); border-radius: 8px; padding: 16px; cursor: pointer; background: var(--bg);">
             <div style="font-weight: 600; font-size: 15px; margin-bottom: 6px;">Demo / Data Generation</div>
-            <p class="muted" style="margin: 0; font-size: 13px; line-height: 1.4;">VMs run on their own to keep a fleet active. The scheduler is on, and scheduled VMs run headless with audio disabled.</p>
+            <p class="muted" style="margin: 0; font-size: 13px; line-height: 1.4;">VMs run on their own to keep a fleet active. The scheduler is on, and scheduled VMs run headless.</p>
           </div>
         </div>
       </div>
@@ -1698,27 +1740,101 @@
   </div>
 </div>
 
+<!-- Create / clone VM modal. The form itself lives in VM Management (#createFormBody);
+     it moves in here while this window is open, so there is one set of fields. -->
+<div id="createVmModal" class="modal hidden">
+  <div class="modal-backdrop" onclick="closeCreateVmModal()"></div>
+  <div class="modal-content" style="width: 880px; max-width: 94vw; max-height: 90vh; display: flex; flex-direction: column;">
+    <div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 14px;">
+      <h3 style="margin: 0; font-size: 16px; font-weight: 600;">Create / clone VMs</h3>
+      <button type="button" class="ghost" onclick="closeCreateVmModal()" style="padding: 4px 10px; font-size: 16px; line-height: 1;" title="Close">✕</button>
+    </div>
+    <div id="createModalSlot" class="modal-scroll" style="max-height: none; flex: 1; min-height: 0;"></div>
+  </div>
+</div>
+
+<!-- VM Snapshots modal -->
+<div id="snapshotsModal" class="modal hidden">
+  <div class="modal-backdrop" onclick="closeSnapshotsModal()"></div>
+  <div class="modal-content" style="width: 860px; max-width: 94vw; max-height: 88vh; display: flex; flex-direction: column;">
+    <div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 14px;">
+      <h3 style="margin: 0; font-size: 16px; font-weight: 600;"><span id="snapshotsModalTitle">VM Snapshots</span><button type="button" class="help-tip" data-help="A snapshot is a full copy of the VM with the same serial number and MAC address, so a VM and its snapshots can never run at the same time. Snapshots stay out of the VM list and the scheduler." aria-label="About snapshots" aria-expanded="false">?</button></h3>
+      <button type="button" class="ghost" onclick="closeSnapshotsModal()" style="padding: 4px 10px; font-size: 16px; line-height: 1;" title="Close">✕</button>
+    </div>
+    <div class="snap-create">
+      <input type="text" id="snapshotComment" placeholder="Why are you taking this snapshot? (optional)" maxlength="500" autocomplete="off">
+      <button id="snapshotCreateBtn" onclick="createSnapshot()">Create snapshot</button>
+    </div>
+    <label id="snapshotMemoryField" class="radio hidden" style="font-size: 13px; margin: -6px 0 12px;"><span class="toggle"><input type="checkbox" id="snapshotMemory"><span class="slider"></span></span> Include memory (pauses the VM for a few seconds)</label>
+    <div class="modal-scroll" style="max-height: none; flex: 1;">
+      <div class="table-wrap">
+        <table>
+          <thead><tr><th>Snapshot</th><th>Taken</th><th>Comment</th><th>State</th><th>Actions</th></tr></thead>
+          <tbody id="snapshotRows"></tbody>
+        </table>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- Delete VM modal (only for a VM that has snapshots) -->
+<div id="deleteVmModal" class="modal hidden">
+  <div class="modal-backdrop" onclick="closeDeleteVmModal()"></div>
+  <div class="modal-content" style="width: 520px; max-width: 92vw;">
+    <h3 id="deleteVmTitle">Delete VM</h3>
+    <p id="deleteVmText" style="font-size: 13px; margin: 0 0 14px;"></p>
+    <label class="radio" style="display: flex; gap: 8px; align-items: center; font-size: 13px; margin-bottom: 8px;"><input type="radio" name="deleteVmChoice" value="delete" checked> <span>Delete the VM and its snapshots</span></label>
+    <label class="radio" style="display: flex; gap: 8px; align-items: center; font-size: 13px;"><input type="radio" name="deleteVmChoice" value="promote"> <span>Delete the VM and use a snapshot as the VM</span></label>
+    <div class="field" id="deleteVmPromoteField" style="margin: 10px 0 0 24px;"><select id="deleteVmPromote"></select></div>
+    <div class="modal-actions">
+      <button id="deleteVmConfirmBtn" class="danger" onclick="confirmDeleteVm()">Delete</button>
+      <button class="ghost" onclick="closeDeleteVmModal()">Cancel</button>
+    </div>
+  </div>
+</div>
+
 <!-- Terminal modal -->
 <div id="terminalModal" class="modal hidden">
   <div class="modal-backdrop" onclick="closeTerminal()"></div>
-  <div class="modal-content" style="width: 760px; max-width: 92vw; max-height: 85vh; display: flex; flex-direction: column;">
-    <div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 12px;">
+  <div class="modal-content term-window">
+    <div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 10px;">
       <h3 id="terminalModalTitle" style="margin: 0; font-size: 16px; font-weight: 600;">Terminal</h3>
       <button type="button" class="ghost" onclick="closeTerminal()" style="padding: 4px 10px; font-size: 16px; line-height: 1;" title="Close">✕</button>
     </div>
-    <div id="terminalStatus" style="display: flex; gap: 8px; flex-wrap: wrap; margin-bottom: 12px; font-size: 12px;"></div>
-    <div style="display: flex; gap: 10px; margin-bottom: 12px; flex-wrap: wrap;">
-      <input type="text" id="terminalCommand" placeholder="e.g. sw_vers; whoami" style="flex: 1; min-width: 200px; font-family: ui-monospace, monospace; font-size: 13px;" autocomplete="off">
-      <input type="password" id="terminalSudoPassword" placeholder="sudo password (if needed)" style="width: 180px; font-size: 13px;" autocomplete="off">
-      <button id="terminalRunBtn" onclick="runTerminalCommand()" style="padding: 8px 16px;">Run</button>
+    <div class="term-meta">
+      <span id="terminalUser" class="term-user"></span>
+      <button type="button" class="term-link" id="terminalChangeUser" onclick="terminalChangeUser()">Change</button>
     </div>
-    <div id="terminalJamfShortcuts" style="display: flex; gap: 6px; margin-bottom: 12px; flex-wrap: wrap;">
+    <div id="terminalStatus" style="display: flex; gap: 8px; flex-wrap: wrap; margin-bottom: 10px; font-size: 12px;"></div>
+    <div id="terminalConsole"></div>
+    <div id="terminalScript" class="term-script hidden">
+      <div class="term-script-head">
+        <b id="terminalScriptName"></b><span id="terminalScriptInfo" class="muted"></span>
+        <span style="flex: 1;"></span>
+        <button type="button" id="terminalScriptRun" onclick="runTerminalScript()">Run script</button>
+        <button type="button" class="ghost" onclick="clearTerminalScript()">Cancel</button>
+      </div>
+      <pre id="terminalScriptPreview"></pre>
+    </div>
+    <div id="terminalJamfShortcuts" style="display: flex; gap: 6px; margin-top: 10px; flex-wrap: wrap;">
       <button type="button" class="ghost terminal-shortcut" onclick="runTerminalShortcut('sudo /usr/local/bin/jamf manage')" style="font-size: 12px; padding: 5px 10px;">jamf manage</button>
       <button type="button" class="ghost terminal-shortcut" onclick="runTerminalShortcut('sudo /usr/local/bin/jamf recon')" style="font-size: 12px; padding: 5px 10px;">jamf recon</button>
       <button type="button" class="ghost terminal-shortcut" onclick="runTerminalShortcut('sudo /usr/local/bin/jamf policy')" style="font-size: 12px; padding: 5px 10px;">jamf policy</button>
       <button type="button" class="ghost terminal-shortcut" onclick="runTerminalShortcut('sudo /usr/local/bin/jamf checkJSSConnection')" style="font-size: 12px; padding: 5px 10px;">jamf checkJSSConnection</button>
     </div>
-    <div id="terminalConsole" style="background: var(--code-bg); border: 1px solid var(--border); border-radius: 8px; padding: 14px 16px; font-family: ui-monospace, Menlo, Monaco, monospace; font-size: 12.5px; white-space: pre-wrap; overflow: auto; flex: 1; min-height: 240px; max-height: 45vh; color: var(--text);"></div>
+    <div class="term-input">
+      <span id="terminalPrompt" class="term-prompt">$</span>
+      <textarea id="terminalCommand" rows="1" spellcheck="false" autocomplete="off" autocapitalize="off" aria-label="Command"></textarea>
+      <button id="terminalRunBtn" onclick="runTerminalCommand()" style="padding: 6px 14px;">Run</button>
+      <button id="terminalStopBtn" class="danger hidden" onclick="stopTerminalCommand()" style="padding: 6px 14px;">Stop</button>
+    </div>
+    <div class="term-tools">
+      <button type="button" class="ghost" id="terminalScriptBtn" onclick="document.getElementById('terminalScriptFile').click()">Run script…</button>
+      <input type="file" id="terminalScriptFile" class="hidden" accept=".sh,.bash,.zsh,.command,text/*">
+      <input type="password" id="terminalSudoPassword" placeholder="Custom sudo password" autocomplete="off" title="Left blank, sudo uses this VM's SSH password from Edit VM, then the default one from Configuration">
+      <span style="flex: 1;"></span>
+      <button type="button" class="ghost" onclick="clearTerminalConsole()">Clear</button>
+    </div>
   </div>
 </div>
 
@@ -2152,7 +2268,7 @@ function fillConfig(c) {
   chk("dailyEnabled", c.dailyEnabled);
   chk("excludeOciFromScheduler", c.excludeOciFromScheduler !== false);
   chk("noGraphics", c.noGraphics);
-  chk("noAudio", c.noAudio);
+  chk("suspendable", c.suspendable);
   set("vmStoragePath", c.vmStoragePath);
   set("sharedDir", c.sharedDir);
   set("tartAppPath", c.tartAppPath || "/Applications/tart.app/Contents/MacOS/tart");
@@ -2202,7 +2318,7 @@ function readConfig() {
     dailyEnabled: document.getElementById("dailyEnabled").checked,
     excludeOciFromScheduler: document.getElementById("excludeOciFromScheduler").checked,
     noGraphics: chk("noGraphics"),
-    noAudio: chk("noAudio"),
+    suspendable: chk("suspendable"),
     dailyStart: str("dailyStart"), dailyStop: str("dailyStop"),
     excluded,
     paused: latest ? latest.config.paused : false,
@@ -2734,7 +2850,179 @@ document.addEventListener("click", closeRowMenus);
 window.addEventListener("resize", closeRowMenus);
 
 // Confirm, then delete straight from a VM row.
+// ---- VM Snapshots ----
+// A snapshot is a full copy of a VM (same serial, same MAC). The server keeps
+// the copies out of the VM list and reports them under their original, in
+// vm.snapshots, with their live state.
+let snapshotsModalVm = "";
+let snapshotsModalSig = "";
+
+function snapshotsCell(vm) {
+  const n = (vm.snapshots || []).length;
+  return '<button class="snap-count' + (n ? "" : " zero") + '" onclick="openSnapshotsModal(\'' + esc(vm.name) + '\')" title="' +
+    (n ? "Open the snapshots of " : "Create a snapshot of ") + esc(vm.name) + '">' + n + '</button>';
+}
+
+function isLive(state) { return state === "running" || state === "starting"; }
+
+// Why a snapshot can't start right now, or "". It shares its MAC address with
+// the original and its sibling snapshots, so only one of them runs at a time.
+function snapshotRunBlocker(vm, snap) {
+  if (isLive(vm.state)) return vm.name + " is running. Stop it first: they share a MAC address.";
+  const other = (vm.snapshots || []).find(x => x.name !== snap.name && isLive(x.state));
+  if (other) return other.name + " is running. Stop it first: they share a MAC address.";
+  return "";
+}
+
+function openSnapshotsModal(vmName) {
+  snapshotsModalVm = vmName;
+  snapshotsModalSig = "";
+  document.getElementById("snapshotComment").value = "";
+  document.getElementById("snapshotsModal").classList.remove("hidden");
+  renderSnapshotsModal();
+  document.getElementById("snapshotComment").focus();
+}
+function closeSnapshotsModal() {
+  document.getElementById("snapshotsModal").classList.add("hidden");
+  snapshotsModalVm = "";
+}
+
+function renderSnapshotsModal() {
+  if (!snapshotsModalVm || !latest) return;
+  const vm = latest.vms.find(v => v.name === snapshotsModalVm);
+  if (!vm) { closeSnapshotsModal(); return; }
+  const snaps = vm.snapshots || [];
+  const pending = (latest.tasks || []).filter(t => t.kind === "snapshot" && t.status === "running" && t.target.startsWith(vm.name + "-Snapshot-"));
+  // Rebuild only when something shown has changed, so typing in a comment
+  // field is not wiped by the next server push.
+  const sig = JSON.stringify([vm.name, vm.state, vm.suspendable, snaps, pending.map(t => t.target)]);
+  if (sig === snapshotsModalSig) return;
+  if (document.activeElement && document.activeElement.classList.contains("snap-comment")) return;
+  snapshotsModalSig = sig;
+
+  // Memory can be saved from a running VM only if it was started suspendable;
+  // a suspended VM always keeps it.
+  document.getElementById("snapshotMemoryField").classList.toggle("hidden", !(vm.state === "running" && vm.suspendable));
+  document.getElementById("snapshotsModalTitle").textContent = "VM Snapshots — " + vm.name;
+  const rows = snaps.map(sn => {
+    const n = esc(sn.name);
+    const live = isLive(sn.state);
+    const blocker = live ? "" : snapshotRunBlocker(vm, sn);
+    const busy = sn.busy ? " disabled" : "";
+    const restoreOff = sn.busy || live || isLive(vm.state) || (vm.snapshots || []).some(x => isLive(x.state));
+    const run = live
+      ? '<button class="danger" onclick="act(\'stop\',\'' + n + '\')"' + busy + '>Stop</button>'
+      : '<button onclick="act(\'run\',\'' + n + '\')"' + (sn.busy || blocker ? " disabled" : "") + (blocker ? ' title="' + esc(blocker) + '"' : "") + '>' + (sn.state === "suspended" ? "Resume" : "Run") + '</button>';
+    return '<tr>' +
+      '<td class="mono">' + n + (sn.memory ? ' <span class="tag" title="Saved with the VM\'s memory: Run resumes exactly where it was">memory</span>' : '') + '</td>' +
+      '<td title="' + esc(fmtDateTime(sn.createdAt)) + '">' + esc(fmtAgo(sn.createdAt)) + '</td>' +
+      '<td><input type="text" class="snap-comment" maxlength="500" value="' + esc(sn.comment || "") + '" placeholder="Add a comment" ' +
+        'onchange="saveSnapshotComment(\'' + n + '\', this.value)" onkeydown="if(event.key===\'Enter\')this.blur()"></td>' +
+      '<td><span class="state s-' + esc(sn.state || "stopped") + '"><span class="dot"></span>' + esc(sn.state || "stopped") + '</span></td>' +
+      '<td class="acts"><div class="row-actions">' + run +
+        '<button class="ghost" onclick="restoreSnapshot(\'' + n + '\')"' + (restoreOff ? " disabled" : "") + ' title="' +
+          (restoreOff ? "Stop " + esc(vm.name) + " and its snapshots first" : "Replace " + esc(vm.name) + " with this snapshot") + '">Restore</button>' +
+        '<button class="danger ghost" onclick="deleteSnapshot(\'' + n + '\')"' + (live || sn.busy ? " disabled" : "") + '>Delete</button>' +
+      '</div></td></tr>';
+  });
+  const creating = pending.map(t => '<tr><td class="mono">' + esc(t.target) + '</td><td colspan="4"><span class="progress-spinner"><span class="spinner-dot"></span><span>Creating…</span></span></td></tr>');
+  document.getElementById("snapshotRows").innerHTML = (rows.concat(creating).join("")) ||
+    '<tr><td colspan="5" class="muted">No snapshots yet.</td></tr>';
+}
+
+async function snapshotCall(path, body, failTitle) {
+  try {
+    const res = await api(path, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) });
+    const d = await res.json();
+    if (d.error) { toast(failTitle, d.error, "bad"); return null; }
+    return d;
+  } catch (e) { toast(failTitle, e.message, "bad"); return null; }
+}
+
+async function createSnapshot() {
+  const name = snapshotsModalVm;
+  if (!name) return;
+  const input = document.getElementById("snapshotComment");
+  const memory = !document.getElementById("snapshotMemoryField").classList.contains("hidden") && document.getElementById("snapshotMemory").checked;
+  const d = await snapshotCall("/api/vm/snapshot", { name, comment: input.value, memory }, "Snapshot failed");
+  if (!d) return;
+  input.value = "";
+  snapshotsModalSig = "";
+  renderSnapshotsModal();
+}
+
+async function saveSnapshotComment(snap, comment) {
+  await snapshotCall("/api/vm/snapshot/comment", { name: snap, comment }, "Could not save the comment");
+}
+
+async function restoreSnapshot(snap) {
+  const vm = latest && latest.vms.find(v => v.name === snapshotsModalVm);
+  if (!vm) return;
+  if (!confirm('Replace "' + vm.name + '" with ' + snap + '?\n\nThe current state of ' + vm.name + ' is discarded and this snapshot becomes ' + vm.name +
+      '. Take a new snapshot first if you want to keep it.')) return;
+  const d = await snapshotCall("/api/vm/snapshot/restore", { name: snap }, "Restore failed");
+  if (d) toast("Restore", vm.name + " is now " + snap + ".", "ok");
+}
+
+async function deleteSnapshot(snap) {
+  if (!confirm('Permanently delete snapshot "' + snap + '"? This cannot be undone.')) return;
+  await snapshotCall("/api/vm/snapshot/delete", { name: snap }, "Delete failed");
+}
+
+// ---- Delete VM that has snapshots ----
+let deleteVmName = "";
+function openDeleteVmModal(vm) {
+  deleteVmName = vm.name;
+  const snaps = vm.snapshots || [];
+  document.getElementById("deleteVmTitle").textContent = 'Delete "' + vm.name + '"';
+  document.getElementById("deleteVmText").textContent = vm.name + " has " + snaps.length + (snaps.length === 1 ? " snapshot" : " snapshots") + ". What should happen to " + (snaps.length === 1 ? "it" : "them") + "?";
+  const sel = document.getElementById("deleteVmPromote");
+  sel.innerHTML = snaps.slice().reverse().map(sn => '<option value="' + esc(sn.name) + '">' + esc(sn.name) + " — " + esc(fmtAgo(sn.createdAt)) + (sn.comment ? " — " + esc(sn.comment) : "") + "</option>").join("");
+  document.querySelector('input[name="deleteVmChoice"][value="delete"]').checked = true;
+  syncDeleteVmChoice();
+  document.getElementById("deleteVmModal").classList.remove("hidden");
+}
+function closeDeleteVmModal() {
+  document.getElementById("deleteVmModal").classList.add("hidden");
+  deleteVmName = "";
+}
+function syncDeleteVmChoice() {
+  const promote = document.querySelector('input[name="deleteVmChoice"]:checked').value === "promote";
+  document.getElementById("deleteVmPromoteField").style.display = promote ? "" : "none";
+  document.getElementById("deleteVmConfirmBtn").textContent = promote ? "Delete and use snapshot" : "Delete everything";
+}
+document.querySelectorAll('input[name="deleteVmChoice"]').forEach(r => r.addEventListener("change", syncDeleteVmChoice));
+async function confirmDeleteVm() {
+  const name = deleteVmName;
+  if (!name) return;
+  const choice = document.querySelector('input[name="deleteVmChoice"]:checked').value;
+  const promote = document.getElementById("deleteVmPromote").value;
+  closeDeleteVmModal();
+  try {
+    const res = await api("/api/vm/delete", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ name, snapshots: choice, promote }) });
+    const d = await res.json();
+    if (d.error) toast("Delete failed", d.error, "bad");
+    else toast("Delete", choice === "promote" ? name + " now runs from " + promote + "." : name + " and its snapshots deleted.", "", "panel-tart-logs");
+  } catch (e) { toast("Delete failed", e.message, "bad"); }
+}
+document.addEventListener("keydown", e => {
+  if (e.key !== "Escape") return;
+  if (!document.getElementById("deleteVmModal").classList.contains("hidden")) closeDeleteVmModal();
+  else if (!document.getElementById("snapshotsModal").classList.contains("hidden")) closeSnapshotsModal();
+});
+
+async function suspendVM(name) {
+  try {
+    const res = await api("/api/suspend", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ name }) });
+    const d = await res.json();
+    if (d.error) toast("Suspend failed", d.error, "bad");
+    else toast("Suspend", name + " suspended. Resume it from the Dashboard.", "ok");
+  } catch (e) { toast("Suspend failed", e.message, "bad"); }
+}
+
 async function deleteVMFromRow(name) {
+  const vm = latest && latest.vms.find(v => v.name === name);
+  if (vm && (vm.snapshots || []).length) { openDeleteVmModal(vm); return; }
   if (!confirm("Permanently delete VM \"" + name + "\"? This cannot be undone.")) return;
   try {
     const res = await api("/api/vm/delete", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ name }) });
@@ -2887,6 +3175,7 @@ function render(state) {
   if (terminalOpenVm && !document.getElementById("terminalModal").classList.contains("hidden")) {
     updateTerminalStatus();
   }
+  renderSnapshotsModal();
 
   if (!wizardAutoOpened && state && state.config && !state.config.firstRunCompleted && Array.isArray(state.vms) && state.vms.filter(v => !isOCI(v.source)).length === 0) {
     wizardAutoOpened = true;
@@ -2908,11 +3197,7 @@ function isOCI(source) {
 }
 
 function cloneFromOCI(name) {
-  showTab("vmm");
-  setCreateMode("clone");
-  const cloneSource = document.getElementById("cloneSource");
-  cloneSource.value = name;
-  cloneSource.focus();
+  openCreateVmModal({ mode: "clone", source: name });
 }
 
 // ---- Onboarding Wizard ----
@@ -2927,8 +3212,8 @@ let wizardTartBaseTask = ""; // id of the install task that already existed when
 let wizardAutoOpened = false;
 
 const WIZARD_ROLES = {
-  testing: { title: "Testing / Troubleshooting", scheduler: false, headless: false, noAudio: false },
-  demo: { title: "Demo / Data Generation", scheduler: true, headless: true, noAudio: true },
+  testing: { title: "Testing / Troubleshooting", scheduler: false, headless: false },
+  demo: { title: "Demo / Data Generation", scheduler: true, headless: true },
 };
 
 function wizardGB(bytes) {
@@ -3279,12 +3564,12 @@ function updateWizardReview() {
   if (wizardRoleChosen && role) {
     text("wizardReviewRole", role.title);
     text("wizardReviewScheduler", role.scheduler ? "On" : "Off");
-    text("wizardReviewGraphics", (role.headless ? "Headless" : "Full display") + ", audio " + (role.noAudio ? "off" : "on"));
+    text("wizardReviewGraphics", (role.headless ? "Headless" : "Full display"));
   } else {
     const cfg = l.config || {};
     text("wizardReviewRole", "Keep current settings");
     text("wizardReviewScheduler", cfg.paused === false ? "On" : "Off");
-    text("wizardReviewGraphics", (cfg.noGraphics ? "Headless" : "Full display") + ", audio " + (cfg.noAudio ? "off" : "on"));
+    text("wizardReviewGraphics", (cfg.noGraphics ? "Headless" : "Full display"));
   }
 }
 
@@ -3334,7 +3619,6 @@ async function closeOnboardingWizard(markComplete) {
         operatorRole: selectedWizardRole,
         paused: !role.scheduler,
         noGraphics: role.headless,
-        noAudio: role.noAudio,
       });
     }
     const featureBody = wizardFeaturesTouched ? wizardFeatureValues() : null;
@@ -3353,9 +3637,7 @@ async function closeOnboardingWizard(markComplete) {
         const clean = !isConfigDirty();
         if ("noGraphics" in body) {
           const ng = document.getElementById("noGraphics");
-          const na = document.getElementById("noAudio");
           if (ng) ng.checked = body.noGraphics;
-          if (na) na.checked = body.noAudio;
         }
         if (featureBody) {
           for (const f of wizardFeatureFields()) {
@@ -3584,7 +3866,7 @@ try { Object.assign(sortState, JSON.parse(localStorage.getItem(SORT_KEY) || "{}"
 
 const isSet = t => t && !String(t).startsWith("0001");
 const timeOf = t => isSet(t) ? Date.parse(t) : null;
-const STATE_ORDER = { running: 0, starting: 1, stopping: 2, stopped: 3 };
+const STATE_ORDER = { running: 0, starting: 1, stopping: 2, suspended: 3, stopped: 4 };
 // Each getter returns a comparable value; null means "no value" and always sorts last.
 const SORT_GETTERS = {
   local: {
@@ -3594,6 +3876,7 @@ const SORT_GETTERS = {
     access: vm => (vm.agentOk && isSet(vm.agentCheckedAt) ? 2 : 0) + (vm.sshOk && isSet(vm.sshCheckedAt) ? 1 : 0),
     info: vm => vm.info ? vm.info.toLowerCase() : null,
     mdm: vm => !isSet(vm.mdmCheckedAt) ? null : (vm.mdmEnrolled ? 1 : 0),
+    snapshots: vm => (vm.snapshots || []).length,
     lastRun: vm => timeOf(vm.lastRun),
     remaining: vm => vm.state === "running" ? timeOf(vm.stopAt) : null,
   },
@@ -3678,7 +3961,7 @@ function renderTable(vms) {
   }
   let filtered = local;
   if (runningOnly) {
-    filtered = filtered.filter(v => v.state === "running" || v.state === "starting" || v.state === "stopping");
+    filtered = filtered.filter(v => v.state === "running" || v.state === "starting" || v.state === "stopping" || v.state === "suspended");
   }
   if (query) {
     filtered = filtered.filter(v =>
@@ -3692,7 +3975,7 @@ function renderTable(vms) {
   filtered = sortRows("local", filtered);
   if (!filtered.length) {
     const msg = query ? "No VMs match your search." : (runningOnly ? "No running VMs." : "No VMs found at this storage path.");
-    tbody.innerHTML = '<tr><td colspan="9" class="muted">' + msg + '</td></tr>';
+    tbody.innerHTML = '<tr><td colspan="10" class="muted">' + msg + '</td></tr>';
     return;
   }
   tbody.innerHTML = filtered.map(vm => {
@@ -3700,6 +3983,7 @@ function renderTable(vms) {
     const tagList = [];
     if (vm.template) tagList.push('<span class="tag">TEMPLATE</span>');
     if (vm.excluded) tagList.push('<span class="tag">excluded</span>');
+    if ((vm.snapshots || []).some(sn => sn.state === "running" || sn.state === "starting")) tagList.push('<span class="tag warn" title="A snapshot of this VM is running; it shares this VM\'s MAC address, so this VM can\'t start until it stops.">snapshot running</span>');
     if (vm.lease) tagList.push('<span class="tag" title="' + esc("Agent VM, owner " + vm.lease.owner) + '">agent</span>');
     if (vm.bootFailed) tagList.push('<button class="tag warn tag-clear" title="Clear boot failure status" onclick="clearBootFailure(\'' + n + '\')">boot failure ✕</button>');
     const userTags = tagsHtml(vm);
@@ -3712,7 +3996,7 @@ function renderTable(vms) {
     const notRunning = vm.state !== "running" ? " disabled" : "";
     const stopDisabled = busy;
     const noScreen = (vm.state === "running" && vm.ip) ? "" : " disabled";
-    const effUser = vm.sshUser || (latest.config && latest.config.sshUser) || "admin";
+    const effUser = guestUserFor(vm).name;
     const rowClass = vm.state === "running" ? ' class="row-running"' : '';
     return '<tr' + rowClass + '>' +
       '<td class="name"><b>' + n + '</b>' + tags + '</td>' +
@@ -3721,20 +4005,24 @@ function renderTable(vms) {
       '<td>' + accessCell(vm) + '</td>' +
       '<td class="info">' + infoCell(vm) + '</td>' +
       '<td class="mdm">' + mdmCell(vm) + '</td>' +
+      '<td class="snap-cell">' + snapshotsCell(vm) + '</td>' +
       '<td class="muted" title="' + esc(fmtDateTime(vm.lastRun)) + '">' + fmtAgo(vm.lastRun) + '</td>' +
       '<td class="mono" data-stop="' + (stopAt || "") + '" data-state="' + vm.state + '">' + rem + '</td>' +
       '<td class="acts"><div class="row-actions">' +
-        '<button onclick="act(\'run\',\'' + n + '\')"' + busy + '>Run</button>' +
-        '<button class="danger" onclick="act(\'stop\',\'' + n + '\')"' + stopDisabled + '>Stop</button>' +
+        '<button onclick="act(\'run\',\'' + n + '\')"' + busy + '>' + (vm.state === "suspended" ? "Resume" : "Run") + '</button>' +
+        '<button class="danger" onclick="act(\'stop\',\'' + n + '\')"' + stopDisabled + (vm.state === "suspended" ? ' title="Discards the saved memory"' : '') + '>Stop</button>' +
         '<button class="ghost" onclick="openTerminal(\'' + n + '\')" title="Run a command in this VM" aria-label="Terminal for ' + esc(vm.name) + '" style="font-family:ui-monospace,monospace;padding:6px 10px">&gt;_</button>' +
         '<div class="row-menu" id="rowmenu-' + n + '">' +
           '<button class="ghost row-menu-btn" onclick="toggleRowMenu(event,\'' + n + '\')" title="More actions">⋯</button>' +
           '<div class="row-menu-list">' +
             '<button onclick="closeRowMenus();openRunArgsModal(\'' + n + '\')"' + (busy || vm.state !== "stopped" ? ' disabled' : '') + ' title="Start VM with chosen tart run arguments">Run with arguments</button>' +
             '<button onclick="closeRowMenus();restartVM(\'' + n + '\')"' + (busy || vm.state !== "running" ? ' disabled' : '') + ' title="Restart this VM">Restart VM</button>' +
+            '<button onclick="closeRowMenus();suspendVM(\'' + n + '\')"' + (busy || vm.state !== "running" || !vm.suspendable ? ' disabled' : '') + ' title="' +
+              (vm.state === "running" && !vm.suspendable ? "Not started suspendable. Stop it and start it with Suspendable on (Run with arguments, or Configuration)." : "Save this VM's memory and stop it; Resume brings it back in seconds") + '">Suspend VM</button>' +
             '<button onclick="closeRowMenus();getInfo(\'' + n + '\')"' + notRunning + ' title="Re-check the IP, Agent and SSH status and MDM enrollment, and collect the VM info again">Refresh info</button>' +
             agentInstallButton(n, notRunning, guestAgentInfo.available) +
             '<button onclick="closeRowMenus();openVNC(\'' + esc(vm.ip) + '\',\'' + esc(effUser) + '\')"' + noScreen + '>Start Screen Sharing</button>' +
+            '<button onclick="closeRowMenus();openSnapshotsModal(\'' + n + '\')" title="Create, run, restore and delete snapshots of this VM">VM Snapshots</button>' +
             '<button onclick="closeRowMenus();openEditModal(\'' + n + '\')" title="Edit VM settings, tags, and notes">Edit VM</button>' +
             '<button class="danger" onclick="closeRowMenus();deleteVMFromRow(\'' + n + '\')" title="Permanently delete this VM">Delete VM</button>' +
           '</div>' +
@@ -3759,6 +4047,102 @@ setInterval(() => {
   });
 }, 1000);
 
+// ---- Tags: pick from the ones already in use, or add a new one ----
+let editTags = [];
+
+// Every tag spelling in use across the VMs, with how many VMs carry it.
+function tagUsage() {
+  const counts = {};
+  ((latest && latest.vms) || []).forEach(v => (v.tags || []).forEach(t => { counts[t] = (counts[t] || 0) + 1; }));
+  return counts;
+}
+
+// A tag typed in any case or spacing becomes the spelling already in use, so
+// "macos26" never sits next to "macOS26". With several spellings in use, the
+// most common one wins.
+function canonicalTag(raw) {
+  const t = String(raw || "").trim().replace(/\s+/g, " ");
+  if (!t) return "";
+  const counts = tagUsage();
+  let best = "";
+  for (const name of Object.keys(counts)) {
+    if (name.toLowerCase() !== t.toLowerCase()) continue;
+    if (!best || counts[name] > counts[best] || (counts[name] === counts[best] && name < best)) best = name;
+  }
+  return best || t;
+}
+
+function addEditTags(raw) {
+  String(raw).split(",").forEach(part => {
+    const t = canonicalTag(part);
+    if (t && !editTags.some(x => x.toLowerCase() === t.toLowerCase())) editTags.push(t);
+  });
+  renderEditTags();
+}
+function removeEditTag(tag) {
+  editTags = editTags.filter(x => x !== tag);
+  renderEditTags();
+}
+
+function renderEditTags() {
+  const box = document.getElementById("editVmTagBox");
+  const input = document.getElementById("editVmTags");
+  if (!box || !input) return;
+  box.querySelectorAll(".tag").forEach(n => n.remove());
+  editTags.forEach(t => {
+    const chip = document.createElement("span");
+    chip.className = "tag user-tag";
+    chip.appendChild(document.createTextNode(t));
+    const x = document.createElement("button");
+    x.type = "button";
+    x.textContent = "×";
+    x.title = "Remove " + t;
+    x.setAttribute("aria-label", "Remove tag " + t);
+    x.onclick = () => removeEditTag(t);
+    chip.appendChild(x);
+    box.insertBefore(chip, input);
+  });
+  // Tags in use elsewhere that this VM does not have yet, narrowed by what is typed.
+  const typed = input.value.trim().toLowerCase();
+  const usage = tagUsage();
+  const have = new Set(editTags.map(t => t.toLowerCase()));
+  const options = Object.keys(usage)
+    .filter(t => !have.has(t.toLowerCase()) && (!typed || t.toLowerCase().includes(typed)))
+    .sort((a, b) => usage[b] - usage[a] || a.localeCompare(b));
+  const sug = document.getElementById("editVmTagSuggest");
+  sug.innerHTML = "";
+  if (!options.length) return;
+  const label = document.createElement("span");
+  label.className = "muted";
+  label.textContent = "In use:";
+  sug.appendChild(label);
+  options.forEach(t => {
+    const b = document.createElement("button");
+    b.type = "button";
+    b.className = "tag";
+    b.textContent = t;
+    b.title = "Used by " + usage[t] + (usage[t] === 1 ? " VM" : " VMs");
+    b.onclick = () => { input.value = ""; addEditTags(t); input.focus(); };
+    sug.appendChild(b);
+  });
+}
+
+el("editVmTagBox").addEventListener("click", e => { if (e.target === e.currentTarget) document.getElementById("editVmTags").focus(); });
+el("editVmTags").addEventListener("input", renderEditTags);
+el("editVmTags").addEventListener("keydown", e => {
+  const input = e.target;
+  if ((e.key === "Enter" || e.key === ",") && input.value.trim()) {
+    e.preventDefault();
+    addEditTags(input.value);
+    input.value = "";
+    renderEditTags();
+  } else if (e.key === "Enter") {
+    e.preventDefault(); // an empty Enter must not submit anything
+  } else if (e.key === "Backspace" && !input.value && editTags.length) {
+    removeEditTag(editTags[editTags.length - 1]);
+  }
+});
+
 // ---- Edit VM modal (replaces both the panel and the old notes modal) ----
 let editVmModalName = "";
 // Hardware and rename fields only apply to a stopped VM: grey them out while
@@ -3774,6 +4158,19 @@ function syncEditVmLock() {
     if (el) el.disabled = !isStopped;
   });
 }
+// Ticking "Remove ..." empties and locks the field; unticking brings the value back.
+function syncEditVmClear() {
+  for (const [box, input] of [["editVmClearSshUser", "editVmSshUser"], ["editVmClearSshPassword", "editVmSshPassword"]]) {
+    const on = document.getElementById(box).checked;
+    const field = document.getElementById(input);
+    field.disabled = on;
+    if (on) field.value = "";
+    else if (!field.value && field.dataset.original) field.value = field.dataset.original;
+  }
+}
+document.getElementById("editVmClearSshUser").addEventListener("change", syncEditVmClear);
+document.getElementById("editVmClearSshPassword").addEventListener("change", syncEditVmClear);
+
 async function openEditModal(vmName) {
   editVmModalName = vmName;
   const vm = latest && latest.vms.find(v => v.name === vmName);
@@ -3784,9 +4181,20 @@ async function openEditModal(vmName) {
   ["editVmCpu", "editVmMemory", "editVmDisplay", "editVmDisk", "editVmRenameNew", "editVmSshPassword"].forEach(id => { document.getElementById(id).value = ""; });
   document.getElementById("editVmRandMac").checked = false;
   document.getElementById("editVmRandSerial").checked = false;
-  document.getElementById("editVmTags").value = vm.tags ? vm.tags.join(", ") : "";
+  editTags = (vm.tags || []).slice();
+  document.getElementById("editVmTags").value = "";
+  renderEditTags();
   document.getElementById("editVmNotes").value = vm.notes || "";
   document.getElementById("editVmSshUser").value = vm.sshUser || "";
+  // Blank means "keep", so say when something custom is set and offer to remove it.
+  const pwInput = document.getElementById("editVmSshPassword");
+  pwInput.placeholder = vm.sshPasswordSet ? "custom password set; blank = keep" : "blank = use default";
+  document.getElementById("editVmClearSshPasswordField").classList.toggle("hidden", !vm.sshPasswordSet);
+  document.getElementById("editVmClearSshPassword").checked = false;
+  document.getElementById("editVmClearSshUserField").classList.toggle("hidden", !vm.sshUser);
+  document.getElementById("editVmClearSshUser").checked = false;
+  document.getElementById("editVmSshUser").dataset.original = vm.sshUser || "";
+  syncEditVmClear();
   setEditEnrollSelection(vm);
   document.getElementById("editVmHostname").value = vm.hostname || "";
   document.getElementById("editVmHostnameFromName").checked = !!vm.hostnameFromName;
@@ -3853,15 +4261,21 @@ async function saveEditVmModal() {
     }
   }
   // Save tags, notes, SSH user/password, autoEnroll (if visible)
-  const tagsRaw = document.getElementById("editVmTags").value;
-  const tags = tagsRaw.split(",").map(t => t.trim()).filter(Boolean);
+  addEditTags(document.getElementById("editVmTags").value); // text typed but not yet confirmed with Enter
+  document.getElementById("editVmTags").value = "";
+  const tags = editTags.slice();
   const notes = document.getElementById("editVmNotes").value;
-  const sshUser = document.getElementById("editVmSshUser").value.trim();
-  const sshPassword = document.getElementById("editVmSshPassword").value;
+  // "Remove ..." wins over whatever text is left in the field.
+  const clearUserBox = document.getElementById("editVmClearSshUser").checked;
+  const clearPasswordBox = document.getElementById("editVmClearSshPassword").checked;
+  const sshUser = clearUserBox ? "" : document.getElementById("editVmSshUser").value.trim();
+  const sshPassword = clearPasswordBox ? "" : document.getElementById("editVmSshPassword").value;
   const enrollSection = document.getElementById("editVmEnrollmentSection");
   const jamfEnabled = !enrollSection.classList.contains("jamf-off");
   const hostnameFromName = document.getElementById("editVmHostnameFromName").checked;
-  const payload = { name: finalName, notes, tags, sshUser, sshPassword, hostnameFromName,
+  const clearSshPassword = document.getElementById("editVmClearSshPassword").checked;
+  const clearSshUser = document.getElementById("editVmClearSshUser").checked;
+  const payload = { name: finalName, notes, tags, sshUser, sshPassword, clearSshPassword, clearSshUser, hostnameFromName,
     hostname: hostnameFromName ? "" : document.getElementById("editVmHostname").value.trim() };
   if (jamfEnabled) {
     const choice = document.getElementById("editVmAutoEnrollProfile").value;
@@ -4090,13 +4504,50 @@ document.addEventListener("keydown", e => {
 // ---- Terminal window (per-VM) ----
 let terminalSessions = {};
 let terminalOpenVm = "";
+const TERMINAL_SCRIPT_MAX = 200 * 1024; // keep in step with maxScriptBytes on the server
+
+// The guest account commands are sent as: the VM's own SSH user, else the
+// default one, else admin. The server resolves it the same way.
+function guestUserFor(vm) {
+  const cfg = (latest && latest.config) || {};
+  if (vm && vm.sshUser) return { name: vm.sshUser, source: "VM setting" };
+  if (cfg.sshUser) return { name: cfg.sshUser, source: "default" };
+  return { name: "admin", source: "default" };
+}
+
+function terminalSession(vmName) {
+  if (!terminalSessions[vmName]) {
+    terminalSessions[vmName] = {
+      lines: [], draft: "", sudoPassword: "", running: false, abort: null, script: null,
+      history: [], histPos: -1, histDraft: "",
+      actualUser: "", probeKey: "", // the account `id -un` reported, and what it was asked for
+    };
+  }
+  return terminalSessions[vmName];
+}
+
+function addTerminalLine(vmName, cls, text) {
+  const sess = terminalSession(vmName);
+  sess.lines.push({ cls, text });
+  if (sess.lines.length > 500) sess.lines.shift();
+  if (terminalOpenVm !== vmName) return;
+  const consoleEl = document.getElementById("terminalConsole");
+  const div = document.createElement("div");
+  if (cls) div.className = cls;
+  div.textContent = text;
+  consoleEl.appendChild(div);
+  consoleEl.scrollTop = consoleEl.scrollHeight;
+}
+
+function autosizeTerminalInput() {
+  const ta = document.getElementById("terminalCommand");
+  ta.style.height = "auto";
+  ta.style.height = Math.min(ta.scrollHeight, 140) + "px";
+}
 
 function openTerminal(vmName) {
   terminalOpenVm = vmName;
-  if (!terminalSessions[vmName]) {
-    terminalSessions[vmName] = { lines: [], draft: "", sudoPassword: "" };
-  }
-  const sess = terminalSessions[vmName];
+  const sess = terminalSession(vmName);
   document.getElementById("terminalModalTitle").textContent = "Terminal — " + vmName;
   document.getElementById("terminalCommand").value = sess.draft || "";
   document.getElementById("terminalSudoPassword").value = sess.sudoPassword || "";
@@ -4110,23 +4561,64 @@ function openTerminal(vmName) {
   });
   consoleEl.scrollTop = consoleEl.scrollHeight;
   document.getElementById("terminalModal").classList.remove("hidden");
+  renderTerminalScript();
+  autosizeTerminalInput();
   updateTerminalStatus();
+  probeTerminalUser(vmName);
   document.getElementById("terminalCommand").focus();
 }
 
 function closeTerminal() {
-  if (terminalOpenVm && terminalSessions[terminalOpenVm]) {
-    terminalSessions[terminalOpenVm].draft = document.getElementById("terminalCommand").value;
-    terminalSessions[terminalOpenVm].sudoPassword = document.getElementById("terminalSudoPassword").value;
+  if (terminalOpenVm) {
+    const sess = terminalSession(terminalOpenVm);
+    sess.draft = document.getElementById("terminalCommand").value;
+    sess.sudoPassword = document.getElementById("terminalSudoPassword").value;
   }
   document.getElementById("terminalModal").classList.add("hidden");
   terminalOpenVm = "";
+}
+
+// Edit VM has the custom SSH user field.
+function terminalChangeUser() {
+  const name = terminalOpenVm;
+  if (!name) return;
+  closeTerminal();
+  openEditModal(name);
+}
+
+function clearTerminalConsole() {
+  if (!terminalOpenVm) return;
+  terminalSession(terminalOpenVm).lines = [];
+  document.getElementById("terminalConsole").innerHTML = "";
+}
+
+// Ask the guest who it really runs commands as. The guest agent runs them as
+// root when the configured account does not exist, so the setting alone can
+// mislead. One quiet `id -un` per boot and configured account.
+async function probeTerminalUser(vmName) {
+  const vm = latest && latest.vms.find(v => v.name === vmName);
+  if (!vm || vm.state !== "running") return;
+  const sess = terminalSession(vmName);
+  const key = (vm.startedAt || "") + "|" + guestUserFor(vm).name;
+  if (sess.probeKey === key) return;
+  sess.probeKey = key;
+  sess.actualUser = "";
+  try {
+    const res = await api("/api/exec", {
+      method: "POST", headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ name: vmName, command: "id -un" })
+    });
+    const r = await res.json();
+    if (sess.probeKey === key && !r.error && r.exitCode === 0) sess.actualUser = (r.stdout || "").trim();
+  } catch (e) { /* the pills already show an unreachable guest */ }
+  if (terminalOpenVm === vmName) updateTerminalStatus();
 }
 
 function updateTerminalStatus() {
   if (!terminalOpenVm || !latest) return;
   const vm = latest.vms.find(v => v.name === terminalOpenVm);
   if (!vm) return;
+  const sess = terminalSession(terminalOpenVm);
   const set = t => t && !String(t).startsWith("0001");
   const running = vm.state === "running";
   const sshOff = latest.config && latest.config.sshFallbackEnabled === false;
@@ -4161,71 +4653,185 @@ function updateTerminalStatus() {
   } else {
     message = '<span class="muted" style="font-size:12px;">No working channel — install the guest agent or set up SSH</span>';
   }
-
   document.getElementById("terminalStatus").innerHTML = agentPill + sshPill + message;
-  const sess = terminalSessions[terminalOpenVm];
-  const blocked = !running || !!(sess && sess.running);
-  document.querySelectorAll("#terminalRunBtn, #terminalModal .terminal-shortcut").forEach(b => { b.disabled = blocked; });
-  document.getElementById("terminalRunBtn").textContent = sess && sess.running ? "Running…" : "Run";
+
+  // Who commands are sent as, and the prompt that goes with it.
+  const expected = guestUserFor(vm);
+  const mismatch = running && sess.actualUser && sess.actualUser !== expected.name;
+  const userEl = document.getElementById("terminalUser");
+  userEl.classList.toggle("warn", !!mismatch);
+  userEl.innerHTML = 'Sending commands as: <b>' + esc(expected.name) + '</b> <span class="muted">(' + expected.source + ')</span>' +
+    (mismatch ? ' — but they actually run as <b>' + esc(sess.actualUser) + '</b>. The account may not exist in the VM.' : '');
+  document.getElementById("terminalPrompt").textContent = (running && sess.actualUser ? sess.actualUser : expected.name) + "@" + vm.name + " $";
+
+  const blocked = !running || sess.running;
+  document.querySelectorAll("#terminalRunBtn, #terminalScriptRun, #terminalScriptBtn, #terminalModal .terminal-shortcut").forEach(b => { b.disabled = blocked; });
+  document.getElementById("terminalRunBtn").classList.toggle("hidden", !!sess.running);
+  document.getElementById("terminalStopBtn").classList.toggle("hidden", !sess.running);
+  document.getElementById("terminalStopBtn").textContent = sess.running && sess.startedAt ? "Stop (" + Math.floor((Date.now() - sess.startedAt) / 1000) + "s)" : "Stop";
+  if (running) probeTerminalUser(terminalOpenVm); // no-op unless this boot or account is new
 }
 
-async function runTerminalCommand() {
+// Send a command, or a whole script, and write the outcome into this VM's
+// session even if the window is closed or switched to another VM meanwhile.
+async function sendTerminal(body, label) {
   const vmName = terminalOpenVm;
   if (!vmName) return;
-  const sess = terminalSessions[vmName];
+  const sess = terminalSession(vmName);
   if (sess.running) return;
   const vm = latest && latest.vms.find(v => v.name === vmName);
   if (!vm || vm.state !== "running") { toast("Terminal", vmName + " is not running.", "bad"); return; }
-  const command = document.getElementById("terminalCommand").value.trim();
-  if (!command) return;
   const sudoPassword = document.getElementById("terminalSudoPassword").value;
-  sess.draft = command;
   sess.sudoPassword = sudoPassword;
+  const ctl = new AbortController();
+  sess.abort = ctl;
   sess.running = true;
+  sess.startedAt = Date.now();
   updateTerminalStatus();
+  const tick = setInterval(updateTerminalStatus, 1000); // keeps the running time on Stop current
 
-  // Output lands in this VM's session even if the window was closed or
-  // switched to another VM while the command ran.
-  const addLine = (cls, text) => {
-    sess.lines.push({ cls, text });
-    if (sess.lines.length > 500) sess.lines.shift();
-    if (terminalOpenVm !== vmName) return;
-    const consoleEl = document.getElementById("terminalConsole");
-    const div = document.createElement("div");
-    if (cls) div.className = cls;
-    div.textContent = text;
-    consoleEl.appendChild(div);
-    consoleEl.scrollTop = consoleEl.scrollHeight;
-  };
-
-  addLine("clog", "$ " + command + (sudoPassword ? "   (with sudo password)" : ""));
+  const who = sess.actualUser || guestUserFor(vm).name;
+  addTerminalLine(vmName, "clog", who + "@" + vmName + " $ " + label + (sudoPassword ? "   (with sudo password)" : ""));
   try {
     const res = await api("/api/exec", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ name: vmName, command, sudoPassword })
+      method: "POST", headers: { "Content-Type": "application/json" }, signal: ctl.signal,
+      body: JSON.stringify(Object.assign({ name: vmName, sudoPassword }, body))
     });
     const r = await res.json();
-    if (r.error) addLine("cbad", "error: " + r.error);
+    if (r.error) addTerminalLine(vmName, "cbad", "error: " + r.error);
     else {
-      if (r.stdout) addLine("", r.stdout.replace(/\n$/, ""));
-      if (r.stderr) addLine("cbad", r.stderr.replace(/\n$/, ""));
-      addLine(r.exitCode === 0 ? "cok" : "cbad", "[exit " + r.exitCode + "]");
+      if (r.stdout) addTerminalLine(vmName, "", r.stdout.replace(/\n$/, ""));
+      if (r.stderr) addTerminalLine(vmName, "cbad", r.stderr.replace(/\n$/, ""));
+      if (r.truncated) addTerminalLine(vmName, "cbad", "(output was cut short)");
+      addTerminalLine(vmName, r.exitCode === 0 ? "cok" : "cbad", "[exit " + r.exitCode + "]");
+      if (/sudo: (a password is required|no password was provided|\d+ incorrect password attempt)/.test(r.stderr || "")) {
+        addTerminalLine(vmName, "clog", r.sudoFrom === "terminal" ? "sudo refused the password you typed."
+          : r.sudoFrom === "VM setting" ? "sudo refused the password saved for this VM. Fix it in Edit VM, or type the right one below (a typed password wins)."
+          : r.sudoFrom === "default" ? "sudo refused the default SSH password. Save the right one in Configuration or Edit VM, or type it below."
+          : "sudo needs a password: type one below, or save one in Edit VM or Configuration.");
+      }
     }
   } catch (e) {
-    addLine("cbad", "✗ " + e.message);
+    addTerminalLine(vmName, "cbad", e.name === "AbortError" ? "Stopped." : "✗ " + e.message);
   }
+  clearInterval(tick);
   sess.running = false;
+  sess.abort = null;
   updateTerminalStatus();
+}
+
+function stopTerminalCommand() {
+  const sess = terminalOpenVm && terminalSession(terminalOpenVm);
+  if (sess && sess.abort) sess.abort.abort();
+}
+
+function runTerminalCommand() {
+  if (!terminalOpenVm) return;
+  const sess = terminalSession(terminalOpenVm);
+  if (sess.running) return;
+  const ta = document.getElementById("terminalCommand");
+  const command = ta.value.trim();
+  if (!command) return;
+  if (sess.history[sess.history.length - 1] !== command) sess.history.push(command);
+  sess.histPos = -1;
+  sess.draft = "";
+  ta.value = "";
+  autosizeTerminalInput();
+  sendTerminal({ command }, command);
 }
 
 function runTerminalShortcut(cmd) {
-  document.getElementById("terminalCommand").value = cmd;
-  runTerminalCommand();
+  sendTerminal({ command: cmd }, cmd);
 }
 
-document.getElementById("terminalCommand").addEventListener("keydown", e => {
-  if (e.key === "Enter") runTerminalCommand();
+// ---- scripts: pick a file in Finder (or drop it on the window) ----
+async function loadTerminalScript(file) {
+  if (!terminalOpenVm || !file) return;
+  if (file.size > TERMINAL_SCRIPT_MAX) { toast("Terminal", file.name + " is larger than " + (TERMINAL_SCRIPT_MAX / 1024) + " KB.", "bad"); return; }
+  let text;
+  try { text = await file.text(); } catch (e) { toast("Terminal", "Could not read " + file.name + ".", "bad"); return; }
+  if (text.indexOf("\0") !== -1 || !text.trim()) { toast("Terminal", file.name + " doesn't look like a text script.", "bad"); return; }
+  const sess = terminalSession(terminalOpenVm);
+  sess.script = { name: file.name, text, lines: text.replace(/\n$/, "").split(/\r\n|\r|\n/).length, bytes: file.size };
+  renderTerminalScript();
+}
+
+function renderTerminalScript() {
+  const box = document.getElementById("terminalScript");
+  const sess = terminalOpenVm && terminalSession(terminalOpenVm);
+  const sc = sess && sess.script;
+  box.classList.toggle("hidden", !sc);
+  if (!sc) return;
+  document.getElementById("terminalScriptName").textContent = sc.name;
+  const kb = sc.bytes < 1024 ? sc.bytes + " B" : (sc.bytes / 1024).toFixed(1) + " KB";
+  document.getElementById("terminalScriptInfo").textContent = sc.lines + (sc.lines === 1 ? " line · " : " lines · ") + kb;
+  const rows = sc.text.replace(/\r\n|\r/g, "\n").split("\n");
+  document.getElementById("terminalScriptPreview").textContent = rows.slice(0, 10).join("\n") + (rows.length > 10 ? "\n…" : "");
+}
+
+function clearTerminalScript() {
+  if (!terminalOpenVm) return;
+  terminalSession(terminalOpenVm).script = null;
+  renderTerminalScript();
+}
+
+function runTerminalScript() {
+  if (!terminalOpenVm) return;
+  const sess = terminalSession(terminalOpenVm);
+  const sc = sess.script;
+  if (!sc || sess.running) return;
+  sess.script = null;
+  renderTerminalScript();
+  sendTerminal({ script: sc.text, scriptName: sc.name }, "./" + sc.name + "   (" + sc.lines + (sc.lines === 1 ? " line)" : " lines)"));
+}
+
+el("terminalScriptFile").addEventListener("change", e => {
+  const f = e.target.files && e.target.files[0];
+  e.target.value = ""; // so picking the same file again still fires
+  if (f) loadTerminalScript(f);
+});
+(function wireTerminalDrop() {
+  const win = document.querySelector("#terminalModal .term-window");
+  const consoleEl = document.getElementById("terminalConsole");
+  if (!win || !consoleEl) return;
+  const hasFiles = e => e.dataTransfer && Array.from(e.dataTransfer.types || []).includes("Files");
+  win.addEventListener("dragover", e => { if (hasFiles(e)) { e.preventDefault(); consoleEl.classList.add("dragover"); } });
+  win.addEventListener("dragleave", e => { if (!win.contains(e.relatedTarget)) consoleEl.classList.remove("dragover"); });
+  win.addEventListener("drop", e => {
+    if (!hasFiles(e)) return;
+    e.preventDefault();
+    consoleEl.classList.remove("dragover");
+    loadTerminalScript(e.dataTransfer.files[0]);
+  });
+})();
+
+// Enter sends, Shift+Enter adds a line, Up/Down walk this VM's history.
+el("terminalCommand").addEventListener("input", autosizeTerminalInput);
+el("terminalCommand").addEventListener("keydown", e => {
+  const ta = e.target;
+  if (e.key === "Enter" && !e.shiftKey && !e.isComposing) {
+    e.preventDefault();
+    runTerminalCommand();
+    return;
+  }
+  if (!terminalOpenVm || (e.key !== "ArrowUp" && e.key !== "ArrowDown") || e.shiftKey || e.altKey || e.metaKey || e.ctrlKey) return;
+  const sess = terminalSession(terminalOpenVm);
+  if (!sess.history.length) return;
+  const atTop = ta.selectionStart === 0 && ta.selectionEnd === 0;
+  const atEnd = ta.selectionStart === ta.value.length;
+  if (e.key === "ArrowUp" && atTop) {
+    e.preventDefault();
+    if (sess.histPos === -1) { sess.histDraft = ta.value; sess.histPos = sess.history.length; }
+    if (sess.histPos > 0) sess.histPos--;
+    ta.value = sess.history[sess.histPos];
+  } else if (e.key === "ArrowDown" && atEnd && sess.histPos !== -1) {
+    e.preventDefault();
+    sess.histPos++;
+    if (sess.histPos >= sess.history.length) { sess.histPos = -1; ta.value = sess.histDraft; }
+    else ta.value = sess.history[sess.histPos];
+  } else return;
+  autosizeTerminalInput();
+  ta.setSelectionRange(ta.value.length, ta.value.length);
 });
 document.addEventListener("keydown", e => {
   if (e.key === "Escape" && terminalOpenVm) closeTerminal();
@@ -4249,16 +4855,20 @@ async function act(kind, name) {
   // Instant client-side guard for the 2-VM host limit (the server enforces it
   // too, but this gives immediate feedback on every click).
   if ((kind === "run" || kind === "restart") && latest) {
-    const self = latest.vms.find(v => v.name === name);
+    const self = latest.vms.find(v => v.name === name) ||
+      latest.vms.flatMap(v => v.snapshots || []).find(x => x.name === name);
     const selfActive = self && (self.state === "running" || self.state === "starting");
-    const active = latest.vms.filter(v => v.state === "running" || v.state === "starting").length;
+    // Snapshots are not in latest.vms but take a slot like any running VM.
+    const active = latest.vms.reduce((n, v) => n + (isLive(v.state) ? 1 : 0) + (v.snapshots || []).filter(x => isLive(x.state)).length, 0);
     if (!selfActive && active >= 2) {
       toast("Cannot start " + name, "Host limit reached — 2 VMs already running.", "bad");
       return;
     }
   }
   try {
-    await api("/api/" + kind, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ name }) });
+    const res = await api("/api/" + kind, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ name }) });
+    const d = await res.json().catch(() => null);
+    if (d && d.error) toast("Cannot " + kind + " " + name, d.error, "bad");
   } catch (e) {
     toast("Action failed", kind + " " + name + ": " + e.message, "bad");
   }
@@ -4721,7 +5331,7 @@ el("createBtn").onclick = async () => {
       imageInputId: "ociImageInputInline",
       insecureChkId: "ociInsecureChkInline",
       submitBtnId: "createBtn",
-      onStarted: () => updateCreateProgress()
+      onStarted: () => { updateCreateProgress(); closeCreateVmModal(); }
     });
     return;
   }
@@ -4760,6 +5370,7 @@ el("createBtn").onclick = async () => {
     }
     toast("Create", "Started creating " + body.count + " VM(s).", "", "panel-activity");
     document.getElementById("provisioningPassword").value = "";
+    closeCreateVmModal();
   } catch (e) { toast("Create failed", e.message, "bad"); }
 };
 
@@ -4778,9 +5389,9 @@ function renderLogs(logs) {
 let notifiedTaskIds = new Set();
 function notifyFinishedAutoEnrollTasks(tasks) {
   (tasks || []).forEach(t => {
-    if ((t.kind !== "enroll" && t.kind !== "prep-golden") || t.status === "running" || notifiedTaskIds.has(t.id)) return;
+    if ((t.kind !== "enroll" && t.kind !== "prep-golden" && t.kind !== "snapshot") || t.status === "running" || notifiedTaskIds.has(t.id)) return;
     notifiedTaskIds.add(t.id);
-    const label = t.kind === "prep-golden" ? "Golden image prep" : "Auto enroll";
+    const label = t.kind === "prep-golden" ? "Golden image prep" : t.kind === "snapshot" ? "Snapshot" : "Auto enroll";
     if (t.error) {
       toast(label, t.target + ": " + t.error, "bad");
     } else {
@@ -5610,11 +6221,28 @@ function scrollToPanel(id, duration = 1000) {
   });
 }
 
-function goToCreatePanel() {
-  showTab("vmm");
-  expandPanel("panel-create");
-  scrollToPanel("panel-create");
+// The form lives in VM Management. From the Dashboard it is moved into the
+// window for the duration, then put back, so there is only ever one copy.
+function openCreateVmModal(opts) {
+  opts = opts || {};
+  const body = document.getElementById("createFormBody");
+  const slot = document.getElementById("createModalSlot");
+  if (body.parentNode !== slot) slot.appendChild(body);
+  if (opts.mode) setCreateMode(opts.mode);
+  const source = document.getElementById("cloneSource");
+  if (opts.source) source.value = opts.source;
+  document.getElementById("createVmModal").classList.remove("hidden");
+  (opts.source ? source : document.getElementById("createNameTemplate")).focus();
 }
+function closeCreateVmModal() {
+  const body = document.getElementById("createFormBody");
+  const panel = document.getElementById("panel-create");
+  if (body.parentNode !== panel) panel.appendChild(body);
+  document.getElementById("createVmModal").classList.add("hidden");
+}
+document.addEventListener("keydown", e => {
+  if (e.key === "Escape" && !document.getElementById("createVmModal").classList.contains("hidden")) closeCreateVmModal();
+});
 
 async function fetchGuestAgentInfo() {
   try {
@@ -5695,6 +6323,14 @@ connect();
     <li>Enable autologin for the main user</li>
     <li>Install Tart guest agent (or enable key-based SSH access)</li>
   </ol>
+</template>
+<template id="autoEnrollHelp">
+  <h4>Experimental feature</h4>
+  <p>Auto enroll drives System Settings by clicking its buttons, so a macOS update that changes that screen can break it.</p>
+  <ul>
+    <li>The VM must be set to English. The script finds buttons by their English names.</li>
+    <li>The VM must be cloned from a base VM that already ran <b>Enable Auto-Enrollment Capabilities on Base VM</b> (VM Management → Prepare VM for Jamf), or be that VM itself.</li>
+  </ul>
 </template>
 <div id="helpPopover" class="popover hidden" role="dialog" aria-label="Help"></div>
 </body>

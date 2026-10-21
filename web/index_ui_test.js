@@ -271,25 +271,17 @@ test("sortRows sorts by the chosen column, keeps missing values last and breaks 
   assert.deepEqual(vms.map(v => v.name), ["vm-10", "vm-2", "Vm-1", "vm-3"], "the input is not reordered in place");
 });
 
-test("cloneFromOCI opens clone management with the exact OCI reference", () => {
-  const source = { value: "", focusCalled: false, focus() { this.focusCalled = true; } };
-  let shown = "";
-  let modeSet = "";
+test("cloneFromOCI opens the create window in clone mode with the exact OCI reference", () => {
+  let opened = null;
   const cloneFromOCI = evaluateFunction("cloneFromOCI", {
-    showTab: id => { shown = id; },
-    setCreateMode: mode => { modeSet = mode; },
-    document: {
-      getElementById: () => source,
-    },
+    openCreateVmModal: opts => { opened = opts; },
   });
   const exact = "ghcr.io/example/base@sha256:abc";
 
   cloneFromOCI(exact);
 
-  assert.equal(shown, "vmm");
-  assert.equal(modeSet, "clone");
-  assert.equal(source.value, exact);
-  assert.equal(source.focusCalled, true);
+  assert.equal(opened.mode, "clone");
+  assert.equal(opened.source, exact);
 });
 
 test("SSH and MDM helpers ignore running OCI entries", () => {
@@ -1227,21 +1219,21 @@ test("openOnboardingWizard and closeOnboardingWizard toggle modal and persist co
   assert.equal(apiCalls[0].url, "/api/config");
   assert.deepEqual(JSON.parse(apiCalls[0].opts.body), { firstRunCompleted: true });
 
-  // A chosen purpose is saved: Demo turns the scheduler on and runs scheduled VMs headless without audio.
+  // A chosen purpose is saved: Demo turns the scheduler on and runs scheduled VMs headless.
   apiCalls = [];
   context.selectedWizardRole = "demo";
   context.wizardRoleChosen = true;
   await closeOnboardingWizard(true);
   assert.deepEqual(JSON.parse(apiCalls[0].opts.body), {
-    firstRunCompleted: true, operatorRole: "demo", paused: false, noGraphics: true, noAudio: true,
+    firstRunCompleted: true, operatorRole: "demo", paused: false, noGraphics: true,
   });
 
-  // Testing / Troubleshooting leaves the scheduler off with a full display and audio.
+  // Testing / Troubleshooting leaves the scheduler off with a full display.
   apiCalls = [];
   context.selectedWizardRole = "testing";
   await closeOnboardingWizard(true);
   assert.deepEqual(JSON.parse(apiCalls[0].opts.body), {
-    firstRunCompleted: true, operatorRole: "testing", paused: true, noGraphics: false, noAudio: false,
+    firstRunCompleted: true, operatorRole: "testing", paused: true, noGraphics: false,
   });
 });
 
@@ -1329,12 +1321,12 @@ test("selectWizardRole marks the card and the review shows the chosen purpose's 
   assert.equal(roleCards[0].classList.contains("active"), false);
   assert.equal(elements.wizardReviewRole.textContent, "Demo / Data Generation");
   assert.equal(elements.wizardReviewScheduler.textContent, "On");
-  assert.equal(elements.wizardReviewGraphics.textContent, "Headless, audio off");
+  assert.equal(elements.wizardReviewGraphics.textContent, "Headless");
 
   context.selectWizardRole("testing");
   assert.equal(roleCards[0].classList.contains("active"), true);
   assert.equal(elements.wizardReviewScheduler.textContent, "Off");
-  assert.equal(elements.wizardReviewGraphics.textContent, "Full display, audio on");
+  assert.equal(elements.wizardReviewGraphics.textContent, "Full display");
 
   context.selectWizardRole("bogus"); // unknown purposes are ignored
   assert.equal(context.selectedWizardRole, "testing");
@@ -1427,7 +1419,7 @@ test("renderTable toggles emptyDashboardHero visibility based on local VM count"
   };
 
   const renderTable = evaluateFunctions(
-    ["isOCI", "renderOCIImages", "renderTable"],
+    ["isOCI", "renderOCIImages", "guestUserFor", "isLive", "snapshotsCell", "renderTable"],
     "renderTable",
     {
       document,
@@ -1844,4 +1836,68 @@ test("the wizard builds from a local IPSW file, which wins over the online list 
   picked = { cancelled: true };
   await w.browseWizardIpsw({ textContent: "Browse…", disabled: false });
   assert.equal(els.wizardIpswPath.value, "");
+});
+
+
+test("guestUserFor names the account commands are sent as: VM setting, then default, then admin", () => {
+  const withConfig = sshUser => evaluateFunction("guestUserFor", { latest: { config: { sshUser } } });
+  assert.equal(withConfig("").call(null, { sshUser: "recovery" }).name, "recovery");
+  assert.equal(withConfig("").call(null, { sshUser: "recovery" }).source, "VM setting");
+  assert.equal(withConfig("builder").call(null, {}).name, "builder");
+  assert.equal(withConfig("builder").call(null, {}).source, "default");
+  const bare = withConfig("").call(null, {});
+  assert.equal(bare.name, "admin");
+  assert.equal(bare.source, "default");
+  assert.equal(evaluateFunction("guestUserFor", { latest: null })(undefined).name, "admin");
+});
+
+test("a snapshot can't start while its original or another snapshot of it runs", () => {
+  const ctx = vm.createContext({});
+  vm.runInContext(extractFunction("isLive") + extractFunction("snapshotRunBlocker") + "; globalThis.f = snapshotRunBlocker;", ctx);
+  const snap = (name, state) => ({ name, state });
+  const base = { name: "web", state: "stopped", snapshots: [snap("web-Snapshot-1", "stopped"), snap("web-Snapshot-2", "stopped")] };
+  assert.equal(ctx.f(base, base.snapshots[0]), "", "nothing runs: free to start");
+
+  const originalRuns = Object.assign({}, base, { state: "running" });
+  assert.match(ctx.f(originalRuns, base.snapshots[0]), /web is running/);
+
+  const startingOriginal = Object.assign({}, base, { state: "starting" });
+  assert.match(ctx.f(startingOriginal, base.snapshots[0]), /web is running/);
+
+  const siblingRuns = Object.assign({}, base, { snapshots: [snap("web-Snapshot-1", "stopped"), snap("web-Snapshot-2", "running")] });
+  assert.match(ctx.f(siblingRuns, siblingRuns.snapshots[0]), /web-Snapshot-2 is running/);
+});
+
+test("the Snapshots column shows the count and opens the snapshots window", () => {
+  const snapshotsCell = evaluateFunction("snapshotsCell", { esc: s => s });
+  const some = snapshotsCell({ name: "web", snapshots: [{}, {}, {}] });
+  assert.match(some, /openSnapshotsModal\('web'\)/);
+  assert.match(some, />3<\/button>/);
+  assert.doesNotMatch(some, /zero/);
+  const none = snapshotsCell({ name: "web" });
+  assert.match(none, /snap-count zero/);
+  assert.match(none, />0<\/button>/);
+});
+
+
+test("a new tag takes the spelling already in use, whatever the case or spacing", () => {
+  const latest = { vms: [
+    { name: "a", tags: ["macOS26", "demo"] }, { name: "b", tags: ["macOS26"] }, { name: "c", tags: ["MacOS26"] },
+  ] };
+  const ctx = vm.createContext({ latest });
+  vm.runInContext(["tagUsage", "canonicalTag"].map(extractFunction).join("\n") + "; globalThis.f = canonicalTag;", ctx);
+  assert.equal(ctx.f("macos26"), "macOS26", "snaps to the existing spelling");
+  assert.equal(ctx.f("  MACOS26 "), "macOS26", "ignores case and surrounding space");
+  assert.equal(ctx.f("MacOS26"), "macOS26", "with two spellings in use, the more common one wins");
+  assert.equal(ctx.f("brand   new"), "brand new", "a new tag is kept, spaces tidied");
+  assert.equal(ctx.f("   "), "");
+  assert.equal(ctx.f("DEMO"), "demo");
+});
+
+test("adding tags de-duplicates and accepts several at once", () => {
+  const latest = { vms: [{ name: "a", tags: ["demo"] }] };
+  const ctx = vm.createContext({ latest, editTags: ["demo"], renderEditTags: () => {} });
+  vm.runInContext(["tagUsage", "canonicalTag", "addEditTags"].map(extractFunction).join("\n") + "; globalThis.add = addEditTags;", ctx);
+  ctx.add("Demo, prod , ,PROD");
+  assert.equal(Array.from(ctx.editTags).join("|"), "demo|prod");
 });

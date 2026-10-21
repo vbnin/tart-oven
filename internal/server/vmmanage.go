@@ -159,9 +159,15 @@ func (w *taskWriter) Write(p []byte) (int, error) {
 // runInto runs a tart command, streaming output into the task. Bound to the
 // task's context, so cancelTask kills it (and any child process) outright.
 func (m *Manager) runInto(t *Task, args ...string) error {
+	return m.runIntoEnv(t, nil, args...)
+}
+
+// runIntoEnv is runInto with extra environment variables for tart.
+func (m *Manager) runIntoEnv(t *Task, env []string, args ...string) error {
 	m.appendTaskOutput(t, "$ tart "+strings.Join(args, " ")+"\n")
 	m.logln("$ tart %s", strings.Join(args, " "))
 	cmd := m.tartCmdCtx(t.ctx, m.storage(), args...)
+	cmd.Env = append(cmd.Env, env...)
 	w := &taskWriter{m, t}
 	cmd.Stdout = w
 	cmd.Stderr = w

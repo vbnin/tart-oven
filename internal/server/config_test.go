@@ -296,9 +296,9 @@ func TestLoadPreservesACustomisedStatusCommand(t *testing.T) {
 	}
 }
 
-func TestHandleConfigAppliesNoGraphicsAndNoAudio(t *testing.T) {
+func TestHandleConfigAppliesNoGraphics(t *testing.T) {
 	m := newTestManager(t)
-	body := `{"noGraphics":true,"noAudio":true}`
+	body := `{"noGraphics":true}`
 	req := httptest.NewRequest(http.MethodPost, "/api/config", strings.NewReader(body))
 	res := httptest.NewRecorder()
 	m.handleConfig(res, req)
@@ -306,8 +306,8 @@ func TestHandleConfigAppliesNoGraphicsAndNoAudio(t *testing.T) {
 	if res.Code != http.StatusOK {
 		t.Fatalf("status = %d, want %d: %s", res.Code, http.StatusOK, res.Body.String())
 	}
-	if !m.cfg.NoGraphics || !m.cfg.NoAudio {
-		t.Fatalf("NoGraphics = %v, NoAudio = %v; want both true", m.cfg.NoGraphics, m.cfg.NoAudio)
+	if !m.cfg.NoGraphics {
+		t.Fatal("NoGraphics = false, want true")
 	}
 }
 

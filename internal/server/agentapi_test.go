@@ -29,7 +29,7 @@ case "$1" in
   clone) mkdir -p "$TART_HOME/vms/$3";;
   delete) rm -rf "$TART_HOME/vms/$2";;
   set|stop) ;;
-  exec) shift; shift; exec "$@";;
+  exec) shift; [ "$1" = "-i" ] && shift; shift; exec "$@";;
   *) echo "fake tart: unsupported: $*" >&2; exit 1;;
 esac
 `
