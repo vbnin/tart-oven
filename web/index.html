@@ -5385,10 +5385,19 @@ function renderLogs(logs) {
 // longer running — these can take minutes with nothing on screen otherwise,
 // so without this the only way to know one finished is to go check the Logs
 // tab. Runs once (notifiedTaskIds) per task id, from wherever renderTasks is
-// called (every SSE push includes the live task list).
+// called (every SSE push includes the live task list). The server keeps finished
+// tasks for the whole session, so the first list after a page load is only
+// recorded, not announced; otherwise every reload would re-announce them all.
 let notifiedTaskIds = new Set();
+let taskToastsSeeded = false;
 function notifyFinishedAutoEnrollTasks(tasks) {
-  (tasks || []).forEach(t => {
+  if (!Array.isArray(tasks)) return;
+  if (!taskToastsSeeded) {
+    taskToastsSeeded = true;
+    tasks.forEach(t => { if (t.status !== "running") notifiedTaskIds.add(t.id); });
+    return;
+  }
+  tasks.forEach(t => {
     if ((t.kind !== "enroll" && t.kind !== "prep-golden" && t.kind !== "snapshot") || t.status === "running" || notifiedTaskIds.has(t.id)) return;
     notifiedTaskIds.add(t.id);
     const label = t.kind === "prep-golden" ? "Golden image prep" : t.kind === "snapshot" ? "Snapshot" : "Auto enroll";

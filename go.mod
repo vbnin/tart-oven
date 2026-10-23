@@ -20,3 +20,7 @@ require (
 	github.com/tklauser/numcpus v0.6.1 // indirect
 	github.com/yusufpapurcu/wmi v1.2.4 // indirect
 )
+
+// gopsutil's go-m1cpu crashes at init on chips without the E-core IORegistry
+// key (M5 Pro); see third_party/go-m1cpu.
+replace github.com/shoenig/go-m1cpu => ./third_party/go-m1cpu

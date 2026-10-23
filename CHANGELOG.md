@@ -12,6 +12,13 @@ A few terms appear throughout:
 - **MDM / Jamf Pro** — the system that manages enrolled Macs. Tart Oven can prepare
   a VM for enrollment and report whether a guest is enrolled.
 
+## 2.2.2 (2026-10-23)
+
+### Fixed
+
+- **Tart Oven now starts on Macs with an M5 Pro.** On those Macs it crashed with `SIGSEGV: segmentation violation` before doing anything, so the web server never came up after installing. A CPU-frequency library used for the performance charts failed on chips that lack an efficiency-core entry in the system registry. Tart Oven never needed that value, so the library is replaced by an inert stand-in.
+- **Reloading the page no longer brings back old "finished successfully" banners.** The server remembers every finished Auto enroll, Golden image prep and Snapshot task, and each reload announced all of them again, stacking a column of banners. Now only tasks that finish while the page is open get a banner.
+
 ## 2.2.1 (2026-10-21)
 
 ### Changed

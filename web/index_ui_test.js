@@ -1901,3 +1901,19 @@ test("adding tags de-duplicates and accepts several at once", () => {
   ctx.add("Demo, prod , ,PROD");
   assert.equal(Array.from(ctx.editTags).join("|"), "demo|prod");
 });
+
+test("finished-task banners are not repeated for tasks already finished at page load", () => {
+  const toasts = [];
+  const context = { notifiedTaskIds: new Set(), taskToastsSeeded: false, toast: (...args) => toasts.push(args), document: { getElementById: () => null }, checkEnrollReadiness: () => {} };
+  vm.createContext(context);
+  vm.runInContext(extractFunction("notifyFinishedAutoEnrollTasks") + "; globalThis.notify = notifyFinishedAutoEnrollTasks;", context);
+  const done = { id: "t1", kind: "enroll", target: "vm1", status: "success" };
+  const running = { id: "t2", kind: "enroll", target: "vm2", status: "running" };
+  context.notify([done, running]);
+  assert.equal(toasts.length, 0, "history present at load must stay silent");
+  context.notify([done, Object.assign({}, running, { status: "success" })]);
+  assert.equal(toasts.length, 1, "a task running at load still announces when it finishes");
+  assert.match(toasts[0][1], /vm2 finished successfully/);
+  context.notify([done, Object.assign({}, running, { status: "success" })]);
+  assert.equal(toasts.length, 1, "each task is announced once");
+});

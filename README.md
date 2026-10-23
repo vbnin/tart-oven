@@ -4,7 +4,7 @@ Tart Oven is a local web console for managing [Tart](https://github.com/openai/t
 
 Tart Oven runs on macOS and manages macOS virtual machines.
 
-Current release: **2.2.1** · [Changelog](CHANGELOG.md)
+Current release: **2.2.2** · [Changelog](CHANGELOG.md)
 
 <p align="center">
   <img src="assets/screenshots/Tart%20Oven%20Screenshot%201.png" alt="Tart Oven screenshot 1" width="900">
@@ -28,13 +28,13 @@ Tart Oven limits the host to two running VMs at a time. Apple's macOS license al
 
 ### 1. Install Tart Oven
 
-Download `TartOven-2.2.1.pkg` from the [release page](https://github.com/vbnin/tart-oven/releases).
+Download `TartOven-2.2.2.pkg` from the [release page](https://github.com/vbnin/tart-oven/releases).
 
 Open the package in Finder or install it from Terminal:
 
 ```sh
 cd "$HOME/Downloads"
-sudo installer -pkg "./TartOven-2.2.1.pkg" -target /
+sudo installer -pkg "./TartOven-2.2.2.pkg" -target /
 ```
 
 The package installs:
