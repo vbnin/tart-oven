@@ -327,6 +327,9 @@ func (m *Manager) doRun(name, trigger string, opts runOptions) {
 	vm.SSHCheckedAt = time.Time{}
 	vm.AgentOK = false
 	vm.AgentCheckedAt = time.Time{}
+	vm.InternetOK = false // connectivity can differ per boot; unknown until probed
+	vm.InternetDetail = ""
+	vm.InternetCheckedAt = time.Time{}
 	ev.IP = ip
 	if pendingProvisioning != "" {
 		// First boot resolved an IP, so the guest applied the provisioning
@@ -357,6 +360,8 @@ func (m *Manager) doRun(name, trigger string, opts runOptions) {
 	m.logln("info %s: ok=%v", name, infoOK)
 
 	m.refreshMDMStatus(name)
+	m.broadcast()
+	m.refreshInternetStatus(name)
 	m.broadcast()
 
 	// A VM cloned with "Auto enroll at boot" runs the MDM enrollment script

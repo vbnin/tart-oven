@@ -275,6 +275,10 @@ type VM struct {
 	MDMServer    string    `json:"mdmServer,omitempty"`    // raw MDM check-in URL from the guest
 	MDMCheckedAt time.Time `json:"mdmCheckedAt,omitempty"` // zero means never probed, which renders as unknown
 
+	InternetOK        bool      `json:"internetOk,omitempty"`        // guest reached Apple's captive-portal check on the last probe
+	InternetDetail    string    `json:"internetDetail,omitempty"`    // why the last probe failed, for the tooltip
+	InternetCheckedAt time.Time `json:"internetCheckedAt,omitempty"` // zero means never probed this boot, which renders as unknown
+
 	AutoEnroll        bool   `json:"autoEnroll,omitempty"`        // set at clone time; next boot (manual or scheduler) runs the MDM auto-enroll script once
 	AutoEnrollProfile string `json:"autoEnrollProfile,omitempty"` // Jamf server profile ID to enroll into; "" = whatever profile is already on the guest's Desktop, else the first one
 

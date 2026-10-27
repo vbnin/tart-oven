@@ -206,6 +206,31 @@ test("mdmCell distinguishes enrolled, unenrolled and never-probed VMs", () => {
   }
 });
 
+test("internetCell distinguishes online, offline, stopped and never-probed VMs", () => {
+  const internetCell = evaluateFunction("internetCell", { esc: (v) => String(v) });
+  const at = "2026-10-27T12:00:00Z";
+
+  const online = internetCell({ state: "running", internetCheckedAt: at, internetOk: true });
+  assert.match(online, /ssh-dot green/);
+  assert.match(online, />Online</);
+  assert.ok(!/last-known/.test(online), "a running VM's result is current, not faded");
+
+  const offline = internetCell({ state: "running", internetCheckedAt: at, internetOk: false, internetDetail: "no connection (curl exit 6)" });
+  assert.match(offline, /ssh-dot red/);
+  assert.match(offline, />Offline</);
+  assert.match(offline, /title="no connection \(curl exit 6\)"/);
+
+  assert.match(internetCell({ state: "stopped", internetCheckedAt: at, internetOk: true }), /last-known/,
+    "a stopped VM keeps its last known result, faded");
+
+  // Never probed must be grey, not red: a fresh VM has not been asked yet.
+  for (const vm of [{}, { internetCheckedAt: "0001-01-01T00:00:00Z" }]) {
+    const unknown = internetCell(vm);
+    assert.match(unknown, /ssh-dot grey/);
+    assert.ok(!/ssh-dot red/.test(unknown), "unknown must not render as offline");
+  }
+});
+
 test("renderOCIImages hides cached images for running-only and renders clone-only rows", () => {
   const panel = { classList: { toggle(name, enabled) { panel.hidden = name === "hidden" && enabled; } } };
   const buttons = [];
@@ -1431,6 +1456,7 @@ test("renderTable toggles emptyDashboardHero visibility based on local VM count"
       accessCell: () => "",
       infoCell: () => "",
       mdmCell: () => "",
+      internetCell: () => "",
       agentInstallButton: () => "",
       isRunningOnly: () => false,
       guestAgentInfo: { available: false },

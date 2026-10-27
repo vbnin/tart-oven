@@ -307,8 +307,8 @@ func (m *Manager) probeGuestChannels(name string) (agentOK, sshOK bool) {
 }
 
 // refreshVMInfo is "Refresh info": it re-checks a running VM's IP, its Agent
-// and SSH status and its MDM enrollment, then runs the status command to
-// refresh the collected info. It returns the status command's result.
+// and SSH status, its MDM enrollment and its internet access, then runs the
+// status command to refresh the collected info. It returns the status command's result.
 func (m *Manager) refreshVMInfo(name string) execResult {
 	m.refreshVMIP(name)
 	m.probeGuestChannels(name)
@@ -326,6 +326,7 @@ func (m *Manager) refreshVMInfo(name string) execResult {
 	}
 	m.mu.Unlock()
 	m.refreshMDMStatus(name)
+	m.refreshInternetStatus(name)
 	m.broadcast()
 	return res
 }

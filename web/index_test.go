@@ -830,6 +830,25 @@ func TestSnapshotsHaveAColumnAMenuEntryAndAWindow(t *testing.T) {
 	}
 }
 
+func TestInternetHasAColumnAndADetailsRow(t *testing.T) {
+	b, err := Content.ReadFile("index.html")
+	if err != nil {
+		t.Fatal(err)
+	}
+	html := string(b)
+	for _, want := range []string{
+		`<th data-sort="internet">Internet</th>`, `internetCell(vm)`, `row("Internet", internet)`,
+	} {
+		if !strings.Contains(html, want) {
+			t.Errorf("internet UI is missing %q", want)
+		}
+	}
+	// The table has one cell per header; the loading row and the message row span them all.
+	if got := strings.Count(html, `<td colspan="11" class="muted">`); got != 2 {
+		t.Errorf("found %d full-width VM table rows spanning 11 columns, want 2", got)
+	}
+}
+
 func TestSuspendableLivesInTartSettingsAndNoAudioIsGone(t *testing.T) {
 	b, err := Content.ReadFile("index.html")
 	if err != nil {

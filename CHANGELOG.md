@@ -12,6 +12,13 @@ A few terms appear throughout:
 - **MDM / Jamf Pro** — the system that manages enrolled Macs. Tart Oven can prepare
   a VM for enrollment and report whether a guest is enrolled.
 
+## 2.2.3-dev1 (2026-10-27)
+
+### Added
+
+- **Internet column.** The VM table shows whether each guest can reach the internet: green **Online**, red **Offline**, or grey when it has not been checked yet. Hover the red dot for the reason. Tart Oven asks the guest to fetch Apple's captive-portal page, the one macOS itself uses, so a Wi-Fi sign-in page or a filtering proxy that answers instead counts as offline. If the check can't run at all, for example because the guest has no agent or SSH, the dot stays grey rather than claiming the guest is offline.
+- The check runs after each boot and whenever you click **Refresh info** (which **Refresh** also runs on every running VM). A stopped VM keeps its last result, faded. The column is sortable, and **VM details** has an **Internet** row.
+
 ## 2.2.2 (2026-10-23)
 
 ### Fixed

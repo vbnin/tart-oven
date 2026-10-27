@@ -558,6 +558,7 @@
   td.acts { white-space: nowrap; width: 1%; text-align: right; }
   td.info { width: 200px; min-width: 170px; max-width: 220px; }
   td.mdm { min-width: 160px; max-width: 200px; }
+  td.internet { white-space: nowrap; }
   td.notes { max-width: 160px; font-size: 13.5px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
   td[data-state="running"] { color: var(--green); font-weight: 600; }
   .infobox { font-family: ui-monospace, Menlo, Monaco, monospace; font-size: 12.5px; line-height: 1.4; white-space: pre-wrap; overflow-wrap: anywhere; word-break: break-word; max-height: 72px; overflow-y: auto; overflow-x: hidden; color: var(--muted); }
@@ -861,8 +862,8 @@
       </div>
       <div class="table-wrap">
         <table>
-          <thead id="localVmHead"><tr><th data-sort="name">Name</th><th data-sort="state">State</th><th data-sort="ip">IP</th><th data-sort="access">Access</th><th data-sort="info">Info</th><th data-sort="mdm">MDM</th><th data-sort="snapshots">Snapshots</th><th data-sort="lastRun">Last run</th><th data-sort="remaining">Timer</th><th>Actions</th></tr></thead>
-          <tbody id="localVmRows"><tr><td colspan="10" class="muted">loading…</td></tr></tbody>
+          <thead id="localVmHead"><tr><th data-sort="name">Name</th><th data-sort="state">State</th><th data-sort="ip">IP</th><th data-sort="access">Access</th><th data-sort="internet">Internet</th><th data-sort="info">Info</th><th data-sort="mdm">MDM</th><th data-sort="snapshots">Snapshots</th><th data-sort="lastRun">Last run</th><th data-sort="remaining">Timer</th><th>Actions</th></tr></thead>
+          <tbody id="localVmRows"><tr><td colspan="11" class="muted">loading…</td></tr></tbody>
         </table>
       </div>
     </div>
@@ -2662,6 +2663,22 @@ function infoCell(vm) {
   return '<div class="infobox" title="fetched ' + esc(fmtDateTime(vm.infoAt)) + '">' + esc(vm.info) + '</div>';
 }
 
+// Internet access for a guest. Never probed renders grey rather than red, so a VM
+// that has not been asked yet is never reported as offline. A stopped VM keeps its
+// last known result, faded like the Access column.
+function internetCell(vm) {
+  const checked = vm.internetCheckedAt && !vm.internetCheckedAt.startsWith("0001");
+  if (!checked) {
+    return '<span class="ssh-dot grey" title="Internet access not checked yet"></span>';
+  }
+  const stale = vm.state !== "running";
+  const note = stale ? " (last known while running)" : "";
+  const dot = vm.internetOk
+    ? '<span class="ssh-dot green" title="reached the internet' + note + '"></span><span class="mdm-label">Online</span>'
+    : '<span class="ssh-dot red" title="' + esc((vm.internetDetail || "no internet access") + note) + '"></span><span class="mdm-label">Offline</span>';
+  return stale ? '<span class="last-known">' + dot + '</span>' : dot;
+}
+
 // Trims the MDM check-in endpoint down to the console URL an operator would
 // open, and drops the scheme (https://) — it's always https, so it's just
 // noise taking up space in the VM table's MDM column.
@@ -3875,6 +3892,7 @@ const SORT_GETTERS = {
     ip: vm => vm.ip ? vm.ip.split(".").reduce((n, o) => n * 256 + (parseInt(o, 10) || 0), 0) : null,
     access: vm => (vm.agentOk && isSet(vm.agentCheckedAt) ? 2 : 0) + (vm.sshOk && isSet(vm.sshCheckedAt) ? 1 : 0),
     info: vm => vm.info ? vm.info.toLowerCase() : null,
+    internet: vm => !isSet(vm.internetCheckedAt) ? null : (vm.internetOk ? 1 : 0),
     mdm: vm => !isSet(vm.mdmCheckedAt) ? null : (vm.mdmEnrolled ? 1 : 0),
     snapshots: vm => (vm.snapshots || []).length,
     lastRun: vm => timeOf(vm.lastRun),
@@ -3975,7 +3993,7 @@ function renderTable(vms) {
   filtered = sortRows("local", filtered);
   if (!filtered.length) {
     const msg = query ? "No VMs match your search." : (runningOnly ? "No running VMs." : "No VMs found at this storage path.");
-    tbody.innerHTML = '<tr><td colspan="10" class="muted">' + msg + '</td></tr>';
+    tbody.innerHTML = '<tr><td colspan="11" class="muted">' + msg + '</td></tr>';
     return;
   }
   tbody.innerHTML = filtered.map(vm => {
@@ -4003,6 +4021,7 @@ function renderTable(vms) {
       '<td><span class="state s-' + vm.state + '"><span class="dot"></span>' + vm.state + '</span></td>' +
       '<td>' + ip + '</td>' +
       '<td>' + accessCell(vm) + '</td>' +
+      '<td class="internet">' + internetCell(vm) + '</td>' +
       '<td class="info">' + infoCell(vm) + '</td>' +
       '<td class="mdm">' + mdmCell(vm) + '</td>' +
       '<td class="snap-cell">' + snapshotsCell(vm) + '</td>' +
@@ -4019,7 +4038,7 @@ function renderTable(vms) {
             '<button onclick="closeRowMenus();restartVM(\'' + n + '\')"' + (busy || vm.state !== "running" ? ' disabled' : '') + ' title="Restart this VM">Restart VM</button>' +
             '<button onclick="closeRowMenus();suspendVM(\'' + n + '\')"' + (busy || vm.state !== "running" || !vm.suspendable ? ' disabled' : '') + ' title="' +
               (vm.state === "running" && !vm.suspendable ? "Not started suspendable. Stop it and start it with Suspendable on (Run with arguments, or Configuration)." : "Save this VM's memory and stop it; Resume brings it back in seconds") + '">Suspend VM</button>' +
-            '<button onclick="closeRowMenus();getInfo(\'' + n + '\')"' + notRunning + ' title="Re-check the IP, Agent and SSH status and MDM enrollment, and collect the VM info again">Refresh info</button>' +
+            '<button onclick="closeRowMenus();getInfo(\'' + n + '\')"' + notRunning + ' title="Re-check the IP, Agent and SSH status, internet access and MDM enrollment, and collect the VM info again">Refresh info</button>' +
             agentInstallButton(n, notRunning, guestAgentInfo.available) +
             '<button onclick="closeRowMenus();openVNC(\'' + esc(vm.ip) + '\',\'' + esc(effUser) + '\')"' + noScreen + '>Start Screen Sharing</button>' +
             '<button onclick="closeRowMenus();openSnapshotsModal(\'' + n + '\')" title="Create, run, restore and delete snapshots of this VM">VM Snapshots</button>' +
@@ -4472,6 +4491,10 @@ function renderVmInfoModalBody() {
     const url = consoleURL(vm.mdmServer);
     mdm = vm.mdmEnrolled ? "Enrolled" + (url ? " · " + esc(url) : "") : "Not enrolled";
   }
+  let internet = "Not checked yet";
+  if (set(vm.internetCheckedAt)) {
+    internet = vm.internetOk ? "Online" : "Offline" + (vm.internetDetail ? " · " + esc(vm.internetDetail) : "");
+  }
   const info = vm.info
     ? '<pre class="kv-pre">' + esc(vm.info) + '</pre>' + (set(vm.infoAt) ? '<div class="muted kv-note">fetched ' + esc(fmtDateTime(vm.infoAt)) + '</div>' : "")
     : '<span class="kv-val">—</span>';
@@ -4479,7 +4502,7 @@ function renderVmInfoModalBody() {
   document.getElementById("vmInfoModalBody").innerHTML =
     section("Overview", overview) +
     section("Hardware", hardware) +
-    section("Guest", [row("SSH", ssh), row("Guest agent", agent)].concat(agentStarts ? [row("Agent starts", agentStarts)] : [], [row("SSH user", sshUser), row("MDM", mdm), block("Last Info output", info)])) +
+    section("Guest", [row("SSH", ssh), row("Guest agent", agent)].concat(agentStarts ? [row("Agent starts", agentStarts)] : [], [row("SSH user", sshUser), row("Internet", internet), row("MDM", mdm), block("Last Info output", info)])) +
     section("Notes &amp; tags", [
       row("Tags", tagsHtml(vm) || "—"),
       block("Notes", vm.notes ? '<pre class="kv-pre">' + esc(vm.notes) + '</pre>' : '<span class="kv-val">—</span>'),
