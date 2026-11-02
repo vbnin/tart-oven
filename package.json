@@ -1,8 +1,0 @@
-{
-  "scripts": {
-    "test": "node index_ui_test.js"
-  },
-  "devDependencies": {
-    "shadcn": "^4.19.0"
-  }
-}

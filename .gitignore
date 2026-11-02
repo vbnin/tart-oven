@@ -33,6 +33,7 @@ settings.local.json
 
 # Package files
 *.pkg
+packaging/build/
 
 # env files
 .env

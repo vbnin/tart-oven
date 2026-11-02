@@ -8,7 +8,7 @@
 - Maintain strict code quality and test coverage.
 - After every frontend or backend modification, execute both test suites:
   ```bash
-  go test ./... && node index_ui_test.js
+  go build -o tart-oven ./cmd/tart-oven && go test ./... && node web/index_ui_test.js
   ```
 
 ## 3. Package Build & Installation

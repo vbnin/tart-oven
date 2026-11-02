@@ -1,0 +1,162 @@
+{
+  "openapi": "3.0.3",
+  "info": {
+    "title": "Tart Oven agent API",
+    "version": "1",
+    "description": "Lease disposable macOS VMs cloned from approved templates, run commands in them, and destroy them. Read /api/agent/guide for the workflow."
+  },
+  "servers": [{ "url": "/" }],
+  "security": [{ "bearer": [] }],
+  "components": {
+    "securitySchemes": { "bearer": { "type": "http", "scheme": "bearer" } },
+    "schemas": {
+      "Error": {
+        "type": "object",
+        "properties": {
+          "error": {
+            "type": "object",
+            "properties": { "code": { "type": "string" }, "message": { "type": "string" } },
+            "required": ["code", "message"]
+          }
+        }
+      },
+      "VM": {
+        "type": "object",
+        "properties": {
+          "name": { "type": "string" },
+          "phase": { "type": "string", "enum": ["cloning", "booting", "ready", "failed", "stopped"] },
+          "ready": { "type": "boolean" },
+          "state": { "type": "string" },
+          "ip": { "type": "string" },
+          "guestAgentOk": { "type": "boolean" },
+          "sshOk": { "type": "boolean" },
+          "owner": { "type": "string" },
+          "template": { "type": "string" },
+          "createdAt": { "type": "string", "format": "date-time" },
+          "expiresAt": { "type": "string", "format": "date-time" },
+          "secondsRemaining": { "type": "integer" },
+          "sharedFolder": {
+            "type": "object",
+            "properties": { "host": { "type": "string" }, "guest": { "type": "string" } }
+          },
+          "error": { "type": "object", "properties": { "code": { "type": "string" }, "message": { "type": "string" } } },
+          "timedOut": { "type": "boolean" }
+        }
+      }
+    }
+  },
+  "paths": {
+    "/api/agent/info": {
+      "get": { "summary": "Templates, free VM slots and limits", "responses": { "200": { "description": "OK" } } }
+    },
+    "/api/agent/guide": {
+      "get": { "summary": "Usage guide (Markdown)", "responses": { "200": { "description": "OK" } } }
+    },
+    "/api/agent/vms": {
+      "get": {
+        "summary": "List your VMs",
+        "responses": { "200": { "description": "OK" } }
+      },
+      "post": {
+        "summary": "Create a VM from a template",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "required": ["template"],
+                "additionalProperties": false,
+                "properties": {
+                  "template": { "type": "string" },
+                  "label": { "type": "string", "description": "Short slug used in the VM name." },
+                  "ttlMinutes": { "type": "integer", "minimum": 1 },
+                  "cpu": { "type": "integer" },
+                  "memory": { "type": "integer", "description": "MB" },
+                  "diskSize": { "type": "integer", "description": "GB" },
+                  "headless": { "type": "boolean", "default": true }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "202": { "description": "Accepted; poll or wait", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/VM" } } } },
+          "409": { "description": "capacity or template_busy", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/Error" } } } }
+        }
+      }
+    },
+    "/api/agent/vms/{name}": {
+      "parameters": [{ "name": "name", "in": "path", "required": true, "schema": { "type": "string" } }],
+      "get": { "summary": "VM status", "responses": { "200": { "description": "OK", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/VM" } } } } } },
+      "delete": { "summary": "Stop and delete the VM", "responses": { "200": { "description": "OK" } } }
+    },
+    "/api/agent/vms/{name}/wait": {
+      "parameters": [{ "name": "name", "in": "path", "required": true, "schema": { "type": "string" } }],
+      "get": {
+        "summary": "Block until the VM is ready, has failed, or the timeout passes",
+        "parameters": [{ "name": "timeout", "in": "query", "schema": { "type": "integer", "default": 300, "maximum": 900 } }],
+        "responses": { "200": { "description": "OK; check ready, phase and timedOut", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/VM" } } } } }
+      }
+    },
+    "/api/agent/vms/{name}/exec": {
+      "parameters": [{ "name": "name", "in": "path", "required": true, "schema": { "type": "string" } }],
+      "post": {
+        "summary": "Run a shell command in the VM",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "required": ["command"],
+                "additionalProperties": false,
+                "properties": {
+                  "command": { "type": "string" },
+                  "timeoutSec": { "type": "integer", "default": 120, "maximum": 1800 },
+                  "cwd": { "type": "string" },
+                  "env": { "type": "object", "additionalProperties": { "type": "string" } }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Command finished (any exit code), or timed out",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "stdout": { "type": "string" },
+                    "stderr": { "type": "string" },
+                    "exitCode": { "type": "integer" },
+                    "timedOut": { "type": "boolean" },
+                    "truncated": { "type": "boolean" },
+                    "durationMs": { "type": "integer" }
+                  }
+                }
+              }
+            }
+          },
+          "409": { "description": "not_ready" }
+        }
+      }
+    },
+    "/api/agent/vms/{name}/extend": {
+      "parameters": [{ "name": "name", "in": "path", "required": true, "schema": { "type": "string" } }],
+      "post": {
+        "summary": "Set the lease to expire ttlMinutes from now",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": { "type": "object", "additionalProperties": false, "properties": { "ttlMinutes": { "type": "integer", "minimum": 1 } } }
+            }
+          }
+        },
+        "responses": { "200": { "description": "OK", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/VM" } } } } }
+      }
+    }
+  }
+}

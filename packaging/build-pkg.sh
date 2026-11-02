@@ -3,16 +3,31 @@
 #
 #   ./packaging/build-pkg.sh
 #
-# The script will prompt whether to sign/notarize. If yes, it will ask for:
-#   - Your full name (as shown in your Developer ID certificates)
-#   - Your Apple Team ID
-#   - Your Apple ID email
-#   - An app-specific password for notarization
+# Signing is auto-detected from Developer ID certs in Keychain, or forced with
+# SIGN_PKG=true / APP_SIGN_IDENTITY+PKG_SIGN_IDENTITY. Whenever signing ends up
+# enabled — by any of those paths — notarization is asked about (or forced
+# non-interactively with NOTARIZE=true). Interactively, you'll be asked:
+#   - Whether to sign (skipped if certs are auto-detected or SIGN_PKG is set)
+#   - Whether to notarize
+#
+# Notarization credentials (Apple ID + team ID + app-specific password) are
+# stored once in the keychain under the "TartOvenNotarize" notarytool profile
+# (see `xcrun notarytool store-credentials`) — same pattern as Armada's
+# release.sh. First run prompts for them (or reads TEAM_ID, APPLE_EMAIL,
+# APP_PASSWORD); every run after that reuses the stored profile silently.
+# Nothing is ever printed or written to disk in plain text.
 #
 # The resulting TartOven-<version>.pkg installs:
-#   /Library/Application Support/Tart Oven/tart-oven   (the binary)
-#   /Library/LaunchAgents/com.tartoven.agent.plist     (auto-start agent)
+#   /Library/Application Support/Tart Oven/tart-oven                                (the binary)
+#   /Library/Application Support/Tart Oven/guest-agent/tart-guest-agent-*.pkg       (guest agent installer)
+#   /Library/Application Support/Tart Oven/guest-agent/tart-guest-agent-LICENSE.txt
+#   /Library/LaunchAgents/com.tartoven.agent.plist                                  (auto-start agent)
+#   /usr/local/bin/tart-oven -> the binary                                          (symlink, made by postinstall)
 # and its postinstall loads the agent and opens http://127.0.0.1:9000.
+# The package refuses to install on macOS earlier than 26 (packaging/distribution.xml).
+#
+#   /Applications/Tart Oven.app                                                     (launcher: starts the server if needed, opens the dashboard)
+# Set INCLUDE_LAUNCHER_APP=false to leave the launcher app out.
 set -euo pipefail
 
 # Do not copy resource forks or extended attributes while assembling archives.
@@ -24,17 +39,24 @@ REPO="$(pwd)"
 PKG_ID="com.tartoven.pkg"
 LABEL="com.tartoven.agent"
 APPDIR="Library/Application Support/Tart Oven"
+# Single source of truth for the pinned agent version is build-agent-pkg.sh.
+AGENT_VERSION="${AGENT_VERSION:-$(sed -n 's/^AGENT_VERSION="\${AGENT_VERSION:-\(.*\)}"$/\1/p' packaging/build-agent-pkg.sh)}"
+[ -n "$AGENT_VERSION" ] || { echo "could not read AGENT_VERSION from packaging/build-agent-pkg.sh"; exit 1; }
 
-VERSION=$(sed -n 's/^const version = "\(.*\)"/\1/p' main.go)
-[ -n "$VERSION" ] || { echo "could not read version from main.go"; exit 1; }
+VERSION=$(sed -n 's/^const Version = "\(.*\)"/\1/p' tartoven.go)
+[ -n "$VERSION" ] || { echo "could not read version from tartoven.go"; exit 1; }
 
 OUT_DIR="${OUT_DIR:-$HOME/Downloads}"
 mkdir -p "$OUT_DIR"
 OUT="${OUT_DIR}/TartOven-${VERSION}.pkg"
 
 # Auto-detect Developer ID identities from Keychain
-DETECTED_APP_ID=$(security find-identity -v -p codesigning 2>/dev/null | grep "Developer ID Application:" | head -n 1 | sed -E 's/.*"Developer ID Application: ([^"]+)".*/Developer ID Application: \1/' || true)
-DETECTED_PKG_ID=$(security find-identity -v 2>/dev/null | grep "Developer ID Installer:" | head -n 1 | sed -E 's/.*"Developer ID Installer: ([^"]+)".*/Developer ID Installer: \1/' || true)
+# Picks the newest valid certificate of each kind and returns its SHA-1 hash, not
+# its name — a renewed cert has the same name as the one it replaces, which makes
+# codesign/pkgbuild fail with "ambiguous". See lib-signing.sh.
+source "$REPO/packaging/lib-signing.sh"
+pick_developer_id_identity Application; DETECTED_APP_ID="$PICKED_IDENTITY"
+pick_developer_id_identity Installer;   DETECTED_PKG_ID="$PICKED_IDENTITY"
 
 APP_SIGN_IDENTITY="${APP_SIGN_IDENTITY:-$DETECTED_APP_ID}"
 PKG_SIGN_IDENTITY="${PKG_SIGN_IDENTITY:-$DETECTED_PKG_ID}"
@@ -42,8 +64,10 @@ DO_SIGN=false
 DO_NOTARIZE=false
 
 # Check environment or prompt
-if [ -n "${SIGN_PKG:-}" ] && [ "$SIGN_PKG" = "true" ]; then
-    if [ -n "$APP_SIGN_IDENTITY" ] && [ -n "$PKG_SIGN_IDENTITY" ]; then
+if [ -n "${SIGN_PKG:-}" ]; then
+    # Explicit choice: SIGN_PKG=true signs (when identities exist), anything else
+    # (e.g. SIGN_PKG=false) builds unsigned even if identities are detected.
+    if [ "$SIGN_PKG" = "true" ] && [ -n "$APP_SIGN_IDENTITY" ] && [ -n "$PKG_SIGN_IDENTITY" ]; then
         DO_SIGN=true
     fi
 elif [ -n "${APP_SIGN_IDENTITY}" ] && [ -n "${PKG_SIGN_IDENTITY}" ]; then
@@ -55,8 +79,8 @@ elif [ -t 0 ]; then
     if [[ "$SIGN_ANSWER" =~ ^[Yy]$ ]]; then
         if [ -n "$DETECTED_APP_ID" ] && [ -n "$DETECTED_PKG_ID" ]; then
             echo "  Using detected identities:"
-            echo "    App: $DETECTED_APP_ID"
-            echo "    Pkg: $DETECTED_PKG_ID"
+            echo "    App: $(describe_signing_identity "$DETECTED_APP_ID")"
+            echo "    Pkg: $(describe_signing_identity "$DETECTED_PKG_ID")"
             APP_SIGN_IDENTITY="$DETECTED_APP_ID"
             PKG_SIGN_IDENTITY="$DETECTED_PKG_ID"
             DO_SIGN=true
@@ -68,36 +92,110 @@ elif [ -t 0 ]; then
             PKG_SIGN_IDENTITY="Developer ID Installer: $DEV_NAME ($TEAM_ID)"
             DO_SIGN=true
         fi
-        
-        read -p "Do you also want to submit for Apple Notarization? [y/N] " NOTARIZE_ANSWER
-        NOTARIZE_ANSWER=${NOTARIZE_ANSWER:-n}
-        if [[ "$NOTARIZE_ANSWER" =~ ^[Yy]$ ]]; then
-            read -p "  Team ID: " TEAM_ID
-            read -p "  Apple ID email: " APPLE_EMAIL
-            read -s -p "  App-specific password: " APP_PASSWORD
-            echo ""
-            DO_NOTARIZE=true
-        fi
     fi
 fi
 
 if [ "$DO_SIGN" = true ]; then
     echo "==> Signing enabled:"
-    echo "    App binary: $APP_SIGN_IDENTITY"
-    echo "    Installer:  $PKG_SIGN_IDENTITY"
+    echo "    App binary: $(describe_signing_identity "$APP_SIGN_IDENTITY")"
+    echo "    Installer:  $(describe_signing_identity "$PKG_SIGN_IDENTITY")"
+fi
+
+# Notarization credentials, resolved independently of *how* signing was
+# enabled (env var, an auto-detected Keychain identity, or the prompt above).
+# Auto-detection alone used to short-circuit past the old notarization prompt
+# entirely on any Mac that already had Developer ID certs installed, since
+# that prompt only lived inside the interactive-signing branch above.
+NOTARY_PROFILE="TartOvenNotarize"
+
+if [ "$DO_SIGN" = true ]; then
+    if [ -n "${NOTARIZE:-}" ] && [ "$NOTARIZE" = "true" ]; then
+        DO_NOTARIZE=true
+    elif [ -t 0 ]; then
+        echo ""
+        read -p "Do you also want to submit for Apple Notarization? [y/N] " NOTARIZE_ANSWER
+        NOTARIZE_ANSWER=${NOTARIZE_ANSWER:-n}
+        if [[ "$NOTARIZE_ANSWER" =~ ^[Yy]$ ]]; then
+            DO_NOTARIZE=true
+        fi
+    fi
+
+    if [ "$DO_NOTARIZE" = true ]; then
+        # One-time setup: store Apple ID + team ID + app-specific password in
+        # the keychain under $NOTARY_PROFILE. Every later run finds the
+        # profile already there and skips straight to notarizing with it.
+        if ! xcrun notarytool history --keychain-profile "$NOTARY_PROFILE" >/dev/null 2>&1; then
+            TEAM_ID="${TEAM_ID:-}"
+            APPLE_EMAIL="${APPLE_EMAIL:-}"
+            APP_PASSWORD="${APP_PASSWORD:-}"
+            if [ -z "$TEAM_ID" ] || [ -z "$APPLE_EMAIL" ] || [ -z "$APP_PASSWORD" ]; then
+                if [ ! -t 0 ]; then
+                    echo "No stored notarization credentials (keychain profile \"$NOTARY_PROFILE\") and TEAM_ID/APPLE_EMAIL/APP_PASSWORD aren't all set for non-interactive setup." >&2
+                    exit 1
+                fi
+                echo "No stored notarization credentials found (keychain profile \"$NOTARY_PROFILE\")."
+                echo "This is a one-time setup — after this, future runs won't ask again."
+                echo ""
+                [ -z "$TEAM_ID" ] && read -p "  Team ID: " TEAM_ID
+                [ -z "$APPLE_EMAIL" ] && read -p "  Apple ID email: " APPLE_EMAIL
+                if [ -z "$APP_PASSWORD" ]; then
+                    echo "  App-specific password (generate one at https://appleid.apple.com/account/manage):"
+                    read -s -p "  Password: " APP_PASSWORD
+                    echo ""
+                fi
+            fi
+            xcrun notarytool store-credentials "$NOTARY_PROFILE" \
+                --apple-id "$APPLE_EMAIL" \
+                --team-id "$TEAM_ID" \
+                --password "$APP_PASSWORD"
+            unset APP_PASSWORD
+            echo "Credentials stored in the keychain under profile \"$NOTARY_PROFILE\"."
+            echo ""
+        fi
+        echo "==> Notarization enabled (keychain profile: $NOTARY_PROFILE)"
+    fi
 fi
 
 echo ""
 echo "==> Building tart-oven ${VERSION} (arm64)…"
 BUILD="$(mktemp -d)"
-GOOS=darwin GOARCH=arm64 CGO_ENABLED=1 go build -trimpath -buildvcs=false -o "$BUILD/tart-oven" .
+GOOS=darwin GOARCH=arm64 CGO_ENABLED=1 go build -trimpath -buildvcs=false -o "$BUILD/tart-oven" ./cmd/tart-oven
 
 # Sign the binary with hardened runtime if signing is enabled
 if [ "$DO_SIGN" = true ]; then
-    echo "==> Signing binary with: $APP_SIGN_IDENTITY"
+    echo "==> Signing binary with: $(describe_signing_identity "$APP_SIGN_IDENTITY")"
     codesign --force --options runtime --timestamp --sign "$APP_SIGN_IDENTITY" "$BUILD/tart-oven"
     echo "    Verifying signature…"
     codesign --verify --verbose "$BUILD/tart-oven"
+fi
+
+echo "==> Ensuring guest agent package is built…"
+AGENT_PKG="$REPO/packaging/build/tart-guest-agent-${AGENT_VERSION}.pkg"
+AGENT_LICENSE="$REPO/packaging/build/tart-guest-agent-LICENSE.txt"
+NEED_AGENT_BUILD=false
+if [ ! -f "$AGENT_PKG" ] || [ ! -f "$AGENT_LICENSE" ]; then
+    NEED_AGENT_BUILD=true
+elif [ "$REPO/packaging/guest-agent-postinstall.sh" -nt "$AGENT_PKG" ] || [ "$REPO/packaging/build-agent-pkg.sh" -nt "$AGENT_PKG" ]; then
+    # What the package contains (launchd layout, postinstall) comes from these two
+    # files; an older package would ship the previous layout.
+    echo "    Existing guest agent package is older than its build scripts; rebuilding it…"
+    NEED_AGENT_BUILD=true
+elif [ "$DO_SIGN" = true ] && ! pkgutil --check-signature "$AGENT_PKG" 2>/dev/null | grep -q "Developer ID Installer"; then
+    # A leftover unsigned dev build must never ship inside a signed release.
+    echo "    Existing guest agent package is unsigned; rebuilding it signed…"
+    NEED_AGENT_BUILD=true
+fi
+if [ "$NEED_AGENT_BUILD" = true ]; then
+    echo "    Building guest agent package ${AGENT_VERSION}…"
+    if [ "$DO_SIGN" = true ]; then
+        AGENT_VERSION="$AGENT_VERSION" SIGN_PKG=true APP_SIGN_IDENTITY="$APP_SIGN_IDENTITY" PKG_SIGN_IDENTITY="$PKG_SIGN_IDENTITY" NOTARIZE="$DO_NOTARIZE" "$REPO/packaging/build-agent-pkg.sh" </dev/null
+    else
+        AGENT_VERSION="$AGENT_VERSION" SIGN_PKG=false "$REPO/packaging/build-agent-pkg.sh" </dev/null
+    fi
+    if [ ! -f "$AGENT_PKG" ]; then
+        echo "error: guest agent package was not built" >&2
+        exit 1
+    fi
 fi
 
 echo "==> Assembling payload…"
@@ -106,6 +204,22 @@ install -d "$ROOT/$APPDIR"
 install -m 755 "$BUILD/tart-oven" "$ROOT/$APPDIR/tart-oven"
 install -d "$ROOT/Library/LaunchAgents"
 install -m 644 packaging/com.tartoven.agent.plist "$ROOT/Library/LaunchAgents/$LABEL.plist"
+install -d "$ROOT/$APPDIR/guest-agent"
+install -m 644 "$AGENT_PKG" "$AGENT_LICENSE" "$ROOT/$APPDIR/guest-agent/"
+
+# "Tart Oven.app": a double-click launcher for people who stopped the server and
+# don't use Terminal. It runs `tart-oven open` (start if needed, then open the
+# dashboard in the default browser); see build-launcher-app.sh.
+INCLUDE_LAUNCHER_APP="${INCLUDE_LAUNCHER_APP:-true}"
+if [ "$INCLUDE_LAUNCHER_APP" = true ]; then
+    install -d "$ROOT/Applications"
+    # Sign only when the PKG is signed: APP_SIGN_IDENTITY is auto-detected even
+    # for an unsigned build (SIGN_PKG=false).
+    LAUNCHER_SIGN_ID=""
+    if [ "$DO_SIGN" = true ]; then LAUNCHER_SIGN_ID="$APP_SIGN_IDENTITY"; fi
+    APP_SIGN_IDENTITY="$LAUNCHER_SIGN_ID" REQUIRE_RUNTIME=true \
+        "$REPO/packaging/build-launcher-app.sh" "$ROOT/Applications" "$VERSION" >/dev/null
+fi
 
 # Strip extended attributes so the payload doesn't carry ._AppleDouble clutter
 # (the repo lives on synced storage that adds xattrs).
@@ -134,19 +248,45 @@ fi
 
 chmod +x packaging/scripts/postinstall
 
-echo "==> Running pkgbuild…"
-PKG_SIGN_ARGS=()
-if [ "$DO_SIGN" = true ]; then
-    PKG_SIGN_ARGS=(--sign "$PKG_SIGN_IDENTITY")
-    echo "    signing PKG with: $PKG_SIGN_IDENTITY"
+# Every 2.1.0-devN launcher has the same bundle version, and by default Installer
+# keeps an installed bundle unless the one in the package is newer. Turn that
+# check off so reinstalling always refreshes /Applications/Tart Oven.app.
+COMPONENT_ARGS=()
+if [ "$INCLUDE_LAUNCHER_APP" = true ]; then
+    COMPONENT_PLIST="$BUILD/components.plist"
+    pkgbuild --analyze --root "$PKG_ROOT" "$COMPONENT_PLIST" >/dev/null
+    bundle_index=0
+    while /usr/libexec/PlistBuddy -c "Print :${bundle_index}:RootRelativeBundlePath" "$COMPONENT_PLIST" >/dev/null 2>&1; do
+        /usr/libexec/PlistBuddy -c "Set :${bundle_index}:BundleIsVersionChecked false" "$COMPONENT_PLIST"
+        bundle_index=$((bundle_index + 1))
+    done
+    COMPONENT_ARGS=(--component-plist "$COMPONENT_PLIST")
 fi
 
+echo "==> Running pkgbuild…"
+# The payload goes into a component package, which productbuild then wraps in a
+# distribution package: only a distribution can state a minimum macOS version.
+COMPONENT_PKG="$BUILD/TartOven-component.pkg"
 pkgbuild \
     --root "$PKG_ROOT" \
     --identifier "$PKG_ID" \
     --version "$VERSION" \
     --scripts "$REPO/packaging/scripts" \
     --install-location "/" \
+    ${COMPONENT_ARGS[@]+"${COMPONENT_ARGS[@]}"} \
+    "$COMPONENT_PKG"
+
+echo "==> Running productbuild (requires macOS 26 or later)…"
+PKG_SIGN_ARGS=()
+if [ "$DO_SIGN" = true ]; then
+    PKG_SIGN_ARGS=(--sign "$PKG_SIGN_IDENTITY")
+    echo "    signing PKG with: $(describe_signing_identity "$PKG_SIGN_IDENTITY")"
+fi
+DISTRIBUTION="$BUILD/distribution.xml"
+sed "s/@VERSION@/$VERSION/" "$REPO/packaging/distribution.xml" > "$DISTRIBUTION"
+productbuild \
+    --distribution "$DISTRIBUTION" \
+    --package-path "$BUILD" \
     ${PKG_SIGN_ARGS[@]+"${PKG_SIGN_ARGS[@]}"} \
     "$OUT"
 
@@ -156,9 +296,20 @@ if printf '%s\n' "$PAYLOAD_FILES" | grep -Eq '(^|/)\._'; then
     printf '%s\n' "$PAYLOAD_FILES" | grep -E '(^|/)\._' >&2
     exit 1
 fi
-for REQUIRED_FILE in \
-    "./Library/Application Support/Tart Oven/tart-oven" \
-    "./Library/LaunchAgents/$LABEL.plist"; do
+REQUIRED_FILES=(
+    "./Library/Application Support/Tart Oven/tart-oven"
+    "./Library/LaunchAgents/$LABEL.plist"
+    "./Library/Application Support/Tart Oven/guest-agent/tart-guest-agent-${AGENT_VERSION}.pkg"
+    "./Library/Application Support/Tart Oven/guest-agent/tart-guest-agent-LICENSE.txt"
+)
+if [ "$INCLUDE_LAUNCHER_APP" = true ]; then
+    REQUIRED_FILES+=(
+        "./Applications/Tart Oven.app/Contents/MacOS/tart-oven-launcher"
+        "./Applications/Tart Oven.app/Contents/Info.plist"
+        "./Applications/Tart Oven.app/Contents/Resources/TartOven.icns"
+    )
+fi
+for REQUIRED_FILE in "${REQUIRED_FILES[@]}"; do
     if ! printf '%s\n' "$PAYLOAD_FILES" | grep -Fqx "$REQUIRED_FILE"; then
         echo "error: package payload is missing $REQUIRED_FILE" >&2
         exit 1
@@ -176,11 +327,7 @@ echo "==> PKG built: $OUT"
 if [ "$DO_NOTARIZE" = true ]; then
     echo ""
     echo "==> Submitting for notarization…"
-    xcrun notarytool submit "$OUT" \
-        --apple-id "$APPLE_EMAIL" \
-        --team-id "$TEAM_ID" \
-        --password "$APP_PASSWORD" \
-        --wait
+    xcrun notarytool submit "$OUT" --keychain-profile "$NOTARY_PROFILE" --wait
 
     echo ""
     echo "==> Stapling notarization ticket…"
