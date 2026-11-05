@@ -4376,13 +4376,12 @@ function syncEnrollProfileSelects(profiles) {
   for (const sel of document.querySelectorAll("select[data-enroll-profiles]")) {
     if (sel.dataset.signature === signature) continue;
     const keep = sel.value;
-    // Auto-enroll only knows how to build a Pro profile; a School server is listed
-    // (so a VM already pointing at one still shows it) but can't be newly chosen.
-    sel.innerHTML = '<option value="">None</option>' + (profiles || []).map(p => {
-      const school = jamfKind(p) === "school";
-      return '<option value="' + esc(p.id) + '"' + (school ? " disabled" : "") + ">" + esc(p.name || p.baseUrl) +
-        " · " + jamfKindLabel(jamfKind(p)) + (school ? " (not supported for auto-enroll)" : "") + "</option>";
-    }).join("");
+    // Both kinds can be chosen. The kind is in the label because it changes what a run
+    // does: Pro generates a profile locally, School downloads one and so mints a fresh
+    // credential in the tenant every time.
+    sel.innerHTML = '<option value="">None</option>' + (profiles || []).map(p =>
+      '<option value="' + esc(p.id) + '">' + esc(p.name || p.baseUrl) + " · " + jamfKindLabel(jamfKind(p)) + "</option>"
+    ).join("");
     sel.dataset.signature = signature;
     sel.value = Array.from(sel.options).some(o => o.value === keep) ? keep : "";
   }

@@ -2110,7 +2110,7 @@ test("renderJamfProfiles shows a Type column and masks credentials by kind", () 
   assert.match(sel.innerHTML, /Pro Srv · Pro \(https:\/\/p\.example\.com\)/);
 });
 
-test("syncEnrollProfileSelects labels each profile's kind and disables School for auto-enroll", () => {
+test("syncEnrollProfileSelects labels each profile's kind and lets a School server be chosen for auto-enroll", () => {
   const sel = { dataset: {}, value: "", options: [], innerHTML: "" };
   Object.defineProperty(sel, "innerHTML", { set(v) { this._html = v; this.options = Array.from(v.matchAll(/<option value="([^"]*)"/g)).map(m => ({ value: m[1] })); }, get() { return this._html || ""; } });
   const sync = evaluateFunctions(["syncEnrollProfileSelects", "jamfKind", "jamfKindLabel"], "syncEnrollProfileSelects", {
@@ -2123,7 +2123,8 @@ test("syncEnrollProfileSelects labels each profile's kind and disables School fo
   ];
   sync(profiles);
   assert.match(sel.innerHTML, /<option value="p1">Pro Srv · Pro<\/option>/);
-  assert.match(sel.innerHTML, /<option value="s1" disabled>School Srv · School \(not supported for auto-enroll\)<\/option>/);
+  assert.match(sel.innerHTML, /<option value="s1">School Srv · School<\/option>/);
+  assert.doesNotMatch(sel.innerHTML, /disabled|not supported/, "no option may be disabled or marked unsupported");
   const before = sel.dataset.signature;
   sync(profiles.map(p => Object.assign({}, p, { kind: p.kind === "pro" ? "school" : "pro" })));
   assert.notEqual(sel.dataset.signature, before, "a kind change must rebuild the options");
