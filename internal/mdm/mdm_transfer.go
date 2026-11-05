@@ -28,6 +28,14 @@ const (
 	StageSFTP           Stage = "sftp"
 	StageAgent          Stage = "agent"
 	StageVerification   Stage = "verification"
+
+	// The three steps of the Jamf School handshake (see school.go). Added
+	// alongside the stages above rather than replacing any of them, so StageError
+	// and its existing mapping keep working; these only ever appear on the School
+	// path, where naming the failed step is the whole diagnostic.
+	StageLanding  Stage = "landing"
+	StageSession  Stage = "session"
+	StageDownload Stage = "download"
 )
 
 type StageError struct {
