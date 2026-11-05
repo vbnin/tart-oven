@@ -45,6 +45,7 @@ func Run(statePath, listenOverride string) error {
 	}
 	m.mdmCopier = mdm.NewSFTPProfileCopier()
 	m.mdmResolveIP = m.resolveMDMIPWithTart
+	m.schoolFetcher = mdm.NewSchoolFetcher(nil)
 	m.load()
 	m.loadIPSWCache()
 	if listenOverride != "" {

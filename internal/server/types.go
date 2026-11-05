@@ -432,6 +432,7 @@ type Manager struct {
 	reload               chan struct{} // poke the scheduler when interval changes
 	mdmCopier            mdm.ProfileCopier
 	mdmResolveIP         mdmIPResolver
+	schoolFetcher        mdm.SchoolFetcher // downloads Jamf School profiles; overridden in tests
 	tartOutputOperation  func(context.Context, string, ...string) (string, error)
 	sshOperation         func(context.Context, string, string, string) execResult
 	runningProbe         func(string) (bool, error)

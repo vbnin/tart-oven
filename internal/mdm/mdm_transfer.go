@@ -100,7 +100,15 @@ func (c *sftpProfileCopier) CopyAndVerify(ctx context.Context, target TransferTa
 	if !bytes.Equal(remoteProfile, profile) {
 		return &StageError{Stage: StageVerification, Err: errors.New("remote profile does not match generated profile")}
 	}
-	if !bytes.Contains(remoteProfile, []byte(payloadUUID)) {
+	// The byte-for-byte comparison above is the real verification and covers both Jamf
+	// kinds. This UUID check is Pro-only belt-and-braces: it confirms the profile that
+	// came back is the one THIS call generated, not a stale file left by an earlier
+	// transfer that happened to match. Jamf School profiles are minted by the server —
+	// normally as signed DER we deliberately do not parse — so there is no UUID to
+	// assert and callers pass "". The guard is explicit rather than relying on
+	// bytes.Contains returning true for an empty needle, so that tightening this into
+	// an equality or length check later cannot silently start rejecting School.
+	if payloadUUID != "" && !bytes.Contains(remoteProfile, []byte(payloadUUID)) {
 		return &StageError{Stage: StageVerification, Err: errors.New("remote profile does not contain generated UUID")}
 	}
 	return nil
