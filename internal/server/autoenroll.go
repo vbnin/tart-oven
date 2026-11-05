@@ -46,6 +46,7 @@ func (m *Manager) copyMDMProfileToVM(ctx context.Context, name, profileID, sshUs
 	if !profileFound {
 		targetProfile = JamfProfile{
 			Name:           "Default Server",
+			Kind:           JamfKindPro, // the legacy single-server config is always Jamf Pro
 			BaseURL:        cfg.JamfBaseURL,
 			InvitationCode: cfg.JamfInvitationCode,
 		}

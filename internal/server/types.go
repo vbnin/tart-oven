@@ -23,18 +23,47 @@ import (
 // Config is the user-tunable state. It is persisted and editable from the
 // dashboard. Durations are kept as plain minutes/seconds so the JSON and the
 // HTML form stay simple.
+// The two kinds of Jamf server a profile can point at. They are obtained in
+// completely different ways: a Pro profile is generated locally from the
+// invitation code, a School profile is downloaded from the server using the
+// network and location IDs.
+const (
+	JamfKindPro    = "pro"
+	JamfKindSchool = "school"
+)
+
 type JamfProfile struct {
 	ID             string `json:"id"`
+	Kind           string `json:"kind"` // "" = pro (state files written before School support)
 	Name           string `json:"name"`
 	BaseURL        string `json:"baseUrl"`
-	InvitationCode string `json:"invitationCode,omitempty"`
+	InvitationCode string `json:"invitationCode,omitempty"` // pro only;    write-only, never sent to a client
+	Network        string `json:"network,omitempty"`        // school only; write-only, never sent to a client
+	Location       string `json:"location,omitempty"`       // school only; write-only, never sent to a client
 }
 
 type jamfProfileView struct {
 	ID                string `json:"id"`
+	Kind              string `json:"kind"`
 	Name              string `json:"name"`
 	BaseURL           string `json:"baseUrl"`
 	InvitationCodeSet bool   `json:"invitationCodeSet"`
+	NetworkSet        bool   `json:"networkSet"`
+	LocationSet       bool   `json:"locationSet"`
+}
+
+// normalizeJamfKind maps a stored or client-submitted kind onto one of the
+// constants above. Anything unrecognised — including the empty string a legacy
+// state file or an older dashboard sends — comes back as "", so each caller can
+// choose between inheriting the stored kind and falling back to Pro.
+func normalizeJamfKind(raw string) string {
+	switch strings.ToLower(strings.TrimSpace(raw)) {
+	case JamfKindPro:
+		return JamfKindPro
+	case JamfKindSchool:
+		return JamfKindSchool
+	}
+	return ""
 }
 
 type Config struct {
@@ -104,11 +133,18 @@ func newConfigView(cfg Config) configView {
 	view.SSHPassword = ""
 	view.JamfInvitationCode = ""
 	for i, p := range cfg.JamfProfiles {
+		kind := normalizeJamfKind(p.Kind)
+		if kind == "" {
+			kind = JamfKindPro
+		}
 		view.JamfProfiles[i] = jamfProfileView{
 			ID:                p.ID,
+			Kind:              kind,
 			Name:              p.Name,
 			BaseURL:           p.BaseURL,
 			InvitationCodeSet: p.InvitationCode != "",
+			NetworkSet:        p.Network != "",
+			LocationSet:       p.Location != "",
 		}
 	}
 	return view
@@ -121,7 +157,7 @@ func normalizeJamfBaseURL(raw string) (string, error) {
 	}
 	u, err := url.Parse(raw)
 	if err != nil || (u.Scheme != "http" && u.Scheme != "https") || u.Hostname() == "" {
-		return "", errors.New("Jamf Pro base URL must be an http or https URL with a hostname")
+		return "", errors.New("Jamf server base URL must be an http or https URL with a hostname")
 	}
 	return raw, nil
 }

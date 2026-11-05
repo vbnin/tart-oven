@@ -124,6 +124,15 @@ func (m *Manager) load() {
 	if m.cfg.LogPath == "" {
 		m.cfg.LogPath = d.LogPath
 	}
+	// Every stored Jamf server profile predates the Pro/School distinction, so a
+	// missing (or unrecognised) kind means Jamf Pro — the only kind that existed.
+	for i := range m.cfg.JamfProfiles {
+		kind := normalizeJamfKind(m.cfg.JamfProfiles[i].Kind)
+		if kind == "" {
+			kind = JamfKindPro
+		}
+		m.cfg.JamfProfiles[i].Kind = kind
+	}
 	if p.VMs != nil {
 		m.vms = p.VMs
 	}

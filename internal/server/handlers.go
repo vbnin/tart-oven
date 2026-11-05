@@ -148,6 +148,7 @@ func (m *Manager) handleMDMProfile(w http.ResponseWriter, r *http.Request) {
 	if !profileFound {
 		targetProfile = JamfProfile{
 			Name:           "Default Server",
+			Kind:           JamfKindPro, // the legacy single-server config is always Jamf Pro
 			BaseURL:        cfg.JamfBaseURL,
 			InvitationCode: cfg.JamfInvitationCode,
 		}
@@ -1162,9 +1163,9 @@ func (m *Manager) handleConfig(w http.ResponseWriter, r *http.Request) {
 	if raw, ok := fields["jamfProfiles"]; ok {
 		var list []JamfProfile
 		if json.Unmarshal(raw, &list) == nil {
-			existingMap := make(map[string]string)
+			existingMap := make(map[string]JamfProfile)
 			for _, p := range m.cfg.JamfProfiles {
-				existingMap[p.ID] = p.InvitationCode
+				existingMap[p.ID] = p
 			}
 			// The dashboard represents a legacy single-server config as a
 			// synthesized profile with id "default". When that row is saved
@@ -1172,11 +1173,15 @@ func (m *Manager) handleConfig(w http.ResponseWriter, r *http.Request) {
 			// stored legacy code so the profile isn't persisted code-less.
 			if m.cfg.JamfInvitationCode != "" {
 				if _, ok := existingMap["default"]; !ok {
-					existingMap["default"] = m.cfg.JamfInvitationCode
+					existingMap["default"] = JamfProfile{
+						Kind:           JamfKindPro,
+						InvitationCode: m.cfg.JamfInvitationCode,
+					}
 				}
 			}
 			var cleaned []JamfProfile
 			for i, p := range list {
+				prev := existingMap[p.ID]
 				p.Name = strings.TrimSpace(p.Name)
 				if p.Name == "" {
 					p.Name = fmt.Sprintf("Jamf Server %d", i+1)
@@ -1184,13 +1189,46 @@ func (m *Manager) handleConfig(w http.ResponseWriter, r *http.Request) {
 				if p.ID == "" {
 					p.ID = fmt.Sprintf("jamf-%d", time.Now().UnixNano()+int64(i))
 				}
+				// A client that doesn't know about kinds at all must not silently
+				// turn a School profile back into a Pro one.
+				p.Kind = normalizeJamfKind(p.Kind)
+				if p.Kind == "" {
+					p.Kind = normalizeJamfKind(prev.Kind)
+				}
+				if p.Kind == "" {
+					p.Kind = JamfKindPro
+				}
 				if norm, err := normalizeJamfBaseURL(p.BaseURL); err == nil && norm != "" {
 					p.BaseURL = norm
 				}
+				// Blank means "keep what is stored" for every write-only secret:
+				// the client is only ever told whether one is set, so it cannot
+				// echo the value back.
 				if strings.TrimSpace(p.InvitationCode) == "" {
-					p.InvitationCode = existingMap[p.ID]
+					p.InvitationCode = prev.InvitationCode
 				} else {
 					p.InvitationCode = strings.TrimSpace(p.InvitationCode)
+				}
+				if strings.TrimSpace(p.Network) == "" {
+					p.Network = prev.Network
+				} else {
+					p.Network = strings.TrimSpace(p.Network)
+				}
+				if strings.TrimSpace(p.Location) == "" {
+					p.Location = prev.Location
+				} else {
+					p.Location = strings.TrimSpace(p.Location)
+				}
+				// A profile only ever stores the secrets its own kind uses, so
+				// changing the kind discards the other kind's credentials rather
+				// than leaving them in state.json unreachable and unused. The
+				// consequence is deliberate: switching back means re-entering
+				// them, because write-only secrets can never be read back.
+				switch p.Kind {
+				case JamfKindSchool:
+					p.InvitationCode = ""
+				case JamfKindPro:
+					p.Network, p.Location = "", ""
 				}
 				if p.BaseURL != "" {
 					cleaned = append(cleaned, p)
