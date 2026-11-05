@@ -1917,3 +1917,294 @@ test("finished-task banners are not repeated for tasks already finished at page 
   context.notify([done, Object.assign({}, running, { status: "success" })]);
   assert.equal(toasts.length, 1, "each task is announced once");
 });
+
+// ---- Jamf server profiles: Pro / School ----
+
+function jamfElements(ids) {
+  const els = {};
+  for (const id of ids) els[id] = { id, value: "", placeholder: "", textContent: "", innerHTML: "", style: {}, classList: createMockClassList(), attrs: {}, setAttribute(k, v) { this.attrs[k] = v; }, focus() {} };
+  return els;
+}
+
+const JAMF_EDITOR_IDS = [
+  "jamfProfileEditor", "jamfEditorTitle", "jamfProfileId", "jamfProfileKind", "jamfProfileName", "jamfBaseUrl",
+  "jamfInvitationCode", "jamfNetwork", "jamfLocation", "jamfSaveStatus", "jamfKindNote",
+  "jamfKindProBtn", "jamfKindSchoolBtn", "jamfProFields", "jamfSchoolFields",
+];
+
+function jamfEditorFixture(profiles, extraGlobals) {
+  const els = jamfElements(JAMF_EDITOR_IDS);
+  const posts = [];
+  const latest = { config: { jamfProfiles: profiles } };
+  const globals = Object.assign({
+    document: { getElementById: id => els[id] },
+    latest,
+    api: async (path, opts) => { posts.push({ path, body: JSON.parse(opts.body) }); return { ok: true, text: async () => "" }; },
+    setTimeout: () => {},
+    closeJamfProfileEditor: () => {},
+    esc: s => String(s == null ? "" : s),
+  }, extraGlobals);
+  const ctx = vm.createContext(globals);
+  const names = ["getJamfProfiles", "jamfKind", "jamfProfileBase", "setJamfEditorKind", "openAddJamfProfile", "openEditJamfProfile", "saveJamfProfile", "deleteJamfProfile"];
+  vm.runInContext(names.map(extractFunction).join("\n") + "; globalThis.fn = { " + names.join(", ") + " };", ctx);
+  ctx.fn.__setProfiles = list => { latest.config.jamfProfiles = list; };
+  return { els, posts, fn: ctx.fn };
+}
+
+test("jamfKind treats a missing or unknown kind as Pro", () => {
+  const jamfKind = evaluateFunction("jamfKind", {});
+  assert.equal(jamfKind({ kind: "school" }), "school");
+  assert.equal(jamfKind({ kind: "pro" }), "pro");
+  assert.equal(jamfKind({}), "pro");
+  assert.equal(jamfKind({ kind: "bogus" }), "pro");
+  assert.equal(jamfKind(null), "pro");
+});
+
+test("setJamfEditorKind swaps Invitation for Network and Location", () => {
+  const { els, fn } = jamfEditorFixture([]);
+  fn.setJamfEditorKind("school");
+  assert.equal(els.jamfProfileKind.value, "school");
+  assert.equal(els.jamfProFields.style.display, "none");
+  assert.notEqual(els.jamfSchoolFields.style.display, "none");
+  assert.equal(els.jamfKindSchoolBtn.classList.contains("active"), true);
+  assert.equal(els.jamfKindProBtn.classList.contains("active"), false);
+  assert.equal(els.jamfKindSchoolBtn.attrs["aria-pressed"], "true");
+  fn.setJamfEditorKind("pro");
+  assert.notEqual(els.jamfProFields.style.display, "none");
+  assert.equal(els.jamfSchoolFields.style.display, "none");
+  assert.equal(els.jamfKindProBtn.classList.contains("active"), true);
+  assert.equal(els.jamfKindSchoolBtn.attrs["aria-pressed"], "false");
+});
+
+test("openAddJamfProfile starts as a Pro profile with all credential fields empty", () => {
+  const { els, fn } = jamfEditorFixture([]);
+  els.jamfNetwork.value = "stale"; els.jamfLocation.value = "stale";
+  fn.openAddJamfProfile();
+  assert.equal(els.jamfProfileKind.value, "pro");
+  assert.equal(els.jamfNetwork.value, "");
+  assert.equal(els.jamfLocation.value, "");
+  assert.equal(els.jamfNetwork.placeholder, "Enter network ID");
+});
+
+test("openEditJamfProfile shows saved School credentials masked and never as values", () => {
+  const school = { id: "s1", kind: "school", name: "Sch", baseUrl: "https://s.example.com", networkSet: true, locationSet: false };
+  const { els, fn } = jamfEditorFixture([school]);
+  fn.openEditJamfProfile("s1");
+  assert.equal(els.jamfProfileKind.value, "school");
+  assert.equal(els.jamfSchoolFields.style.display !== "none", true);
+  assert.equal(els.jamfNetwork.value, "");
+  assert.equal(els.jamfNetwork.placeholder, "•••••• (saved)");
+  assert.equal(els.jamfLocation.value, "");
+  assert.equal(els.jamfLocation.placeholder, "Enter location ID");
+});
+
+test("openEditJamfProfile on a legacy profile without a kind opens as Pro", () => {
+  const { els, fn } = jamfEditorFixture([{ id: "p1", name: "Old", baseUrl: "https://p.example.com", invitationCodeSet: true }]);
+  fn.openEditJamfProfile("p1");
+  assert.equal(els.jamfProfileKind.value, "pro");
+  assert.equal(els.jamfInvitationCode.placeholder, "•••••••• (saved)");
+});
+
+test("saveJamfProfile posts a new School profile with its network and location", async () => {
+  const { els, posts, fn } = jamfEditorFixture([]);
+  fn.openAddJamfProfile();
+  fn.setJamfEditorKind("school");
+  els.jamfProfileName.value = "School"; els.jamfBaseUrl.value = " https://s.example.com ";
+  els.jamfNetwork.value = " 12 "; els.jamfLocation.value = " 34 ";
+  els.jamfInvitationCode.value = "leftover-pro-code";
+  await fn.saveJamfProfile();
+  assert.equal(posts.length, 1);
+  const sent = posts[0].body.jamfProfiles[0];
+  assert.equal(sent.kind, "school");
+  assert.equal(sent.network, "12");
+  assert.equal(sent.location, "34");
+  assert.equal("invitationCode" in sent, false, "a School profile must not carry the Pro invitation code");
+});
+
+test("saveJamfProfile posts a Pro profile without Network or Location", async () => {
+  const { els, posts, fn } = jamfEditorFixture([]);
+  fn.openAddJamfProfile();
+  els.jamfProfileName.value = "Pro"; els.jamfBaseUrl.value = "https://p.example.com";
+  els.jamfInvitationCode.value = "abc"; els.jamfNetwork.value = "leftover"; els.jamfLocation.value = "leftover";
+  await fn.saveJamfProfile();
+  const sent = posts[0].body.jamfProfiles[0];
+  assert.equal(sent.kind, "pro");
+  assert.equal(sent.invitationCode, "abc");
+  assert.equal("network" in sent, false);
+  assert.equal("location" in sent, false);
+});
+
+test("saveJamfProfile requires School credentials that are neither typed nor already saved", async () => {
+  const { els, posts, fn } = jamfEditorFixture([]);
+  fn.openAddJamfProfile();
+  fn.setJamfEditorKind("school");
+  els.jamfProfileName.value = "School"; els.jamfBaseUrl.value = "https://s.example.com";
+  els.jamfNetwork.value = "12";
+  await fn.saveJamfProfile();
+  assert.equal(posts.length, 0);
+  assert.match(els.jamfSaveStatus.textContent, /location/i);
+});
+
+test("saveJamfProfile keeps saved School credentials when editing without retyping them", async () => {
+  const school = { id: "s1", kind: "school", name: "Sch", baseUrl: "https://s.example.com", networkSet: true, locationSet: true };
+  const { els, posts, fn } = jamfEditorFixture([school]);
+  fn.openEditJamfProfile("s1");
+  els.jamfProfileName.value = "Renamed";
+  await fn.saveJamfProfile();
+  const sent = posts[0].body.jamfProfiles[0];
+  assert.equal(sent.name, "Renamed");
+  assert.equal(sent.kind, "school");
+  assert.equal("network" in sent, false, "blank means keep what is stored");
+  assert.equal("location" in sent, false);
+});
+
+test("saveJamfProfile requires School credentials again after switching an existing Pro profile to School", async () => {
+  const pro = { id: "p1", kind: "pro", name: "P", baseUrl: "https://p.example.com", invitationCodeSet: true };
+  const { els, posts, fn } = jamfEditorFixture([pro]);
+  fn.openEditJamfProfile("p1");
+  fn.setJamfEditorKind("school");
+  await fn.saveJamfProfile();
+  assert.equal(posts.length, 0, "the server discards the Pro code on a kind change, so nothing is 'already saved'");
+  assert.match(els.jamfSaveStatus.textContent, /network/i);
+});
+
+test("saving or deleting a profile re-sends every other profile's kind", async () => {
+  const profiles = [
+    { id: "s1", kind: "school", name: "Sch", baseUrl: "https://s.example.com", networkSet: true, locationSet: true },
+    { id: "p1", kind: "pro", name: "Pro", baseUrl: "https://p.example.com", invitationCodeSet: true },
+  ];
+  const a = jamfEditorFixture(profiles, { confirm: () => true });
+  await a.fn.deleteJamfProfile("p1");
+  assert.deepEqual(a.posts[0].body.jamfProfiles.map(p => [p.id, p.kind]), [["s1", "school"]]);
+  const b = jamfEditorFixture(profiles);
+  b.fn.openEditJamfProfile("p1");
+  await b.fn.saveJamfProfile();
+  assert.deepEqual(b.posts[0].body.jamfProfiles.map(p => [p.id, p.kind]), [["s1", "school"], ["p1", "pro"]]);
+});
+
+test("renderJamfProfiles shows a Type column and masks credentials by kind", () => {
+  const rows = { innerHTML: "" };
+  const sel = { innerHTML: "", value: "" };
+  const profiles = [
+    { id: "p1", kind: "pro", name: "Pro Srv", baseUrl: "https://p.example.com", invitationCodeSet: true },
+    { id: "s1", kind: "school", name: "School Srv", baseUrl: "https://s.example.com", networkSet: true, locationSet: false },
+    { id: "s2", kind: "school", name: "Empty School", baseUrl: "https://e.example.com", networkSet: false, locationSet: false },
+  ];
+  const names = ["renderJamfProfiles", "getJamfProfiles", "jamfKind", "jamfKindLabel", "jamfCredentialStatus", "jamfProfileLabel"];
+  const ctx = vm.createContext({
+    esc: s => String(s == null ? "" : s),
+    latest: { config: { jamfProfiles: profiles } },
+    document: { getElementById: id => ({ jamfProfileRows: rows, mdmProfileSelect: sel })[id] },
+  });
+  vm.runInContext(names.map(extractFunction).join("\n") + "; globalThis.render = renderJamfProfiles;", ctx);
+  ctx.render();
+  const trs = rows.innerHTML.split("<tr>").slice(1);
+  assert.equal(trs.length, 3);
+  assert.match(trs[0], /<td>Pro<\/td>/);
+  assert.match(trs[1], /<td>School<\/td>/);
+  assert.match(trs[0], /•••••••• \(saved\)/);
+  assert.match(trs[1], /Network[^<]*<[^>]*>•••••• \(saved\)/);
+  assert.match(trs[1], /Location[^<]*<[^>]*>not set/);
+  assert.match(trs[2], /Network[^<]*<[^>]*>not set/);
+  assert.match(sel.innerHTML, /School Srv · School \(https:\/\/s\.example\.com\)/);
+  assert.match(sel.innerHTML, /Pro Srv · Pro \(https:\/\/p\.example\.com\)/);
+});
+
+test("syncEnrollProfileSelects labels each profile's kind and disables School for auto-enroll", () => {
+  const sel = { dataset: {}, value: "", options: [], innerHTML: "" };
+  Object.defineProperty(sel, "innerHTML", { set(v) { this._html = v; this.options = Array.from(v.matchAll(/<option value="([^"]*)"/g)).map(m => ({ value: m[1] })); }, get() { return this._html || ""; } });
+  const sync = evaluateFunctions(["syncEnrollProfileSelects", "jamfKind", "jamfKindLabel"], "syncEnrollProfileSelects", {
+    esc: s => String(s == null ? "" : s),
+    document: { querySelectorAll: () => [sel] },
+  });
+  const profiles = [
+    { id: "p1", kind: "pro", name: "Pro Srv", baseUrl: "https://p.example.com" },
+    { id: "s1", kind: "school", name: "School Srv", baseUrl: "https://s.example.com" },
+  ];
+  sync(profiles);
+  assert.match(sel.innerHTML, /<option value="p1">Pro Srv · Pro<\/option>/);
+  assert.match(sel.innerHTML, /<option value="s1" disabled>School Srv · School \(not supported for auto-enroll\)<\/option>/);
+  const before = sel.dataset.signature;
+  sync(profiles.map(p => Object.assign({}, p, { kind: p.kind === "pro" ? "school" : "pro" })));
+  assert.notEqual(sel.dataset.signature, before, "a kind change must rebuild the options");
+});
+
+test("the copy summary says what was done for each kind, and omits a UUID that was never reported", () => {
+  const mdmCopySummary = evaluateFunctions(["mdmCopySummary", "jamfKind"], "mdmCopySummary", {});
+  const where = { ok: true, name: "vm1", path: "~/Desktop/mdm_enroll.mobileconfig" };
+  const school = mdmCopySummary(where, { kind: "school", name: "Sandbox" });
+  assert.equal(school, "Downloaded a new profile from Jamf School (Sandbox) and copied it to vm1 at ~/Desktop/mdm_enroll.mobileconfig");
+  assert.doesNotMatch(school, /UUID|undefined/);
+  assert.equal(mdmCopySummary(Object.assign({ payloadUUID: "ABC-123" }, where), { kind: "pro", name: "Prod" }),
+    "Generated a Jamf Pro profile (Prod) and copied it to vm1 at ~/Desktop/mdm_enroll.mobileconfig · UUID ABC-123");
+  assert.equal(mdmCopySummary(where, { kind: "pro" }),
+    "Generated a Jamf Pro profile and copied it to vm1 at ~/Desktop/mdm_enroll.mobileconfig");
+  assert.equal(mdmCopySummary(where, undefined),
+    "Generated a Jamf Pro profile and copied it to vm1 at ~/Desktop/mdm_enroll.mobileconfig", "an unknown profile is treated as Pro, like a legacy one");
+});
+
+test("the copy progress text warns School users to keep the page open", () => {
+  const progress = evaluateFunctions(["mdmCopyProgressText", "jamfKind"], "mdmCopyProgressText", {});
+  assert.equal(progress({ kind: "pro" }), "Connecting and copying profile…");
+  assert.match(progress({ kind: "school" }), /keep this page open/i);
+  assert.equal(progress(undefined), "Connecting and copying profile…");
+});
+
+test("leaving the page mid-copy is guarded like unsaved config", () => {
+  const make = (dirty, inFlight) => {
+    const e = { prevented: false, returnValue: undefined, preventDefault() { this.prevented = true; } };
+    evaluateFunction("warnBeforeUnload", { isConfigDirty: () => dirty, mdmCopyInFlight: inFlight })(e);
+    return e;
+  };
+  assert.equal(make(false, false).prevented, false);
+  assert.equal(make(true, false).prevented, true);
+  assert.equal(make(false, true).prevented, true, "a School handshake cancelled by navigation can orphan an identity in the tenant");
+});
+
+test("saveJamfProfile does not resurrect a profile that was deleted while its editor was open", async () => {
+  const { els, posts, fn } = jamfEditorFixture([{ id: "p1", kind: "pro", name: "P", baseUrl: "https://p.example.com" }]);
+  fn.openEditJamfProfile("p1");
+  fn.__setProfiles([]); // another tab deleted it
+  await fn.saveJamfProfile();
+  assert.equal(posts.length, 0);
+  assert.match(els.jamfSaveStatus.textContent, /no longer exists/i);
+});
+
+test("switching kind in the editor notes the discarded credentials and drops the saved markers", () => {
+  const pro = { id: "p1", kind: "pro", name: "P", baseUrl: "https://p.example.com", invitationCodeSet: true };
+  const { els, fn } = jamfEditorFixture([pro]);
+  fn.openEditJamfProfile("p1");
+  assert.equal(els.jamfKindNote.style.display, "none");
+  assert.equal(els.jamfInvitationCode.placeholder, "•••••••• (saved)");
+  fn.setJamfEditorKind("school");
+  assert.equal(els.jamfKindNote.style.display, "block");
+  fn.setJamfEditorKind("pro");
+  assert.equal(els.jamfKindNote.style.display, "none");
+  fn.openAddJamfProfile();
+  assert.equal(els.jamfKindNote.style.display, "none", "a new profile has nothing to discard");
+});
+
+test("closeJamfProfileEditor clears the School secrets and returns to Pro", () => {
+  const els = jamfElements(JAMF_EDITOR_IDS);
+  els.jamfNetwork.value = "n"; els.jamfLocation.value = "l"; els.jamfProfileKind.value = "school";
+  const names = ["closeJamfProfileEditor", "setJamfEditorKind", "getJamfProfiles", "jamfKind"];
+  const ctx = vm.createContext({ document: { getElementById: id => els[id] }, latest: { config: { jamfProfiles: [] } } });
+  vm.runInContext(names.map(extractFunction).join("\n") + "; globalThis.close = closeJamfProfileEditor;", ctx);
+  ctx.close();
+  assert.equal(els.jamfNetwork.value, "");
+  assert.equal(els.jamfLocation.value, "");
+  assert.equal(els.jamfProfileKind.value, "pro");
+});
+
+test("profile names and URLs are HTML-escaped in the table, the picker and the enroll selects", () => {
+  const esc = evaluateFunction("esc", {});
+  const evil = { id: "x", kind: "pro", name: "<img onerror=1>", baseUrl: "https://a\"b.example.com", invitationCodeSet: true };
+  const rows = { innerHTML: "" }, sel = { innerHTML: "", value: "" };
+  const ctx = vm.createContext({ esc, latest: { config: { jamfProfiles: [evil] } }, document: { getElementById: id => ({ jamfProfileRows: rows, mdmProfileSelect: sel })[id] } });
+  vm.runInContext(["renderJamfProfiles", "getJamfProfiles", "jamfKind", "jamfKindLabel", "jamfCredentialStatus", "jamfProfileLabel", "esc"].map(extractFunction).join("\n") + "; globalThis.render = renderJamfProfiles;", ctx);
+  ctx.render();
+  assert.doesNotMatch(rows.innerHTML + sel.innerHTML, /<img/);
+  const enroll = { dataset: {}, value: "", options: [], set innerHTML(v) { this.html = v; this.options = []; }, get innerHTML() { return this.html; } };
+  evaluateFunctions(["syncEnrollProfileSelects", "jamfKind", "jamfKindLabel", "esc"], "syncEnrollProfileSelects", { document: { querySelectorAll: () => [enroll] } })([evil]);
+  assert.doesNotMatch(enroll.html, /<img/);
+});
