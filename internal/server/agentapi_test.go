@@ -421,10 +421,10 @@ func TestDestroyRefusesUnleasedVMs(t *testing.T) {
 
 func TestSchedulerIgnoresLeasedVMs(t *testing.T) {
 	leased := &VM{Name: "agent-x", State: "stopped", Lease: &Lease{}}
-	if eligibleForScheduler(leased, false, map[string]bool{}, false) {
+	if eligibleForScheduler(leased, false, map[string]bool{}, false, false) {
 		t.Fatal("the scheduler may start a leased VM")
 	}
-	if !eligibleForScheduler(&VM{Name: "plain", State: "stopped"}, false, map[string]bool{}, false) {
+	if !eligibleForScheduler(&VM{Name: "plain", State: "stopped"}, false, map[string]bool{}, false, false) {
 		t.Fatal("a plain stopped VM should stay eligible")
 	}
 }

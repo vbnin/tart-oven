@@ -36,6 +36,13 @@ const (
 	// Apple's Virtualization.framework refuses to run more than 2 VMs at once,
 	// so this is enforced regardless of the configured MaxConcurrent.
 	hardMaxConcurrent = 2
+
+	// Auto-check: how often running VMs are re-checked (Agent, SSH, Internet,
+	// MDM, Info). 0 turns it off; a probe can take several seconds, so a
+	// non-zero value below the minimum is raised to it.
+	defaultAutoCheckSeconds = 120
+	minAutoCheckSeconds     = 10
+	maxAutoCheckSeconds     = 86400
 )
 
 // defaultTartBin is the full path to the tart binary used by default. The

@@ -206,28 +206,43 @@ test("mdmCell distinguishes enrolled, unenrolled and never-probed VMs", () => {
   }
 });
 
-test("internetCell distinguishes online, offline, stopped and never-probed VMs", () => {
-  const internetCell = evaluateFunction("internetCell", { esc: (v) => String(v) });
+test("internetCell looks like the SSH check: dot plus OK / KO, same colours", () => {
+  const internetCell = evaluateFunctions(["channelBadge", "internetCell"], "internetCell", {
+    esc: (v) => String(v), latest: { config: {} },
+    fmtAgo: () => "just now", fmtDateTime: () => "then",
+  });
+  const channelBadge = evaluateFunction("channelBadge", { esc: (v) => String(v), latest: { config: {} }, fmtAgo: () => "just now", fmtDateTime: () => "then" });
   const at = "2026-10-27T12:00:00Z";
 
   const online = internetCell({ state: "running", internetCheckedAt: at, internetOk: true });
   assert.match(online, /ssh-dot green/);
-  assert.match(online, />Online</);
+  assert.match(online, /ssh-status-label ok">OK</);
   assert.ok(!/last-known/.test(online), "a running VM's result is current, not faded");
+  assert.ok(!/access-label/.test(online), "the column header already says Internet");
 
   const offline = internetCell({ state: "running", internetCheckedAt: at, internetOk: false, internetDetail: "no connection (curl exit 6)" });
   assert.match(offline, /ssh-dot red/);
-  assert.match(offline, />Offline</);
-  assert.match(offline, /title="no connection \(curl exit 6\)"/);
+  assert.match(offline, /ssh-status-label bad">KO</);
+  assert.match(offline, /no connection \(curl exit 6\)/, "the tooltip carries the reason");
 
-  assert.match(internetCell({ state: "stopped", internetCheckedAt: at, internetOk: true }), /last-known/,
-    "a stopped VM keeps its last known result, faded");
+  // Same markup and classes as the SSH badge for the same state.
+  const ssh = channelBadge("SSH", true, at, { state: "running" }, { ssh: true });
+  assert.match(ssh, /ssh-dot green/);
+  assert.match(ssh, /ssh-status-label ok">OK</);
 
-  // Never probed must be grey, not red: a fresh VM has not been asked yet.
-  for (const vm of [{}, { internetCheckedAt: "0001-01-01T00:00:00Z" }]) {
+  const stopped = internetCell({ state: "stopped", internetCheckedAt: at, internetOk: true });
+  assert.match(stopped, /last-known/, "a stopped VM keeps its last known result, faded");
+  assert.match(stopped, />OK</);
+
+  // Transient states are amber, like the other channels.
+  assert.match(internetCell({ state: "starting" }), /ssh-dot amber/);
+
+  // Never probed must be grey, not red: a fresh VM has not been asked yet. A running
+  // VM stays grey too (no pulsing "checking…"): a failed probe leaves it unchecked.
+  for (const vm of [{}, { state: "running" }, { state: "running", internetCheckedAt: "0001-01-01T00:00:00Z" }, { state: "stopped", internetCheckedAt: "0001-01-01T00:00:00Z" }]) {
     const unknown = internetCell(vm);
     assert.match(unknown, /ssh-dot grey/);
-    assert.ok(!/ssh-dot red/.test(unknown), "unknown must not render as offline");
+    assert.ok(!/ssh-dot red|amber/.test(unknown), "unknown must not render as offline or checking");
   }
 });
 
@@ -1462,6 +1477,7 @@ test("renderTable toggles emptyDashboardHero visibility based on local VM count"
       guestAgentInfo: { available: false },
       openRowMenuName: "",
       positionRowMenu: () => {},
+      updateVmScrollHints: () => {},
       sortRows: (_table, rows) => rows,
       latest: { config: {} },
     }
@@ -1942,4 +1958,102 @@ test("finished-task banners are not repeated for tasks already finished at page 
   assert.match(toasts[0][1], /vm2 finished successfully/);
   context.notify([done, Object.assign({}, running, { status: "success" })]);
   assert.equal(toasts.length, 1, "each task is announced once");
+});
+
+// ---- VM table: pinned columns, resizable widths, scroll hints ----
+const colDefaults = { name: 200, state: 112, ip: 120, actions: 300 };
+// Objects built inside the vm context have another Object prototype, which strict deepEqual rejects.
+const plain = (value) => JSON.parse(JSON.stringify(value));
+const colGlobals = () => ({ VM_COL_FIXED: { name: true, actions: true }, VM_COL_MIN: 64, VM_COL_MAX: 800 });
+
+test("normalizeColWidths keeps saved widths within limits and never moves the pinned columns", () => {
+  const normalizeIn = evaluateFunction("normalizeColWidths", colGlobals());
+  const normalize = (...args) => plain(normalizeIn(...args));
+  assert.deepEqual(normalize(null, colDefaults), colDefaults, "nothing saved: the defaults");
+  assert.deepEqual(normalize({ state: 150, ip: 90 }, colDefaults), { name: 200, state: 150, ip: 90, actions: 300 });
+  const clamped = normalize({ state: 5, ip: 99999 }, colDefaults);
+  assert.equal(clamped.state, 64, "never narrower than the minimum");
+  assert.equal(clamped.ip, 800, "never wider than the maximum");
+  const pinned = normalize({ name: 50, actions: 900 }, colDefaults);
+  assert.equal(pinned.name, 200, "Name stays fixed");
+  assert.equal(pinned.actions, 300, "Actions stays fixed");
+  // Hand-edited or corrupt storage falls back to the defaults, column by column.
+  assert.deepEqual(normalize({ state: "wide", ip: -3, bogus: 10 }, colDefaults), colDefaults);
+  assert.equal(normalize({ ip: "130" }, colDefaults).ip, 130, "a numeric string is accepted");
+});
+
+test("scrollHints shows a gradient only on the side that has more columns", () => {
+  const hintsIn = evaluateFunction("scrollHints", {});
+  const hints = (...args) => plain(hintsIn(...args));
+  assert.deepEqual(hints(0, 800, 1500), { left: false, right: true }, "at the start");
+  assert.deepEqual(hints(300, 800, 1500), { left: true, right: true }, "in the middle");
+  assert.deepEqual(hints(700, 800, 1500), { left: true, right: false }, "at the end");
+  assert.deepEqual(hints(0, 800, 800), { left: false, right: false }, "everything fits");
+  assert.deepEqual(hints(0, 800, 800.4), { left: false, right: false }, "sub-pixel rounding is not a hint");
+});
+
+test("setVmColWidth resizes a column, rewrites the table width and ignores the pinned columns", () => {
+  const cols = ["name", "state", "ip", "actions"].map(key => ({ dataset: { col: key }, style: {} }));
+  const table = { style: {} };
+  const context = Object.assign(colGlobals(), {
+    VM_COL_DEFAULTS: colDefaults,
+    vmColWidths: Object.assign({}, colDefaults),
+    document: {
+      querySelectorAll: sel => sel.includes("col-resizer") ? [] : cols,
+      getElementById: id => id === "localVmTable" ? table : null,
+    },
+    updateVmScrollHints: () => {},
+  });
+  const vmContext = vm.createContext(context);
+  vm.runInContext(["normalizeColWidths", "applyVmColWidths", "setVmColWidth"].map(extractFunction).join("\n"), vmContext);
+
+  vm.runInContext('setVmColWidth("state", 180)', vmContext);
+  assert.equal(cols[1].style.width, "180px");
+  assert.equal(cols[3].style.width, "", "Actions takes the spare width, so it has no set width");
+  assert.equal(table.style.width, (200 + 180 + 120 + 300) + "px", "the table is as wide as its columns");
+
+  vm.runInContext('setVmColWidth("state", 10)', vmContext);
+  assert.equal(cols[1].style.width, "64px", "clamped to the minimum");
+
+  vm.runInContext('setVmColWidth("name", 500); setVmColWidth("actions", 50);', vmContext);
+  assert.equal(cols[0].style.width, "200px", "Name is not resizable");
+  assert.equal(table.style.width, (200 + 64 + 120 + 300) + "px", "Actions keeps its 300px share of the table width");
+});
+
+test("canPin unpins Name and Actions when there is no room left between them", () => {
+  const canPin = evaluateFunction("canPin", { VM_COL_MIN: 64 });
+  assert.equal(canPin(1200, 200, 300), true);
+  assert.equal(canPin(628, 200, 300), true, "just enough room for two narrow columns");
+  assert.equal(canPin(627, 200, 300), false);
+  assert.equal(canPin(400, 200, 300), false, "Actions would cover Name");
+});
+
+test("readAutoCheckSeconds keeps the saved value for an empty field and clamps numbers", () => {
+  const read = evaluateFunction("readAutoCheckSeconds", {});
+  assert.equal(read("", 120), 120, "an emptied field must not turn auto-check off");
+  assert.equal(read("  ", 120), 120);
+  assert.equal(read("abc", 120), 120);
+  assert.equal(read("", undefined), 120, "nothing saved yet: the default");
+  assert.equal(read("0", 120), 0, "0 typed on purpose turns it off");
+  assert.equal(read("45", 120), 45);
+  assert.equal(read("3", 120), 10, "below the minimum is raised to it, as the server does");
+  assert.equal(read("-5", 120), 0);
+  assert.equal(read("999999", 120), 86400);
+});
+
+test("internetCell draws through channelBadge, labelled Internet, with the failure reason", () => {
+  const calls = [];
+  const internetCell = evaluateFunction("internetCell", { channelBadge: (...args) => { calls.push(args); return "BADGE"; } });
+  const vm = { state: "running", internetOk: false, internetCheckedAt: "2026-10-27T12:00:00Z", internetDetail: "no connection (curl exit 6)" };
+  assert.equal(internetCell(vm), "BADGE");
+  const [label, ok, checkedAt, passedVm, opts] = calls[0];
+  assert.equal(label, "Internet");
+  assert.equal(ok, false);
+  assert.equal(checkedAt, vm.internetCheckedAt);
+  assert.equal(passedVm, vm);
+  assert.equal(opts.hideLabel, true, "the column header already says Internet");
+  assert.equal(opts.unknownUntilChecked, true, "never probed stays grey");
+  assert.equal(opts.failTip, "no connection (curl exit 6)");
+  internetCell({ state: "running" });
+  assert.equal(calls[1][4].failTip, "no internet access", "a default reason when the probe gave none");
 });

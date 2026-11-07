@@ -742,6 +742,10 @@ func (m *Manager) routes() *http.ServeMux {
 			SSHPassword string   `json:"sshPassword"`
 			AutoEnroll  *bool    `json:"autoEnroll,omitempty"`
 
+			// Per-VM "start suspendable"; omitted = leave unchanged. Takes effect
+			// at the next start.
+			StartSuspendable *bool `json:"startSuspendable,omitempty"`
+
 			// Jamf server profile to auto-enroll into at the next boot; "" turns
 			// auto-enroll off.
 			AutoEnrollProfile *string `json:"autoEnrollProfile,omitempty"`
@@ -779,6 +783,9 @@ func (m *Manager) routes() *http.ServeMux {
 		}
 		vm.Notes = b.Notes
 		vm.Tags = tags
+		if b.StartSuspendable != nil {
+			vm.StartSuspendable = *b.StartSuspendable
+		}
 		// Omitted by the dashboard's notes-only editor, so a blank submission means
 		// "leave it unchanged" — matching the password below. Assigning it
 		// unconditionally silently wiped a VM's custom user when saving a note.
@@ -1045,6 +1052,7 @@ func (m *Manager) handleConfig(w http.ResponseWriter, r *http.Request) {
 	prevPaused := m.cfg.Paused
 	prevStorage := m.cfg.VMStoragePath
 	prevShared := m.cfg.SharedDir
+	prevAutoCheck := m.cfg.AutoCheckSeconds
 
 	if raw, ok := fields["listen"]; ok {
 		var v string
@@ -1119,10 +1127,16 @@ func (m *Manager) handleConfig(w http.ResponseWriter, r *http.Request) {
 			m.cfg.NoGraphics = v
 		}
 	}
-	if raw, ok := fields["suspendable"]; ok {
+	if raw, ok := fields["schedulerSuspend"]; ok {
 		var v bool
 		if json.Unmarshal(raw, &v) == nil {
-			m.cfg.Suspendable = v
+			m.cfg.SchedulerSuspend = v
+		}
+	}
+	if raw, ok := fields["autoCheckSeconds"]; ok {
+		var v int
+		if json.Unmarshal(raw, &v) == nil {
+			m.cfg.AutoCheckSeconds = clampAutoCheckSeconds(v)
 		}
 	}
 	if raw, ok := fields["jamfRecon"]; ok {
@@ -1409,6 +1423,14 @@ func (m *Manager) handleConfig(w http.ResponseWriter, r *http.Request) {
 	select {
 	case m.reload <- struct{}{}:
 	default:
+	}
+	// Only a changed interval restarts the auto-check timer: saving any other
+	// setting more often than the interval must not keep postponing the check.
+	if m.cfg.AutoCheckSeconds != prevAutoCheck {
+		select {
+		case m.autoCheckReload <- struct{}{}:
+		default:
+		}
 	}
 	// Turning the scheduler ON should act right away rather than waiting a full
 	// interval for the first run.

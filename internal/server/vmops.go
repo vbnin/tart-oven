@@ -96,10 +96,15 @@ func runWantsNoGraphics(trigger string, headless, cfgNoGraphics bool, extra []st
 }
 
 // runWantsSuspendable reports whether a start should use --suspendable: the
-// setting, an explicit choice in Run with arguments, or resuming a suspended
-// VM (its saved state needs the same devices).
-func runWantsSuspendable(cfgSuspendable bool, extra []string, wasSuspended bool) bool {
-	return cfgSuspendable || wasSuspended || hasArg(extra, "--suspendable")
+// VM's own setting, an explicit choice in Run with arguments, resuming a
+// suspended VM (its saved state needs the same devices), or the scheduler's
+// "suspend instead of shutting down" setting, which overrides the VM's own
+// setting for the scheduler's starts only.
+func runWantsSuspendable(vmSetting bool, trigger string, schedulerSuspend bool, extra []string, wasSuspended bool) bool {
+	if trigger == "scheduler" && schedulerSuspend {
+		return true
+	}
+	return vmSetting || wasSuspended || hasArg(extra, "--suspendable")
 }
 
 func (m *Manager) doRun(name, trigger string, opts runOptions) {
@@ -171,7 +176,8 @@ func (m *Manager) doRun(name, trigger string, opts runOptions) {
 		extra = append([]string(nil), opts.Override.Args...)
 	}
 	statusCmd := m.cfg.StatusCommand
-	cfgSuspendable := m.cfg.Suspendable
+	vmSuspendable := vm.StartSuspendable
+	schedulerSuspend := m.cfg.SchedulerSuspend
 	window := time.Duration(m.cfg.WindowMinutes) * time.Minute
 	bootTimeout := m.cfg.BootTimeoutSec
 	netPriority := m.cfg.NetPriority
@@ -217,7 +223,7 @@ func (m *Manager) doRun(name, trigger string, opts runOptions) {
 	if runWantsNoGraphics(trigger, headless, m.cfg.NoGraphics, extra) && !hasArg(extra, "--no-graphics") {
 		runArgs = append(runArgs, "--no-graphics")
 	}
-	suspendable := runWantsSuspendable(cfgSuspendable, extra, wasSuspended)
+	suspendable := runWantsSuspendable(vmSuspendable, trigger, schedulerSuspend, extra, wasSuspended)
 	if suspendable && !hasArg(extra, "--suspendable") {
 		runArgs = append(runArgs, "--suspendable")
 	}
@@ -515,6 +521,13 @@ func (m *Manager) doStop(name string) {
 // where it left off (a few seconds, no boot). Only a VM started with
 // --suspendable can be: tart suspends any VM "successfully", but the state of
 // one started without the flag can never be restored.
+// suspendFailedError means `tart suspend` itself failed, so the VM is still
+// running as before. Any other doSuspend error means the VM was not in a state
+// to be suspended (already stopped, busy, not started suspendable).
+type suspendFailedError struct{ msg string }
+
+func (e *suspendFailedError) Error() string { return e.msg }
+
 func (m *Manager) doSuspend(name string) error {
 	m.mu.Lock()
 	vm := m.vms[name]
@@ -527,7 +540,7 @@ func (m *Manager) doSuspend(name string) error {
 	case vm.State != "running":
 		err = fmt.Errorf("%s is not running", name)
 	case !vm.Suspendable:
-		err = fmt.Errorf("%s was not started with Suspendable, so its state could not be restored. Stop it and start it again with Suspendable on (Run with arguments, or Configuration)", name)
+		err = fmt.Errorf("%s was not started with Suspendable, so its state could not be restored. Stop it and start it again with Suspendable on (Edit VM, or Run with arguments for one run)", name)
 	}
 	if err != nil {
 		m.mu.Unlock()
@@ -552,7 +565,7 @@ func (m *Manager) doSuspend(name string) error {
 		m.setBusy(name, false)
 		m.mu.Unlock()
 		m.broadcast()
-		return fmt.Errorf("tart suspend %s: %v: %s", name, serr, strings.TrimSpace(string(out)))
+		return &suspendFailedError{msg: fmt.Sprintf("tart suspend %s: %v: %s", name, serr, strings.TrimSpace(string(out)))}
 	}
 	// `tart run` exits once the state is saved.
 	for i := 0; i < 60 && m.isRunning(name); i++ {

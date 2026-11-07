@@ -259,6 +259,10 @@ type createReq struct {
 	RandomSerial bool   `json:"randomSerial"`
 	AutoEnroll   bool   `json:"autoEnroll"` // clone-only: flag the VM so its next boot runs the MDM auto-enroll script
 
+	// Start the new VM(s) with --suspendable (VM.StartSuspendable), for both
+	// clones and fresh creates.
+	StartSuspendable bool `json:"startSuspendable"`
+
 	// Clone-only: Jamf server profile to enroll each clone into at its first
 	// boot. Implies AutoEnroll.
 	AutoEnrollProfile string `json:"autoEnrollProfile"`
@@ -409,6 +413,17 @@ func (m *Manager) createVMs(req createReq, batchID string) {
 			}
 			vm.AutoEnroll = true
 			vm.AutoEnrollProfile = req.AutoEnrollProfile
+			m.save()
+			m.mu.Unlock()
+		}
+		if err == nil && req.StartSuspendable {
+			m.mu.Lock()
+			vm := m.vms[name]
+			if vm == nil {
+				vm = &VM{Name: name}
+				m.vms[name] = vm
+			}
+			vm.StartSuspendable = true
 			m.save()
 			m.mu.Unlock()
 		}

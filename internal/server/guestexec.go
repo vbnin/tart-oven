@@ -279,11 +279,22 @@ func (m *Manager) guestAgentAvailable(name string) bool {
 // setAgentOK records whether the guest agent answered, for display only.
 func (m *Manager) setAgentOK(name string, ok bool) {
 	m.mu.Lock()
-	if vm := m.vms[name]; vm != nil {
+	if vm := m.liveVMLocked(name); vm != nil {
 		vm.AgentOK = ok
 		vm.AgentCheckedAt = time.Now()
 	}
 	m.mu.Unlock()
+}
+
+// liveVMLocked returns the VM only while it is running. A check started on a
+// running VM can finish after the VM began stopping or suspending (the
+// auto-check runs every few minutes); its result then describes the shutdown,
+// not the guest, and must not replace the last known status. Caller holds mu.
+func (m *Manager) liveVMLocked(name string) *VM {
+	if vm := m.vms[name]; vm != nil && vm.State == "running" {
+		return vm
+	}
+	return nil
 }
 
 // probeGuestChannels checks the guest agent and SSH independently and records
@@ -320,7 +331,7 @@ func (m *Manager) refreshVMInfo(name string) execResult {
 	res := m.sshExec(name, cmd, "")
 	_, info := sshOutcome(res)
 	m.mu.Lock()
-	if vm := m.vms[name]; vm != nil {
+	if vm := m.liveVMLocked(name); vm != nil {
 		vm.Info = info
 		vm.InfoAt = time.Now()
 	}
@@ -384,7 +395,7 @@ func (m *Manager) probeSSH(name string) bool {
 		checkedAt = time.Now()
 	}
 	m.mu.Lock()
-	if vm := m.vms[name]; vm != nil {
+	if vm := m.liveVMLocked(name); vm != nil {
 		vm.SSHOK = ok
 		vm.SSHCheckedAt = checkedAt
 	}

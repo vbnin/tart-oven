@@ -199,6 +199,20 @@ func (m *Manager) finishSnapshot(t *Task, parent, name, mac, comment string, wit
 	var err error
 	suspended := false
 	if withMemory {
+		// From the suspend until the resume the parent is "suspended" but not
+		// busy, so the scheduler (when it resumes suspended VMs) could start it
+		// in the middle of the copy. Hold it until the resume below.
+		m.mu.Lock()
+		if m.snapshotHold == nil {
+			m.snapshotHold = map[string]bool{}
+		}
+		m.snapshotHold[parent] = true
+		m.mu.Unlock()
+		defer func() {
+			m.mu.Lock()
+			delete(m.snapshotHold, parent)
+			m.mu.Unlock()
+		}()
 		if err = m.doSuspend(parent); err == nil {
 			suspended = true
 		}
@@ -241,7 +255,8 @@ func (m *Manager) finishSnapshot(t *Task, parent, name, mac, comment string, wit
 	m.releaseVMName(name)
 	m.broadcast()
 	if suspended {
-		// The original was only paused for the copy.
+		// The original was only paused for the copy. The hold above is
+		// released when this function returns, after the resume.
 		if m.resumeHook != nil {
 			m.resumeHook(parent, resumeOpts)
 		} else {

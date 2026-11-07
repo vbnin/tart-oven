@@ -36,6 +36,7 @@
     --text: #fafafa;
     --muted: #b0b0b9;
     --row-hover: rgba(59, 130, 246, 0.08);
+    --scroll-shade: rgba(0, 0, 0, 0.4);
     --btn-ghost: #26262d;
     --btn-ghost-hover: #32323b;
     --btn-border: #4a4a55;
@@ -80,6 +81,7 @@
     --text: #09090b;
     --muted: #5c5c66;
     --row-hover: rgba(37, 99, 235, 0.06);
+    --scroll-shade: rgba(0, 0, 0, 0.12);
     --btn-ghost: #ffffff;
     --btn-ghost-hover: #e8ebf0;
     --btn-border: #b8bcc6;
@@ -558,6 +560,51 @@
   td.acts { white-space: nowrap; width: 1%; text-align: right; }
   td.info { width: 200px; min-width: 170px; max-width: 220px; }
   td.mdm { min-width: 160px; max-width: 200px; }
+
+  /* VM table: fixed column widths. The first (Name) and last (Actions) columns
+     stay put while the others scroll sideways and can be resized. */
+  .table-shell { position: relative; }
+  .table-shell::before, .table-shell::after {
+    content: ""; position: absolute; top: 0; bottom: 0; width: 34px; z-index: 5;
+    pointer-events: none; opacity: 0; transition: opacity .15s;
+  }
+  .table-shell::before { left: var(--pin-l, 0px); background: linear-gradient(to right, var(--scroll-shade), transparent); }
+  .table-shell::after { right: var(--pin-r, 0px); background: linear-gradient(to left, var(--scroll-shade), transparent); }
+  .table-shell.can-left::before, .table-shell.can-right::after { opacity: 1; }
+  table.vm-table { table-layout: fixed; min-width: 100%; width: auto; }
+  .vm-table th, .vm-table td { overflow: hidden; text-overflow: ellipsis; overflow-wrap: anywhere; }
+  .vm-table td.name, .vm-table td.info, .vm-table td.mdm { width: auto; min-width: 0; max-width: none; }
+  .vm-table td.name { overflow-wrap: break-word; }
+  .vm-table td.nowrap, .vm-table .access-line { white-space: nowrap; }
+  .vm-table td.acts { width: auto; overflow: visible; }
+  .vm-table th { z-index: 3; }
+  .vm-table th.pin-l, .vm-table th.pin-r { z-index: 4; }
+  .vm-table .pin-l, .vm-table .pin-r { position: sticky; }
+  .vm-table .pin-l { left: 0; border-right: 1px solid var(--border); }
+  .vm-table .pin-r { right: 0; border-left: 1px solid var(--border); }
+  /* Pinned cells cover what scrolls under them, so they need an opaque base;
+     the hover and running tints are layered on top of it. */
+  .vm-table td.pin-l, .vm-table td.pin-r { background-color: var(--panel); z-index: 2; }
+  .vm-table tr.row-running td.pin-l, .vm-table tr.row-running td.pin-r {
+    background-image: linear-gradient(rgba(16, 185, 129, 0.04), rgba(16, 185, 129, 0.04));
+  }
+  .vm-table tr:hover td.pin-l, .vm-table tr:hover td.pin-r {
+    background-image: linear-gradient(var(--row-hover), var(--row-hover));
+  }
+  .vm-table tr.row-running:hover td.pin-l, .vm-table tr.row-running:hover td.pin-r {
+    background-image: linear-gradient(rgba(16, 185, 129, 0.08), rgba(16, 185, 129, 0.08));
+  }
+  /* Too narrow to keep both pinned columns side by side: everything scrolls. */
+  .table-shell.no-pin .vm-table .pin-l, .table-shell.no-pin .vm-table .pin-r { position: static; }
+  .table-shell.no-pin::before, .table-shell.no-pin::after { display: none; }
+  /* The open "..." menu belongs to this cell's stacking context: lift the cell
+     above the pinned cells of the rows below it, or they would cover the menu. */
+  .vm-table td.pin-r:has(.row-menu.open) { z-index: 40; }
+  .col-resizer { position: absolute; top: 0; bottom: 0; right: 0; width: 9px; cursor: col-resize; touch-action: none; }
+  .col-resizer::after { content: ""; position: absolute; top: 28%; bottom: 28%; right: 3px; width: 2px; border-radius: 1px; background: var(--border); transition: background .1s; }
+  .col-resizer:hover::after, .col-resizer:focus-visible::after, body.col-resizing .col-resizer.active::after { background: var(--accent); }
+  .col-resizer:focus-visible { outline: 2px solid var(--accent); outline-offset: -2px; border-radius: 2px; }
+  body.col-resizing { cursor: col-resize; user-select: none; }
   td.internet { white-space: nowrap; }
   td.notes { max-width: 160px; font-size: 13.5px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
   td[data-state="running"] { color: var(--green); font-weight: 600; }
@@ -860,11 +907,14 @@
           <input type="text" id="vmSearch" placeholder="Search VMs…" style="width:200px" autocomplete="off">
         </div>
       </div>
-      <div class="table-wrap">
-        <table>
-          <thead id="localVmHead"><tr><th data-sort="name">Name</th><th data-sort="state">State</th><th data-sort="ip">IP</th><th data-sort="access">Access</th><th data-sort="internet">Internet</th><th data-sort="info">Info</th><th data-sort="mdm">MDM</th><th data-sort="snapshots">Snapshots</th><th data-sort="lastRun">Last run</th><th data-sort="remaining">Timer</th><th>Actions</th></tr></thead>
+      <div class="table-shell" id="vmShell">
+      <div class="table-wrap" id="vmScroll">
+        <table class="vm-table" id="localVmTable">
+          <colgroup id="vmCols"><col data-col="name"><col data-col="state"><col data-col="ip"><col data-col="access"><col data-col="internet"><col data-col="info"><col data-col="mdm"><col data-col="snapshots"><col data-col="lastRun"><col data-col="remaining"><col data-col="actions"></colgroup>
+          <thead id="localVmHead"><tr><th class="pin-l" data-sort="name">Name</th><th data-sort="state">State</th><th data-sort="ip">IP</th><th data-sort="access">Access</th><th data-sort="internet">Internet</th><th data-sort="info">Info</th><th data-sort="mdm">MDM</th><th data-sort="snapshots">Snapshots</th><th data-sort="lastRun">Last run</th><th data-sort="remaining">Timer</th><th class="pin-r">Actions</th></tr></thead>
           <tbody id="localVmRows"><tr><td colspan="11" class="muted">loading…</td></tr></tbody>
         </table>
+      </div>
       </div>
     </div>
 
@@ -1005,6 +1055,7 @@
       <div class="checks" id="createChecks">
         <label><input type="checkbox" id="createRandMac" checked> Random MAC</label>
         <label><input type="checkbox" id="createRandSerial" checked> Random serial</label>
+        <label><input type="checkbox" id="createStartSuspendable"> Start suspendable<button type="button" class="help-tip" data-help="Lets you suspend the new VM and resume it in seconds, and take snapshots that keep its memory. Turns off its audio and entropy devices. You can change it later in Edit VM." aria-label="About Start suspendable" aria-expanded="false">?</button></label>
       </div>
       <div id="provisioningCreateSection" style="display:none;">
         <h3 style="margin: 18px 0 10px 0; font-size: 13px; text-transform: uppercase; letter-spacing: 0.05em; color: var(--muted);">Guest provisioning (macOS 27+)</h3>
@@ -1179,6 +1230,7 @@
         <div class="field"><label>&nbsp;</label><label class="radio"><span class="toggle"><input type="checkbox" id="dailyEnabled"><span class="slider"></span></span> Limit scheduler to daily hours</label></div>
         <div class="field"><label>&nbsp;</label><label class="radio"><span class="toggle"><input type="checkbox" id="excludeOciFromScheduler"><span class="slider"></span></span> Exclude OCI images from scheduler</label></div>
         <div class="field"><label>&nbsp;</label><label class="radio"><span class="toggle"><input type="checkbox" id="noGraphics"><span class="slider"></span></span> Headless mode</label></div>
+        <div class="field"><label>&nbsp;</label><label class="radio"><span class="toggle"><input type="checkbox" id="schedulerSuspend"><span class="slider"></span></span> Suspend VMs instead of shutting them down<button type="button" class="help-tip" data-help="The scheduler starts its VMs suspendable, whatever each VM's own setting says. At the end of a run window it suspends them, and on the next run it resumes them. Suspendable VMs have no audio or entropy device." aria-label="About Suspend VMs instead of shutting them down" aria-expanded="false">?</button></label></div>
         <div class="field" style="grid-column: 1 / -1;"><label>Excluded VM names (one per line or comma-separated)</label><textarea id="excluded"></textarea></div>
       </div>
     </div>
@@ -1193,7 +1245,7 @@
         <div class="field" style="grid-column: 1 / -1;"><label>Custom run arguments (appended to every <span class="mono">tart run</span>)<button type="button" class="help-tip" data-help="Quote values with spaces, e.g. --dir=&quot;~/My Shared Folder&quot;" aria-label="About Custom run arguments (appended to every tart run)" aria-expanded="false">?</button></label><input type="text" id="runArgs" placeholder='e.g. --vnc --no-audio --net-host'></div>
         <div class="field"><label>Boot timeout (s)<button type="button" class="help-tip" data-help="Wait for IP before declaring boot failure" aria-label="About Boot timeout (s)" aria-expanded="false">?</button></label><input type="number" id="bootTimeoutSec" min="10"></div>
         <div class="field"><label>Network interface<button type="button" class="help-tip" data-help="Which network to use for VM bridging." aria-label="About Network interface" aria-expanded="false">?</button></label><select id="netPriority"><option value="auto">Auto (first available)</option><option value="wifi">Prioritize Wi-Fi</option><option value="ethernet">Prioritize Ethernet</option><option value="shared">Shared (NAT) — no bridging</option></select></div>
-        <div class="field"><label>&nbsp;</label><label class="radio"><span class="toggle"><input type="checkbox" id="suspendable"><span class="slider"></span></span> Start VMs suspendable<button type="button" class="help-tip" data-help="Lets you suspend a VM and resume it in seconds, and take snapshots that keep its memory. Turns off the VM's audio and entropy devices, and applies to every start." aria-label="About Start VMs suspendable" aria-expanded="false">?</button></label></div>
+        <div class="field"><label>Auto-check interval (seconds)<button type="button" class="help-tip" data-help="How often Tart Oven re-checks every running VM: Agent, SSH, Internet, MDM and Info, the same as Refresh info. 0 turns it off. Otherwise 10 to 86400." aria-label="About Auto-check interval" aria-expanded="false">?</button></label><input type="number" id="autoCheckSeconds" min="0" max="86400" step="1"></div>
         <div class="field"><label>&nbsp;</label><label class="radio"><span class="toggle"><input type="checkbox" id="checkTartUpdates"><span class="slider"></span></span> Check for Tart updates</label></div>
       </div>
       <div class="actions">
@@ -1362,6 +1414,11 @@
     <div class="grid">
       <div class="field"><label>Hostname</label><input type="text" id="editVmHostname" maxlength="63" placeholder="blank = leave unchanged"></div>
       <div class="field"><label>&nbsp;</label><label class="radio"><input type="checkbox" id="editVmHostnameFromName"> Same as VM name</label></div>
+    </div>
+
+    <h3 style="font-size: 12px; text-transform: uppercase; color: var(--muted); margin: 16px 0 10px; font-weight: 600;">Suspend</h3>
+    <div class="grid">
+      <div class="field"><label class="radio"><input type="checkbox" id="editVmStartSuspendable"> Start suspendable<button type="button" class="help-tip" data-help="Lets you suspend this VM and resume it in seconds, and take snapshots that keep its memory. Turns off the VM's audio and entropy devices. Takes effect the next time the VM starts." aria-label="About Start suspendable" aria-expanded="false">?</button></label></div>
     </div>
 
     <h3 style="font-size: 12px; text-transform: uppercase; color: var(--muted); margin: 16px 0 10px; font-weight: 600;">SSH Settings</h3>
@@ -2269,7 +2326,8 @@ function fillConfig(c) {
   chk("dailyEnabled", c.dailyEnabled);
   chk("excludeOciFromScheduler", c.excludeOciFromScheduler !== false);
   chk("noGraphics", c.noGraphics);
-  chk("suspendable", c.suspendable);
+  chk("schedulerSuspend", c.schedulerSuspend);
+  set("autoCheckSeconds", c.autoCheckSeconds == null ? 120 : c.autoCheckSeconds);
   set("vmStoragePath", c.vmStoragePath);
   set("sharedDir", c.sharedDir);
   set("tartAppPath", c.tartAppPath || "/Applications/tart.app/Contents/MacOS/tart");
@@ -2305,6 +2363,15 @@ function setSavedSecretPlaceholder(id, isSaved) {
   const el = document.getElementById(id);
   if (el) el.placeholder = isSaved ? "•••••••• (saved)" : "";
 }
+// The auto-check field as a number of seconds. An empty or non-numeric field
+// keeps the saved value instead of quietly turning auto-check off; 0 must be
+// typed on purpose.
+function readAutoCheckSeconds(text, saved) {
+  const v = parseInt(String(text).trim(), 10);
+  if (!Number.isFinite(v)) return Number.isFinite(saved) ? saved : 120;
+  if (v <= 0) return 0;
+  return Math.min(86400, Math.max(10, v));
+}
 function readConfig() {
   const num = (id) => { const el = document.getElementById(id); return el ? (parseInt(el.value, 10) || 0) : 0; };
   const str = (id) => { const el = document.getElementById(id); return el ? el.value.trim() : ""; };
@@ -2319,7 +2386,8 @@ function readConfig() {
     dailyEnabled: document.getElementById("dailyEnabled").checked,
     excludeOciFromScheduler: document.getElementById("excludeOciFromScheduler").checked,
     noGraphics: chk("noGraphics"),
-    suspendable: chk("suspendable"),
+    schedulerSuspend: chk("schedulerSuspend"),
+    autoCheckSeconds: readAutoCheckSeconds(document.getElementById("autoCheckSeconds").value, latest && latest.config ? latest.config.autoCheckSeconds : 120),
     dailyStart: str("dailyStart"), dailyStop: str("dailyStop"),
     excluded,
     paused: latest ? latest.config.paused : false,
@@ -2598,9 +2666,12 @@ function fmtDuration(startISO, stopISO) {
 }
 function esc(s) { return (s == null ? "" : String(s)).replace(/[&<>"]/g, c => ({ "&":"&amp;","<":"&lt;",">":"&gt;","\"":"&quot;" }[c])); }
 
-// SSH connectivity bubble for a VM.
-// channelBadge renders one line of the Access column: a status dot + label for
-// either the guest agent or SSH.
+// channelBadge renders one status line: a dot plus OK / KO. The Access column
+// uses it for the guest agent and SSH, the Internet column for internet access,
+// so all three share one look and one set of colours. opts: ssh (SSH wording and
+// the SSH-fallback switch), hideLabel (the column header already names the
+// channel), failTip (why it is KO), unknownUntilChecked (a running VM that has
+// not been probed yet is grey, not "checking…", for probes that may never run).
 function channelBadge(label, ok, checkedAt, vm, opts) {
   opts = opts || {};
   const isSSH = opts.ssh;
@@ -2617,6 +2688,9 @@ function channelBadge(label, ok, checkedAt, vm, opts) {
   } else if (transient) {
     dot = "amber"; status = "";
     tooltip = vm.state + "…";
+  } else if (running && !checked && opts.unknownUntilChecked) {
+    dot = "grey"; status = "—";
+    tooltip = label + " not checked yet";
   } else if (running && !checked) {
     dot = "amber pulse"; status = "checking…";
     tooltip = "checking " + label + "…";
@@ -2625,14 +2699,14 @@ function channelBadge(label, ok, checkedAt, vm, opts) {
     status = ok ? "OK" : "KO";
     tooltip = label + " " + (ok ? "OK" : "failed") + " — checked " + fmtAgo(checkedAt);
     if (!ok) {
-      tooltip += isSSH
+      tooltip += opts.failTip ? ": " + opts.failTip : (isSSH
         ? " — see the SSH setup guide in VM Management"
-        : " — Tart guest agent not responding; use ⋯ → Install Agent";
+        : " — Tart guest agent not responding; use ⋯ → Install Agent");
     }
   } else if (!running && checked) {
     dot = ok ? "green" : "red";
     status = ok ? "OK" : "KO";
-    tooltip = "last known while running (checked " + fmtDateTime(checkedAt) + ")";
+    tooltip = "last known while running (checked " + fmtDateTime(checkedAt) + ")" + (!ok && opts.failTip ? ": " + opts.failTip : "");
   } else {
     dot = "grey"; status = "—";
     tooltip = "never checked";
@@ -2643,7 +2717,7 @@ function channelBadge(label, ok, checkedAt, vm, opts) {
   const stale = !running && !transient && checked && !sshOff;
   return '<div class="access-line' + (stale ? ' last-known' : '') + '" title="' + esc(tooltip) + '">' +
     '<span class="' + dotClass + '"></span>' +
-    '<span class="access-label">' + label + '</span> ' +
+    (opts.hideLabel ? '' : '<span class="access-label">' + label + '</span> ') +
     '<span class="' + labelClass + '">' + status + '</span>' +
     '</div>';
 }
@@ -2663,20 +2737,13 @@ function infoCell(vm) {
   return '<div class="infobox" title="fetched ' + esc(fmtDateTime(vm.infoAt)) + '">' + esc(vm.info) + '</div>';
 }
 
-// Internet access for a guest. Never probed renders grey rather than red, so a VM
-// that has not been asked yet is never reported as offline. A stopped VM keeps its
-// last known result, faded like the Access column.
+// Internet access for a guest, drawn like the Access column (dot + OK / KO). A
+// guest that has not been probed yet is grey rather than red, so it is never
+// reported as offline before anyone asked. A stopped VM keeps its last result,
+// faded.
 function internetCell(vm) {
-  const checked = vm.internetCheckedAt && !vm.internetCheckedAt.startsWith("0001");
-  if (!checked) {
-    return '<span class="ssh-dot grey" title="Internet access not checked yet"></span>';
-  }
-  const stale = vm.state !== "running";
-  const note = stale ? " (last known while running)" : "";
-  const dot = vm.internetOk
-    ? '<span class="ssh-dot green" title="reached the internet' + note + '"></span><span class="mdm-label">Online</span>'
-    : '<span class="ssh-dot red" title="' + esc((vm.internetDetail || "no internet access") + note) + '"></span><span class="mdm-label">Offline</span>';
-  return stale ? '<span class="last-known">' + dot + '</span>' : dot;
+  return channelBadge("Internet", vm.internetOk, vm.internetCheckedAt, vm,
+    { hideLabel: true, unknownUntilChecked: true, failTip: vm.internetDetail || "no internet access" });
 }
 
 // Trims the MDM check-in endpoint down to the console URL an operator would
@@ -3966,6 +4033,152 @@ function initSortHeaders() {
 }
 initSortHeaders();
 
+// ---- VM table columns: widths, resizing and scroll hints ----
+// Name (first) and Actions (last) stay in place; the columns between them scroll
+// sideways and can be resized. Widths are remembered in this browser.
+const VM_COLS_KEY = "tartOvenVmCols";
+const VM_COL_DEFAULTS = { name: 200, state: 132, ip: 150, access: 110, internet: 120, info: 180, mdm: 150, snapshots: 140, lastRun: 140, remaining: 120, actions: 300 };
+const VM_COL_FIXED = { name: true, actions: true };
+const VM_COL_MIN = 64;
+const VM_COL_MAX = 800;
+let vmColWidths = Object.assign({}, VM_COL_DEFAULTS);
+
+// Saved widths merged over the defaults: anything unusable falls back to the
+// default, resizable columns are kept within the limits, pinned ones never change.
+function normalizeColWidths(saved, defaults) {
+  const out = {};
+  for (const key of Object.keys(defaults)) {
+    const v = saved ? Number(saved[key]) : NaN;
+    out[key] = (!VM_COL_FIXED[key] && Number.isFinite(v) && v > 0)
+      ? Math.min(VM_COL_MAX, Math.max(VM_COL_MIN, Math.round(v)))
+      : defaults[key];
+  }
+  return out;
+}
+
+// Whether there is more table to scroll to on each side.
+function scrollHints(scrollLeft, clientWidth, scrollWidth) {
+  return { left: scrollLeft > 1, right: scrollLeft + clientWidth < scrollWidth - 1 };
+}
+
+// Pinning Name and Actions only makes sense while there is room left between
+// them to scroll the other columns; otherwise Actions would cover Name.
+function canPin(viewWidth, nameWidth, actionsWidth) {
+  return viewWidth >= nameWidth + actionsWidth + VM_COL_MIN * 2;
+}
+
+function saveVmColWidths() {
+  const changed = {};
+  for (const key of Object.keys(VM_COL_DEFAULTS)) if (vmColWidths[key] !== VM_COL_DEFAULTS[key]) changed[key] = vmColWidths[key];
+  try { localStorage.setItem(VM_COLS_KEY, JSON.stringify(changed)); } catch (_) {}
+}
+
+function applyVmColWidths() {
+  let total = 0;
+  document.querySelectorAll("#vmCols col").forEach(col => {
+    const w = vmColWidths[col.dataset.col];
+    // Actions has no set width: on a wide screen it takes the spare width, so
+    // the other columns keep exactly the width they were dragged to.
+    col.style.width = col.dataset.col === "actions" ? "" : w + "px";
+    total += w;
+  });
+  document.querySelectorAll("#localVmHead .col-resizer").forEach(grip => {
+    grip.setAttribute("aria-valuenow", String(vmColWidths[grip.dataset.col]));
+  });
+  const table = document.getElementById("localVmTable");
+  if (table) table.style.width = total + "px";
+  updateVmScrollHints();
+}
+
+function setVmColWidth(key, width) {
+  if (VM_COL_FIXED[key] || !(key in VM_COL_DEFAULTS)) return;
+  vmColWidths[key] = normalizeColWidths({ [key]: width }, VM_COL_DEFAULTS)[key];
+  applyVmColWidths();
+}
+
+function updateVmScrollHints() {
+  const shell = document.getElementById("vmShell");
+  const wrap = document.getElementById("vmScroll");
+  if (!shell || !wrap) return;
+  shell.classList.toggle("no-pin", !canPin(wrap.clientWidth, vmColWidths.name, vmColWidths.actions));
+  const hints = scrollHints(wrap.scrollLeft, wrap.clientWidth, wrap.scrollWidth);
+  shell.classList.toggle("can-left", hints.left);
+  shell.classList.toggle("can-right", hints.right);
+  // The gradients start where the pinned columns end.
+  const heads = document.querySelectorAll("#localVmHead th");
+  if (heads.length > 1) {
+    shell.style.setProperty("--pin-l", heads[0].offsetWidth + "px");
+    shell.style.setProperty("--pin-r", heads[heads.length - 1].offsetWidth + "px");
+  }
+}
+
+function initVmColumns() {
+  let saved = null;
+  try { saved = JSON.parse(localStorage.getItem(VM_COLS_KEY) || "null"); } catch (_) {}
+  vmColWidths = normalizeColWidths(saved, VM_COL_DEFAULTS);
+  const heads = document.querySelectorAll("#localVmHead th");
+  const cols = document.querySelectorAll("#vmCols col");
+  heads.forEach((th, i) => {
+    const key = cols[i] && cols[i].dataset.col;
+    if (!key || VM_COL_FIXED[key]) return;
+    const labelEl = th.querySelector(".sort-label");
+    const grip = document.createElement("span");
+    grip.className = "col-resizer";
+    grip.tabIndex = 0;
+    grip.setAttribute("role", "separator");
+    grip.setAttribute("aria-orientation", "vertical");
+    grip.dataset.col = key;
+    grip.setAttribute("aria-valuemin", String(VM_COL_MIN));
+    grip.setAttribute("aria-valuemax", String(VM_COL_MAX));
+    grip.setAttribute("aria-label", "Resize the " + (labelEl ? labelEl.textContent : key) + " column (arrow keys, Home to reset)");
+    grip.title = "Drag to resize. Double-click to reset.";
+    grip.addEventListener("click", e => { e.stopPropagation(); closeRowMenus(); });
+    grip.addEventListener("dblclick", () => { setVmColWidth(key, VM_COL_DEFAULTS[key]); saveVmColWidths(); });
+    grip.addEventListener("pointerdown", e => {
+      if (e.button !== 0) return; // a right-click opens the context menu, not a drag
+      e.preventDefault();
+      const startX = e.clientX;
+      const startW = vmColWidths[key];
+      grip.setPointerCapture(e.pointerId);
+      grip.classList.add("active");
+      document.body.classList.add("col-resizing");
+      const move = ev => setVmColWidth(key, startW + ev.clientX - startX);
+      // lostpointercapture follows pointerup and pointercancel, and also fires
+      // when the browser drops the capture without either.
+      const done = () => {
+        grip.removeEventListener("pointermove", move);
+        grip.removeEventListener("lostpointercapture", done);
+        grip.classList.remove("active");
+        document.body.classList.remove("col-resizing");
+        saveVmColWidths();
+      };
+      grip.addEventListener("pointermove", move);
+      grip.addEventListener("lostpointercapture", done);
+    });
+    grip.addEventListener("keydown", e => {
+      if (e.key === "Home") {
+        e.preventDefault();
+        setVmColWidth(key, VM_COL_DEFAULTS[key]);
+      } else if (e.key === "ArrowLeft" || e.key === "ArrowRight") {
+        e.preventDefault();
+        setVmColWidth(key, vmColWidths[key] + (e.key === "ArrowRight" ? 1 : -1) * (e.shiftKey ? 40 : 10));
+      } else {
+        return;
+      }
+      saveVmColWidths();
+    });
+    th.appendChild(grip);
+  });
+  const wrap = document.getElementById("vmScroll");
+  if (wrap) {
+    wrap.addEventListener("scroll", updateVmScrollHints, { passive: true });
+    if (window.ResizeObserver) new ResizeObserver(updateVmScrollHints).observe(wrap);
+  }
+  window.addEventListener("resize", updateVmScrollHints);
+  applyVmColWidths();
+}
+initVmColumns();
+
 function renderTable(vms) {
   const tbody = document.getElementById("localVmRows");
   const runningOnly = isRunningOnly();
@@ -3994,6 +4207,9 @@ function renderTable(vms) {
   if (!filtered.length) {
     const msg = query ? "No VMs match your search." : (runningOnly ? "No running VMs." : "No VMs found at this storage path.");
     tbody.innerHTML = '<tr><td colspan="11" class="muted">' + msg + '</td></tr>';
+    const emptyWrap = document.getElementById("vmScroll");
+    if (emptyWrap) emptyWrap.scrollLeft = 0; // the message is not a pinned cell
+    updateVmScrollHints();
     return;
   }
   tbody.innerHTML = filtered.map(vm => {
@@ -4017,17 +4233,17 @@ function renderTable(vms) {
     const effUser = guestUserFor(vm).name;
     const rowClass = vm.state === "running" ? ' class="row-running"' : '';
     return '<tr' + rowClass + '>' +
-      '<td class="name"><b>' + n + '</b>' + tags + '</td>' +
-      '<td><span class="state s-' + vm.state + '"><span class="dot"></span>' + vm.state + '</span></td>' +
-      '<td>' + ip + '</td>' +
+      '<td class="name pin-l"><b>' + n + '</b>' + tags + '</td>' +
+      '<td class="nowrap"><span class="state s-' + vm.state + '"><span class="dot"></span>' + vm.state + '</span></td>' +
+      '<td class="nowrap">' + ip + '</td>' +
       '<td>' + accessCell(vm) + '</td>' +
       '<td class="internet">' + internetCell(vm) + '</td>' +
       '<td class="info">' + infoCell(vm) + '</td>' +
       '<td class="mdm">' + mdmCell(vm) + '</td>' +
       '<td class="snap-cell">' + snapshotsCell(vm) + '</td>' +
-      '<td class="muted" title="' + esc(fmtDateTime(vm.lastRun)) + '">' + fmtAgo(vm.lastRun) + '</td>' +
-      '<td class="mono" data-stop="' + (stopAt || "") + '" data-state="' + vm.state + '">' + rem + '</td>' +
-      '<td class="acts"><div class="row-actions">' +
+      '<td class="muted nowrap" title="' + esc(fmtDateTime(vm.lastRun)) + '">' + fmtAgo(vm.lastRun) + '</td>' +
+      '<td class="mono nowrap" data-stop="' + (stopAt || "") + '" data-state="' + vm.state + '">' + rem + '</td>' +
+      '<td class="acts pin-r"><div class="row-actions">' +
         '<button onclick="act(\'run\',\'' + n + '\')"' + busy + '>' + (vm.state === "suspended" ? "Resume" : "Run") + '</button>' +
         '<button class="danger" onclick="act(\'stop\',\'' + n + '\')"' + stopDisabled + (vm.state === "suspended" ? ' title="Discards the saved memory"' : '') + '>Stop</button>' +
         '<button class="ghost" onclick="openTerminal(\'' + n + '\')" title="Run a command in this VM" aria-label="Terminal for ' + esc(vm.name) + '" style="font-family:ui-monospace,monospace;padding:6px 10px">&gt;_</button>' +
@@ -4037,7 +4253,7 @@ function renderTable(vms) {
             '<button onclick="closeRowMenus();openRunArgsModal(\'' + n + '\')"' + (busy || vm.state !== "stopped" ? ' disabled' : '') + ' title="Start VM with chosen tart run arguments">Run with arguments</button>' +
             '<button onclick="closeRowMenus();restartVM(\'' + n + '\')"' + (busy || vm.state !== "running" ? ' disabled' : '') + ' title="Restart this VM">Restart VM</button>' +
             '<button onclick="closeRowMenus();suspendVM(\'' + n + '\')"' + (busy || vm.state !== "running" || !vm.suspendable ? ' disabled' : '') + ' title="' +
-              (vm.state === "running" && !vm.suspendable ? "Not started suspendable. Stop it and start it with Suspendable on (Run with arguments, or Configuration)." : "Save this VM's memory and stop it; Resume brings it back in seconds") + '">Suspend VM</button>' +
+              (vm.state === "running" && !vm.suspendable ? "Not started suspendable. Stop it and start it again with Suspendable on (Edit VM, or Run with arguments for one run)." : "Save this VM's memory and stop it; Resume brings it back in seconds") + '">Suspend VM</button>' +
             '<button onclick="closeRowMenus();getInfo(\'' + n + '\')"' + notRunning + ' title="Re-check the IP, Agent and SSH status, internet access and MDM enrollment, and collect the VM info again">Refresh info</button>' +
             agentInstallButton(n, notRunning, guestAgentInfo.available) +
             '<button onclick="closeRowMenus();openVNC(\'' + esc(vm.ip) + '\',\'' + esc(effUser) + '\')"' + noScreen + '>Start Screen Sharing</button>' +
@@ -4054,6 +4270,7 @@ function renderTable(vms) {
   // (every server broadcast, not a real dismissal) — reapply it if it's still
   // valid for the newly-rendered rows.
   if (openRowMenuName) positionRowMenu(openRowMenuName);
+  updateVmScrollHints();
 }
 
 // keep "time remaining" ticking between server pushes (but not when the
@@ -4218,6 +4435,7 @@ async function openEditModal(vmName) {
   document.getElementById("editVmHostname").value = vm.hostname || "";
   document.getElementById("editVmHostnameFromName").checked = !!vm.hostnameFromName;
   syncHostnameField("editVmHostname", "editVmHostnameFromName");
+  document.getElementById("editVmStartSuspendable").checked = !!vm.startSuspendable;
   document.getElementById("editVmModalInfo").textContent = "loading…";
   try {
     const res = await api("/api/vm/get?name=" + encodeURIComponent(vmName));
@@ -4295,6 +4513,7 @@ async function saveEditVmModal() {
   const clearSshPassword = document.getElementById("editVmClearSshPassword").checked;
   const clearSshUser = document.getElementById("editVmClearSshUser").checked;
   const payload = { name: finalName, notes, tags, sshUser, sshPassword, clearSshPassword, clearSshUser, hostnameFromName,
+    startSuspendable: document.getElementById("editVmStartSuspendable").checked,
     hostname: hostnameFromName ? "" : document.getElementById("editVmHostname").value.trim() };
   if (jamfEnabled) {
     const choice = document.getElementById("editVmAutoEnrollProfile").value;
@@ -4453,6 +4672,7 @@ function renderVmInfoModalBody() {
   if (vm.lease) overview.push(row("Lease expires", when(vm.lease.expiresAt)));
   if (vm.source) overview.push(row("Source", esc(vm.source)));
   overview.push(row("IP", esc(vm.ip || "—")));
+  overview.push(row("Start suspendable", vm.startSuspendable ? "On" : "Off"));
   if (vm.bootFailed) overview.push(row("Boot failure", "Yes" + (vm.lastError ? " — " + esc(vm.lastError) : "")));
   if (running) overview.push(row("Window", vm.headless ? "Headless" : "Normal"));
   if (running && vm.runOverride) {
@@ -5374,6 +5594,7 @@ el("createBtn").onclick = async () => {
     display: str("createDisplay"),
     randomMac: document.getElementById("createRandMac").checked,
     randomSerial: document.getElementById("createRandSerial").checked,
+    startSuspendable: document.getElementById("createStartSuspendable").checked,
     autoEnrollProfile: mode === "clone" && autoEnrollVisible ? document.getElementById("createAutoEnrollProfile").value : "",
     hostnameFromName: mode === "clone" && document.getElementById("createHostnameFromName").checked,
     hostname: mode === "clone" && !document.getElementById("createHostnameFromName").checked ? str("createHostname") : "",

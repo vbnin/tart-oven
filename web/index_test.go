@@ -849,21 +849,38 @@ func TestInternetHasAColumnAndADetailsRow(t *testing.T) {
 	}
 }
 
-func TestSuspendableLivesInTartSettingsAndNoAudioIsGone(t *testing.T) {
+func TestSuspendIsPerVMWithASchedulerOverrideAndNoAudioIsGone(t *testing.T) {
 	b, err := Content.ReadFile("index.html")
 	if err != nil {
 		t.Fatal(err)
 	}
 	html := string(b)
 	tart := sourceSection(t, html, `id="panel-tart-settings"`, `id="updateTartBtn"`)
-	if !strings.Contains(tart, `id="suspendable"`) {
-		t.Error("Start VMs suspendable belongs in Tart Settings")
+	if strings.Contains(tart, `id="suspendable"`) {
+		t.Error("the global Start VMs suspendable setting is gone: it is per VM now")
+	}
+	if !strings.Contains(tart, `id="autoCheckSeconds"`) {
+		t.Error("the auto-check interval belongs in Tart Settings")
 	}
 	sched := sourceSection(t, html, `id="panel-scheduler"`, `id="panel-tart-settings"`)
-	if strings.Contains(sched, `id="suspendable"`) || strings.Contains(sched, `id="noAudio"`) {
-		t.Error("the scheduler section should have neither Start VMs suspendable nor Disable audio")
+	if !strings.Contains(sched, `id="schedulerSuspend"`) {
+		t.Error("the scheduler section needs Suspend VMs instead of shutting them down")
 	}
-	if strings.Contains(html, `id="noAudio"`) || strings.Contains(html, "noAudio") {
+	if strings.Contains(sched, `id="suspendable"`) || strings.Contains(sched, `id="noAudio"`) {
+		t.Error("the scheduler section should have neither the old global suspendable toggle nor Disable audio")
+	}
+	// The per-VM setting is offered when editing, creating and cloning, and sent to the server.
+	for _, want := range []string{
+		`id="editVmStartSuspendable"`, `id="createStartSuspendable"`,
+		`startSuspendable: document.getElementById("editVmStartSuspendable").checked`,
+		`startSuspendable: document.getElementById("createStartSuspendable").checked`,
+		`vm.startSuspendable`,
+	} {
+		if !strings.Contains(html, want) {
+			t.Errorf("per-VM suspendable UI is missing %q", want)
+		}
+	}
+	if strings.Contains(html, "noAudio") {
 		t.Error("nothing should refer to the removed noAudio setting")
 	}
 }
@@ -880,5 +897,50 @@ func TestEditVMCanRemoveCustomSSHCredentials(t *testing.T) {
 		if !strings.Contains(html, want) {
 			t.Errorf("Edit VM can't remove custom credentials: missing %q", want)
 		}
+	}
+}
+
+func TestVMTablePinsNameAndActionsAndScrollsTheRest(t *testing.T) {
+	b, err := Content.ReadFile("index.html")
+	if err != nil {
+		t.Fatal(err)
+	}
+	html := string(b)
+	table := sourceSection(t, html, `id="vmShell"`, `id="localVmRows"`)
+	for _, want := range []string{
+		`id="vmScroll"`, `class="vm-table"`, `id="vmCols"`,
+		`<th class="pin-l" data-sort="name">Name</th>`, `<th class="pin-r">Actions</th>`,
+	} {
+		if !strings.Contains(table, want) {
+			t.Errorf("VM table markup is missing %q", want)
+		}
+	}
+	// One <col> per header: widths come from the colgroup (table-layout: fixed).
+	cols := strings.Count(table, `<col data-col=`)
+	heads := strings.Count(sourceSection(t, html, `id="localVmHead"`, `</thead>`), `<th`)
+	if cols != heads || cols != 11 {
+		t.Errorf("%d <col> elements for %d headers, want 11 of each", cols, heads)
+	}
+	row := sourceSection(t, html, `function renderTable(`, `// keep "time remaining"`)
+	for _, want := range []string{`<td class="name pin-l">`, `<td class="acts pin-r">`, `updateVmScrollHints()`} {
+		if !strings.Contains(row, want) {
+			t.Errorf("renderTable no longer produces %q", want)
+		}
+	}
+	// The pinned cells must be opaque (else scrolled columns show through), and an
+	// open row menu must stay above the pinned cells of the rows below it.
+	css := sourceSection(t, html, `.table-shell { position: relative; }`, `body.col-resizing {`)
+	for _, want := range []string{
+		`td.pin-l, .vm-table td.pin-r { background-color: var(--panel)`,
+		`td.pin-r:has(.row-menu.open)`, `.table-shell.can-left::before`, `.table-shell.can-right::after`,
+		`var(--scroll-shade)`,
+	} {
+		if !strings.Contains(css, want) {
+			t.Errorf("VM table CSS is missing %q", want)
+		}
+	}
+	// Both themes define the gradient colour.
+	if strings.Count(html, `--scroll-shade:`) != 2 {
+		t.Error("--scroll-shade must be defined for the dark and the light theme")
 	}
 }

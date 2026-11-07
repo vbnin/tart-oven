@@ -41,6 +41,8 @@ func Run(statePath, listenOverride string) error {
 		subs:                 map[chan []byte]struct{}{},
 		statePath:            statePath,
 		reload:               make(chan struct{}, 1),
+		autoCheckReload:      make(chan struct{}, 1),
+		snapshotHold:         map[string]bool{},
 		performanceCollector: perf.NewCollector(),
 	}
 	m.mdmCopier = mdm.NewSFTPProfileCopier()
@@ -72,6 +74,7 @@ func Run(statePath, listenOverride string) error {
 	m.hostIP = localIP()
 
 	go m.schedulerLoop()
+	go m.autoCheckLoop()
 	if !m.cfg.FirstRunCompleted {
 		go m.prefetchIPSW() // the Setup Wizard's IPSW step will want the list
 	}

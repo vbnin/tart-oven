@@ -65,7 +65,7 @@ func (m *Manager) refreshMDMStatus(name string) {
 	}
 
 	m.mu.Lock()
-	if vm := m.vms[name]; vm != nil {
+	if vm := m.liveVMLocked(name); vm != nil {
 		vm.MDMEnrolled = status.Enrolled
 		vm.MDMServer = status.Server
 		vm.MDMCheckedAt = time.Now()

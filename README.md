@@ -4,7 +4,7 @@ Tart Oven is a local web console for managing [Tart](https://github.com/openai/t
 
 Tart Oven runs on macOS and manages macOS virtual machines.
 
-Current release: **2.2.3-dev1** · [Changelog](CHANGELOG.md)
+Current release: **2.3.0-dev1** · [Changelog](CHANGELOG.md)
 
 <p align="center">
   <img src="assets/screenshots/Tart%20Oven%20Screenshot%201.png" alt="Tart Oven screenshot 1" width="900">
@@ -28,13 +28,13 @@ Tart Oven limits the host to two running VMs at a time. Apple's macOS license al
 
 ### 1. Install Tart Oven
 
-Download `TartOven-2.2.3-dev1.pkg` from the [release page](https://github.com/vbnin/tart-oven/releases).
+Download `TartOven-2.3.0-dev1.pkg` from the [release page](https://github.com/vbnin/tart-oven/releases).
 
 Open the package in Finder or install it from Terminal:
 
 ```sh
 cd "$HOME/Downloads"
-sudo installer -pkg "./TartOven-2.2.3-dev1.pkg" -target /
+sudo installer -pkg "./TartOven-2.3.0-dev1.pkg" -target /
 ```
 
 The package installs:
@@ -117,9 +117,11 @@ On the Dashboard:
 
 - **+ Create VM** opens the **Create / clone VMs** window without leaving the Dashboard. It is the same form as under **VM Management → Create / clone VMs**, which stays there too; once you click **Create VMs** the window closes and the progress, **Show logs** and **Cancel** appear under **VM Management**. **Scheduler** and **Refresh** sit beside it, and **Show All / Show Running** filters the list. **Refresh** also runs **Refresh info** on every running VM.
 - Click a column name, or its arrows, to sort the **Local VMs** and **OCI Images** tables. The choice is remembered.
+- In **Local VMs**, **Name** and the action buttons stay in place while the columns between them scroll sideways. A shadow on the left or right edge means there are more columns that way. Drag the line at the right edge of a column title to resize it, or focus it and press the arrow keys. Double-click the line to reset that column. Widths are remembered in this browser.
 - The **Snapshots** column counts each VM's [snapshots](#snapshots-and-suspend). Click the number to open them.
 - The **Access** column shows whether commands can reach the guest: **Agent** (the Tart guest agent answers) or **SSH** (the fallback). When the agent works, only it is shown. A stopped VM keeps its last known status, faded.
-- The **Internet** column shows whether the guest can reach the internet: green **Online**, red **Offline**, grey when it has not been checked. Hover the red dot for the reason. Tart Oven asks the guest to fetch Apple's captive-portal page, so a Wi-Fi sign-in page or filtering proxy counts as offline. It is checked after boot and by **Refresh info**; a stopped VM keeps its last result, faded.
+- The **Internet** column shows whether the guest can reach the internet, in the same style as **Access**: green **OK**, red **KO**, grey when it has not been checked. Hover a red **KO** for the reason. Tart Oven asks the guest to fetch Apple's captive-portal page, so a Wi-Fi sign-in page or filtering proxy counts as offline. A stopped VM keeps its last result, faded.
+- Access, Internet, MDM and Info are checked after boot, by **Refresh info**, and automatically for every running VM every **Auto-check interval** seconds (**Configuration → Tart Settings**, 120 by default, 0 turns it off, 86400 at most).
 - The **ⓘ** button opens **VM details**: state, IP, last start and stop, uptime, hardware, Access, Internet, MDM enrollment, the last **Refresh info** output, tags and notes. It updates live.
 - Click a **?** beside a setting for its help text. Click a section title to collapse it; Tart Oven remembers which are open. The switch in the header toggles dark and light mode.
 - Leaving **Configuration** with unsaved changes asks whether to save, discard or keep editing.
@@ -171,12 +173,12 @@ The Dashboard provides **Run** and **Stop** next to each VM, plus a "⋯" menu w
 - **Run with arguments** (⋯ menu) opens a window to choose `tart run` options for one run: display (headless, Screen Sharing, or Virtualization VNC, which works before login and in recovery), network (shared NAT, host only, Softnet) and options such as no audio or boot into recovery. The choice replaces **Custom run arguments** for that run, and **Restart VM** keeps it. It opens pre-filled with what a normal run would use.
 - **Restart VM** (⋯ menu) restarts a running VM, keeping the options chosen in **Run with arguments**.
 - **Stop** asks Tart to stop it with a short timeout and may force termination. Enable **Prioritize clean shutdown** in **Configuration → SSH & Commands** to instead ask the guest to shut down cleanly (via the guest agent or SSH) first (up to 30 seconds) before falling back to the fast stop — safer for guests that need time to flush state on power-off.
-- **Suspend VM** (⋯ menu) saves a running VM's memory and stops it; **Resume** brings it back in seconds. It is only available for a VM started with **Suspendable** (see [Snapshots and suspend](#snapshots-and-suspend)).
+- **Suspend VM** (⋯ menu) saves a running VM's memory and stops it; **Resume** brings it back in seconds. It is only available for a VM started suspendable (see [Snapshots and suspend](#snapshots-and-suspend)).
 - **VM Snapshots** (⋯ menu) opens the VM's snapshots.
 - **Refresh info** (⋯ menu) re-checks the VM's IP, its Agent and SSH status, its internet access and its MDM enrollment, then runs the configured status command inside the guest to collect its info again. Changing a running VM's hostname runs it automatically.
 - **Install Agent** (⋯ menu) installs the bundled Tart guest agent package into a running guest over SSH, so it no longer needs SSH fallback for commands.
 - **Start Screen Sharing** (⋯ menu) opens macOS Screen Sharing when the guest has an IP and Screen Sharing is enabled.
-- **Edit VM** (⋯ menu) opens a window with the VM's hardware (CPU, memory, disk, display), **Rename to** (accepts the same `$RAND8` and `$AUTONUM` variables as a name template), new random MAC and serial, hostname, SSH credentials (tick **Remove** beside a custom user or password to go back to the defaults), enrollment, and tags and notes. Tags already used on other VMs appear under **In use:** to click; typing a tag in any capitalisation uses the spelling already in use, so `macos26` never sits beside `macOS26`. While the VM runs, only tags, notes, SSH credentials and auto-enroll can change; stop it for the rest.
+- **Edit VM** (⋯ menu) opens a window with the VM's hardware (CPU, memory, disk, display), **Rename to** (accepts the same `$RAND8` and `$AUTONUM` variables as a name template), new random MAC and serial, hostname, **Start suspendable**, SSH credentials (tick **Remove** beside a custom user or password to go back to the defaults), enrollment, and tags and notes. Tags already used on other VMs appear under **In use:** to click; typing a tag in any capitalisation uses the spelling already in use, so `macos26` never sits beside `macOS26`. While the VM runs, only tags, notes, SSH credentials and auto-enroll can change; stop it for the rest.
 - **Hostname** (Edit VM, or Create / clone VMs) sets the guest's computer name, local hostname and hostname with `scutil`, either to a custom name or **Same as VM name**. It's applied while the VM is running, or at its next boot, and needs the guest agent or SSH plus the guest's sudo password. Characters other than letters, digits and hyphens become hyphens in the network names.
 - **Auto enroll at next boot** (Edit VM → Enrollment) — see [Auto-enrolling VMs at boot](#auto-enrolling-vms-at-boot-experimental) below.
 - **Delete VM** (⋯ menu) permanently deletes that VM, after a confirmation prompt. A VM with snapshots asks whether to delete them too, or to use one of them as the VM.
@@ -201,7 +203,7 @@ A **snapshot** is a full copy of a VM, taken on demand, to go back to or to try 
 
 **Suspend** saves a running VM's memory to disk and stops it. **Resume** (the Run button on a suspended VM) continues exactly where it left off, in a few seconds, without booting. **Stop** on a suspended VM discards the saved memory.
 
-It only works for a VM started with the **Suspendable** option: **Run with arguments → Suspendable** for one run, or **Configuration → Tart Settings → Start VMs suspendable** for every start. It is on for a new installation and off for one that existed before (turn it on there). Suspendable VMs have no audio or entropy device (a Tart limitation), so switch it off if a VM needs sound. A VM started without it can't be suspended: Tart saves a state that can never be restored, so Tart Oven disables **Suspend VM** for it.
+It only works for a VM started suspendable. Each VM has its own **Start suspendable** setting, off for new VMs: turn it on in **Edit VM**, or when creating or cloning in **Create / clone VMs**. **Run with arguments → Suspendable** does it for one run. The scheduler's **Suspend VMs instead of shutting them down** overrides the VM's setting for the scheduler's own starts (see [Scheduler](#scheduler)). Suspendable VMs have no audio or entropy device (a Tart limitation), so leave it off for a VM that needs sound. A VM started without it can't be suspended: Tart saves a state that can never be restored, so Tart Oven disables **Suspend VM** for it.
 
 Snapshots and suspend work together. A snapshot of a suspended VM keeps its memory (tagged **memory**): running it resumes at the moment the snapshot was taken. For a running suspendable VM, switch on **Include memory** when creating the snapshot: the VM pauses for a few seconds while it is copied, then resumes.
 
@@ -248,9 +250,12 @@ You can configure:
 - Maximum concurrent VMs.
 - Daily active hours.
 - VMs that should never be selected.
-- Headless mode and audio.
+- Headless mode.
+- Whether VMs are suspended instead of shut down.
 
 The scheduler is off until you start it. When running, it stops VMs whose configured run window expires. Outside configured daily hours, it can stop all running VMs, including VMs started manually.
+
+With **Suspend VMs instead of shutting them down** on, the scheduler starts every VM it picks suspendable, whatever that VM's own **Start suspendable** setting says, and suspends it instead of stopping it when its run window ends or the daily hours are over. Later runs resume suspended VMs as if they were stopped ones, in seconds instead of a full boot. A running VM that was not started suspendable is stopped as before, since its state could never be restored, and so is a VM whose suspend fails. With the setting off, the scheduler leaves suspended VMs alone, so VMs it suspended earlier stay suspended until you resume or stop them yourself.
 
 Keep **Exclude OCI images from scheduler** enabled so registry cache entries remain clone sources.
 

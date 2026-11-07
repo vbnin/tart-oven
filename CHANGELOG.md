@@ -12,12 +12,19 @@ A few terms appear throughout:
 - **MDM / Jamf Pro** — the system that manages enrolled Macs. Tart Oven can prepare
   a VM for enrollment and report whether a guest is enrolled.
 
-## 2.2.3-dev1 (2026-10-27)
+## 2.3.0 (in progress)
 
 ### Added
 
-- **Internet column.** The VM table shows whether each guest can reach the internet: green **Online**, red **Offline**, or grey when it has not been checked yet. Hover the red dot for the reason. Tart Oven asks the guest to fetch Apple's captive-portal page, the one macOS itself uses, so a Wi-Fi sign-in page or a filtering proxy that answers instead counts as offline. If the check can't run at all, for example because the guest has no agent or SSH, the dot stays grey rather than claiming the guest is offline.
-- The check runs after each boot and whenever you click **Refresh info** (which **Refresh** also runs on every running VM). A stopped VM keeps its last result, faded. The column is sortable, and **VM details** has an **Internet** row.
+- **Internet column.** The VM table shows whether each guest can reach the internet, in the same style as the **Access** column: green **OK**, red **KO**, or grey when it has not been checked yet. Hover a red **KO** for the reason. Tart Oven asks the guest to fetch Apple's captive-portal page, the one macOS itself uses, so a Wi-Fi sign-in page or a filtering proxy that answers instead counts as offline. If the check can't run at all, for example because the guest has no agent or SSH, it stays grey rather than claiming the guest is offline. A stopped VM keeps its last result, faded. The column is sortable, and **VM details** has an **Internet** row.
+- **Automatic checks.** Tart Oven re-checks every running VM's Agent, SSH, Internet, MDM and Info on its own, like **Refresh info**. Set how often in **Configuration → Tart Settings → Auto-check interval (seconds)**: 120 by default, 0 turns it off, 86400 at most.
+- **Start suspendable, per VM.** Each VM has its own **Start suspendable** setting in **Edit VM**, and you can turn it on when creating or cloning in **Create / clone VMs**. It is off for new VMs. **VM details** shows it.
+- **Scheduler suspend.** **Configuration → VM Scheduler → Suspend VMs instead of shutting them down** makes the scheduler start its VMs suspendable, suspend them when their run window ends, and resume them on later runs instead of booting them again. A VM that can't be suspended is stopped as before.
+
+### Changed
+
+- **The VM table fits narrow windows.** **Name** and the action buttons stay in place while the other columns scroll sideways, with a shadow on the side that has more columns. Drag the line at the right edge of a column title to resize it, or double-click it to reset. Widths are remembered in this browser.
+- **Start VMs suspendable is no longer a global setting.** It is gone from **Tart Settings**. If it was on, every existing VM keeps starting suspendable through its own setting; if it was off, nothing changes.
 
 ## 2.2.2 (2026-10-23)
 

@@ -63,7 +63,7 @@ func (m *Manager) refreshInternetStatus(name string) {
 	}
 
 	m.mu.Lock()
-	if vm := m.vms[name]; vm != nil {
+	if vm := m.liveVMLocked(name); vm != nil {
 		vm.InternetOK = status.Online
 		vm.InternetDetail = status.Detail
 		vm.InternetCheckedAt = time.Now()

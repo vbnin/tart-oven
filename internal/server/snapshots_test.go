@@ -241,7 +241,7 @@ func TestDoRunRefusesWhileFamilyRuns(t *testing.T) {
 
 func TestSchedulerNeverPicksSnapshots(t *testing.T) {
 	vm := &VM{Name: "web-Snapshot-1", State: "stopped", SnapshotOf: "web"}
-	if eligibleForScheduler(vm, false, map[string]bool{}, false) {
+	if eligibleForScheduler(vm, false, map[string]bool{}, false, false) {
 		t.Fatal("scheduler would run a snapshot")
 	}
 }

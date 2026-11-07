@@ -22,6 +22,7 @@ func (m *Manager) load() {
 		log.Printf("state.json is corrupt, starting fresh: %v", err)
 		return
 	}
+	var legacySuspendable bool
 	// Overlay persisted config onto defaults, then repair any missing fields so
 	// an old/partial file can't leave us with zero intervals etc.
 	m.cfg = p.Config
@@ -34,6 +35,8 @@ func (m *Manager) load() {
 			ExcludeOCIFromScheduler *bool `json:"excludeOciFromScheduler"`
 			SSHFallbackEnabled      *bool `json:"sshFallbackEnabled"`
 			ShowAgentFeatures       *bool `json:"showAgentFeatures"`
+			AutoCheckSeconds        *int  `json:"autoCheckSeconds"`
+			LegacySuspendable       *bool `json:"suspendable"` // the old global "Start VMs suspendable"
 		} `json:"config"`
 	}
 	if err := json.Unmarshal(data, &presence); err == nil {
@@ -49,7 +52,13 @@ func (m *Manager) load() {
 		if presence.Config.ShowAgentFeatures == nil && m.cfg.AgentEnabled {
 			m.cfg.ShowAgentFeatures = true
 		}
+		// An explicit 0 means "auto-check off", so only a missing key gets the default.
+		if presence.Config.AutoCheckSeconds == nil {
+			m.cfg.AutoCheckSeconds = d.AutoCheckSeconds
+		}
+		legacySuspendable = presence.Config.LegacySuspendable != nil && *presence.Config.LegacySuspendable
 	}
+	m.cfg.AutoCheckSeconds = clampAutoCheckSeconds(m.cfg.AutoCheckSeconds)
 	if m.cfg.Listen == "" {
 		m.cfg.Listen = d.Listen
 	}
@@ -126,6 +135,14 @@ func (m *Manager) load() {
 	}
 	if p.VMs != nil {
 		m.vms = p.VMs
+	}
+	// The global "Start VMs suspendable" setting became a per-VM one: every VM
+	// that existed under a global "on" keeps starting suspendable. The old key
+	// is not saved again, so this runs once.
+	if legacySuspendable {
+		for _, vm := range m.vms {
+			vm.StartSuspendable = true
+		}
 	}
 	if p.History != nil {
 		m.history = p.History

@@ -49,7 +49,8 @@ type Config struct {
 	Excluded                []string      `json:"excluded"`                // VM names never auto-selected
 	ExcludeOCIFromScheduler bool          `json:"excludeOciFromScheduler"` // keep cached OCI images clone-only by default
 	NoGraphics              bool          `json:"noGraphics"`              // run VMs headless without a GUI window (--no-graphics)
-	Suspendable             bool          `json:"suspendable"`             // start every VM with --suspendable so it can be suspended (turns off audio and entropy devices)
+	SchedulerSuspend        bool          `json:"schedulerSuspend"`        // scheduler starts VMs with --suspendable and suspends them at the end of the run window instead of stopping them
+	AutoCheckSeconds        int           `json:"autoCheckSeconds"`        // re-check Agent, SSH, Internet, MDM and Info of running VMs every N seconds; 0 = off
 	JamfRecon               bool          `json:"jamfRecon"`               // run `jamf recon` after start/stop
 	Paused                  bool          `json:"paused"`                  // global scheduler pause
 	DailyEnabled            bool          `json:"dailyEnabled"`            // gate auto-runs to a daily time window
@@ -157,7 +158,8 @@ func defaultConfig() Config {
 		Excluded:                []string{},
 		ExcludeOCIFromScheduler: true,
 		NoGraphics:              false,
-		Suspendable:             true, // new configs only: a stored config without the key stays off
+		SchedulerSuspend:        false,
+		AutoCheckSeconds:        defaultAutoCheckSeconds,
 		JamfRecon:               false,
 		Paused:                  true, // scheduler OFF until the user turns it on
 		DailyEnabled:            true,
@@ -297,7 +299,12 @@ type VM struct {
 
 	Lease *Lease `json:"lease,omitempty"` // set on VMs created through the agent API; see lease.go
 
-	Suspendable bool `json:"suspendable,omitempty"` // started with --suspendable, so tart suspend leaves a state that can be resumed
+	Suspendable bool `json:"suspendable,omitempty"` // RUNTIME: this run was started with --suspendable, so tart suspend leaves a state that can be resumed
+
+	// StartSuspendable is the per-VM setting: start this VM with --suspendable
+	// (turns off its audio and entropy devices). The scheduler can override it
+	// for its own starts (Config.SchedulerSuspend).
+	StartSuspendable bool `json:"startSuspendable,omitempty"`
 
 	Snapshots  []Snapshot `json:"snapshots,omitempty"`  // on an original VM: the copies taken of it (snapshots.go)
 	SnapshotOf string     `json:"snapshotOf,omitempty"` // on a snapshot's own VM: the original it copies; hidden from the dashboard and the scheduler
@@ -356,6 +363,7 @@ type createBatch struct {
 // Manager holds everything, guarded by mu.
 type Manager struct {
 	resumeHook           func(name string, opts runOptions) // tests: stands in for doRun after a snapshot with memory
+	schedulerRunHook     func(name string)                  // tests: stands in for doRun when the scheduler starts a VM
 	agentOps             map[string]*agentOp                // in-flight and recently failed agent provisioning, by VM name; lazily initialised
 	reaping              map[string]bool                    // agent VMs whose expired lease is being torn down; lazily initialised
 	batches              map[string]*createBatch            // in-flight create batches; lazily initialised
@@ -397,7 +405,9 @@ type Manager struct {
 	tartJSON             bool // whether `tart list --format json` is supported
 	supportsProvisioning bool // whether the host (macOS 27+) and tart build support `run --provisioning-opts`
 	statePath            string
-	reload               chan struct{} // poke the scheduler when interval changes
+	reload               chan struct{}   // poke the scheduler when interval changes
+	autoCheckReload      chan struct{}   // poke the auto-check loop when its interval changes
+	snapshotHold         map[string]bool // VMs paused for a snapshot with memory: the scheduler must not resume them (guarded by mu)
 	mdmCopier            mdm.ProfileCopier
 	mdmResolveIP         mdmIPResolver
 	tartOutputOperation  func(context.Context, string, ...string) (string, error)
