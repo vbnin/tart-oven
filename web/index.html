@@ -7090,24 +7090,36 @@ connect();
 </template>
 <template id="jamfInvitationHelp">
   <h4>Getting an enrollment invitation ID</h4>
-  <p>It is the value after <code>invitation=</code> in an enrollment URL, not the whole URL. Jamf Pro only offers to create one by email, which needs SMTP set up. The Jamf Pro API does not. In Terminal on any Mac, with an account or API role allowed to create computer invitations:</p>
-  <pre class="popover-code" id="jamfInvitationCmd">JSS="https://yourname.jamfcloud.com"
-TOKEN=$(curl -s -u "your-username" -X POST \
-  "$JSS/api/v1/auth/token" | plutil -extract token raw -)
-BODY='&lt;computer_invitation&gt;
-&lt;invitation_type&gt;DEFAULT&lt;/invitation_type&gt;
-&lt;expiration_date&gt;Unlimited&lt;/expiration_date&gt;
-&lt;multiple_users_allowed&gt;true&lt;/multiple_users_allowed&gt;
-&lt;multiple_uses_allowed&gt;true&lt;/multiple_uses_allowed&gt;
-&lt;/computer_invitation&gt;'
-ID=$(curl -s -X POST "$JSS/JSSResource/computerinvitations/id/0" \
+  <p>It is the value after <code>invitation=</code> in an enrollment URL, not the whole URL. Jamf Pro only offers to create one by email, which needs SMTP set up. The Jamf Pro Classic API does not. In Terminal on any Mac, with an account or API role allowed to create computer invitations (Jamf Cloud only: the address must end in <code>.jamfcloud.com</code>):</p>
+  <pre class="popover-code" id="jamfInvitationCmd">(
+printf 'Jamf Pro URL prefix (the part before .jamfcloud.com): '; read -r PREFIX
+printf 'Username: '; read -r JUSER
+printf 'Password: '; read -rs JPASS; echo
+URL="https://${PREFIX}.jamfcloud.com"
+
+TOKEN=$(curl -s -u "$JUSER:$JPASS" -X POST "$URL/api/v1/auth/token" | plutil -extract token raw - 2&gt;/dev/null)
+unset JPASS
+[ -z "$TOKEN" ] &amp;&amp; { echo "Login failed: check the prefix, username and password."; exit 1; }
+
+RESPONSE=$(curl -s -X POST "$URL/JSSResource/computerinvitations/id/0" \
   -H "Authorization: Bearer $TOKEN" \
-  -H "Content-Type: application/xml" -d "$BODY" \
-  | xmllint --xpath 'string(//id)' -)
-curl -s -H "Authorization: Bearer $TOKEN" \
-  "$JSS/JSSResource/computerinvitations/id/$ID" \
-  | xmllint --xpath 'string(//invitation)' -; echo</pre>
-  <p><button type="button" class="ghost tiny" onclick="copyPopoverCode()">Copy</button> curl asks for the password. The last line prints the invitation ID. It never expires and can be used for any number of Macs.</p>
+  -H "Content-Type: application/xml" \
+  -d '&lt;computer_invitation&gt;
+        &lt;invitation_type&gt;USER_INITIATED_URL&lt;/invitation_type&gt;
+        &lt;expiration_date&gt;Unlimited&lt;/expiration_date&gt;
+        &lt;ssh_username&gt;&lt;/ssh_username&gt;
+        &lt;ssh_password&gt;&lt;/ssh_password&gt;
+      &lt;/computer_invitation&gt;')
+
+INVITATION=$(echo "$RESPONSE" | xmllint --xpath 'string(//invitation)' - 2&gt;/dev/null)
+if [ -n "$INVITATION" ]; then
+  echo "Invitation ID: $INVITATION"
+  echo "Enrollment URL: $URL/enroll?invitation=$INVITATION"
+else
+  echo "No invitation returned. Raw response:"; echo "$RESPONSE"
+fi
+)</pre>
+  <p><button type="button" class="ghost tiny" onclick="copyPopoverCode()">Copy</button> It asks for the Jamf Pro URL prefix, your username and your password (not shown). It prints the invitation ID, and the enrollment URL it belongs to. The invitation never expires and can be used for any number of Macs.</p>
 </template>
 <template id="autoEnrollHelp">
   <h4>Experimental feature</h4>

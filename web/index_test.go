@@ -1300,9 +1300,16 @@ func TestDev6ConsistencyAndHelp(t *testing.T) {
 		}
 	}
 	help := sourceSection(t, html, `<template id="jamfInvitationHelp">`, `</template>`)
-	for _, want := range []string{"/api/v1/auth/token", "/JSSResource/computerinvitations/id/0", "<expiration_date>Unlimited</expiration_date>", "string(//invitation)", `onclick="copyPopoverCode()"`} {
+	for _, want := range []string{"/api/v1/auth/token", "/JSSResource/computerinvitations/id/0", "<invitation_type>USER_INITIATED_URL</invitation_type>", "<expiration_date>Unlimited</expiration_date>", "string(//invitation)", "/enroll?invitation=", `onclick="copyPopoverCode()"`} {
 		if !strings.Contains(strings.ReplaceAll(strings.ReplaceAll(help, "&lt;", "<"), "&gt;", ">"), want) {
 			t.Errorf("invitation recipe is missing %q", want)
+		}
+	}
+	// The DEFAULT invitation type and the multiple_users/uses fields made Jamf Cloud answer HTTP 500
+	// (2026-11-07 live test); USER_INITIATED_URL with an empty account is the form that works.
+	for _, bad := range []string{"<invitation_type>DEFAULT<", "multiple_users_allowed", "multiple_uses_allowed"} {
+		if strings.Contains(strings.ReplaceAll(strings.ReplaceAll(help, "&lt;", "<"), "&gt;", ">"), bad) {
+			t.Errorf("invitation recipe must not send %q", bad)
 		}
 	}
 	for _, want := range []string{"function clearPortaledMenus(", "document.body.appendChild(list);", ".row-menu-list.portal-open"} {
