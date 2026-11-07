@@ -1,6 +1,7 @@
 package web
 
 import (
+	"os"
 	"regexp"
 	"strings"
 	"testing"
@@ -377,11 +378,19 @@ func TestMemoryRecoveryActionsOnlyEnableForRunningVMs(t *testing.T) {
 	renderTable := sourceSection(t, string(b), `function renderTable`, `// keep "time remaining"`)
 	for _, want := range []string{
 		`const notRunning = vm.state !== "running" ? " disabled" : "";`,
-		`const stopDisabled = busy;`,
-		`act(\'stop\'`,
+		`vmControlButtons(vm, n, !!vm.busy)`,
 	} {
 		if !strings.Contains(renderTable, want) {
 			t.Errorf("running-only action guard missing %q", want)
+		}
+	}
+	controls := sourceSection(t, string(b), `function vmControlButtons(`, `function renderTable(`)
+	for _, want := range []string{
+		`act(\'stop\'`, `(busy ? " disabled" : "")`, // Stop: only while an operation is in flight
+		`act(\'run\'`, `suspendVM(\'`,
+	} {
+		if !strings.Contains(controls, want) {
+			t.Errorf("vmControlButtons missing %q", want)
 		}
 	}
 }
@@ -565,10 +574,10 @@ func TestHelpersLiveInQuestionMarkTips(t *testing.T) {
 	}
 	for _, want := range []string{
 		`data-help="How often the scheduler acts"`, `data-help="Quote values with spaces, e.g. --dir=&quot;~/My Shared Folder&quot;"`,
-		`id="helpPopover"`, `function openHelp(`, `function closeHelp(`, `e.target.closest(".help-tip")`,
+		`id="helpPopover"`, `function openHelp(`, `function closeHelp(`, `e.target.closest(".help-tip, .help-btn")`,
 		// Enable Auto-Enrollment Capabilities: requirements in a tip, first and last sentence kept.
 		`id="prepRequirementsBtn"`, `<template id="prepRequirementsHelp">`, `<h4>Before you run the script</h4>`,
-		`<p class="muted">Generate and deploy Jamf enrollment profiles on VMs.</p>`,
+		`<p class="muted">Auto enroll needs both steps: add your Jamf servers, then run the script once on the base VM. Clones get their own profile at first boot.</p>`,
 		`Keep Screen Sharing open to the VM while this script runs`,
 	} {
 		if !strings.Contains(html, want) {
@@ -682,9 +691,10 @@ func TestAgentAccessHasItsOwnPanelAboveServerSettings(t *testing.T) {
 			t.Errorf("%s is still in Server Settings", id)
 		}
 	}
-	// The toggle that shows the panel belongs to Server Settings.
-	if !strings.Contains(html[server:], `id="showAgentFeatures"`) {
-		t.Error("Server Settings needs the Display agentic AI features toggle")
+	// The toggle that shows the panel belongs to App Preferences.
+	prefs := sourceSection(t, html, `id="panel-app-prefs"`, `<div class="panel" id="`)
+	if !strings.Contains(prefs, `id="showAgentFeatures"`) {
+		t.Error("App Preferences needs the Display agentic AI features toggle")
 	}
 	for _, want := range []string{`showAgentFeatures: chk("showAgentFeatures")`, `applyAgentVisibility(state.config.showAgentFeatures === true)`, `.agent-off { display: none !important; }`} {
 		if !strings.Contains(html, want) {
@@ -906,7 +916,7 @@ func TestSuspendIsPerVMWithASchedulerOverrideAndNoAudioIsGone(t *testing.T) {
 	}
 	sched := sourceSection(t, html, `id="panel-scheduler"`, `id="panel-tart-settings"`)
 	if !strings.Contains(sched, `id="schedulerSuspend"`) {
-		t.Error("the scheduler section needs Suspend VMs instead of shutting them down")
+		t.Error("the scheduler section needs Suspend mode")
 	}
 	if strings.Contains(sched, `id="suspendable"`) || strings.Contains(sched, `id="noAudio"`) {
 		t.Error("the scheduler section should have neither the old global suspendable toggle nor Disable audio")
@@ -973,7 +983,7 @@ func TestVMTablePinsNameAndActionsAndScrollsTheRest(t *testing.T) {
 	// open row menu must stay above the pinned cells of the rows below it.
 	css := sourceSection(t, html, `.table-shell { position: relative; }`, `body.col-resizing {`)
 	for _, want := range []string{
-		`td.pin-l, .vm-table td.pin-r { background-color: var(--panel)`,
+		`.vm-table tr.row-running:hover td.pin-r {` + "\n" + `    background-color: var(--panel);`,
 		`td.pin-r:has(.row-menu.open)`, `.table-shell.can-left::before`, `.table-shell.can-right::after`,
 		`var(--scroll-shade)`,
 	} {
@@ -984,5 +994,271 @@ func TestVMTablePinsNameAndActionsAndScrollsTheRest(t *testing.T) {
 	// Both themes define the gradient colour.
 	if strings.Count(html, `--scroll-shade:`) != 2 {
 		t.Error("--scroll-shade must be defined for the dark and the light theme")
+	}
+}
+
+func TestDev2FeedbackMarkup(t *testing.T) {
+	b, err := Content.ReadFile("index.html")
+	if err != nil {
+		t.Fatal(err)
+	}
+	html := string(b)
+	// Timer comes before Snapshots, in the header, the colgroup and the rows.
+	head := sourceSection(t, html, `id="localVmHead"`, `</thead>`)
+	if strings.Index(head, `data-sort="remaining"`) > strings.Index(head, `data-sort="snapshots"`) {
+		t.Error("Timer must come before Snapshots in the header")
+	}
+	cols := sourceSection(t, html, `id="vmCols"`, `</colgroup>`)
+	if strings.Index(cols, `data-col="remaining"`) > strings.Index(cols, `data-col="snapshots"`) {
+		t.Error("Timer must come before Snapshots in the colgroup")
+	}
+	rows := sourceSection(t, html, `function renderTable(`, `// keep "time remaining"`)
+	if strings.Index(rows, `data-stop=`) > strings.Index(rows, `snapshotsCell(vm)`) {
+		t.Error("the Timer cell must come before the Snapshots cell")
+	}
+	// Actions is fitted to its buttons; the spare width goes to Info.
+	for _, want := range []string{`fitActionsColumn();`, `const VM_COL_SPARE = "info";`} {
+		if !strings.Contains(html, want) {
+			t.Errorf("missing %q", want)
+		}
+	}
+	// The scheduler toggle is called Suspend mode.
+	sched := sourceSection(t, html, `id="panel-scheduler"`, `id="panel-tart-settings"`)
+	if !strings.Contains(sched, `</span></span> Suspend mode<button type="button" class="help-tip"`) {
+		t.Error("the scheduler toggle should read Suspend mode, with its ? tip")
+	}
+	// A tip inside a flex label must not shrink.
+	if !strings.Contains(html, "flex: none; /* inside a flex label") {
+		t.Error("button.help-tip must not shrink (flex: none)")
+	}
+	// Auto enroll gets a warning sign, not a ?, in both places.
+	for _, field := range []string{`Auto enroll at first boot<button`, `Auto enroll at next boot<button`} {
+		i := strings.Index(html, field)
+		if i < 0 {
+			t.Fatalf("missing %q", field)
+		}
+		tip := html[i : i+200]
+		if !strings.Contains(tip, `class="help-tip warn-tip"`) || strings.Contains(tip, `>?</button>`) {
+			t.Errorf("%s should carry the warning sign: %s", field, tip)
+		}
+	}
+}
+
+// People skipped the auto-enrollment script because it read as a footnote of the
+// server list. The panel is two numbered steps in their own cards, and copying a
+// profile by hand is a separate optional card after them, so it is not read as a
+// step towards cloning.
+func TestPrepareVMForJamfIsTwoNumberedStepsThenAnOptionalCopy(t *testing.T) {
+	b, err := Content.ReadFile("index.html")
+	if err != nil {
+		t.Fatal(err)
+	}
+	html := string(b)
+	panel := sourceSection(t, html, `id="panel-prep-jamf"`, `id="panel-guest-agent"`)
+	order := []string{
+		`<section class="jamf-step" id="jamfStep1"`, `<span class="jamf-step-num" aria-hidden="true">1</span>`, `>Jamf Server Profiles</h3>`,
+		`id="jamfProfileRows"`, `id="jamfProfileEditor"`, `</section>`,
+		`<section class="jamf-step" id="jamfStep2"`, `<span class="jamf-step-num" aria-hidden="true">2</span>`, `>Enable Auto-Enrollment Capabilities on Base VM</h3>`,
+		`Run it once on the base VM, before you clone it`, `id="prepTarget"`,
+		`id="prepRequirementsBtn" data-help-src="prepRequirementsHelp" aria-expanded="false">1. Prerequisites</button>`,
+		`id="checkCompatBtn">2. Check compatibility</button>`, `id="prepGoldenBtn">3. Run accessibility script</button>`,
+		`id="prepReadiness"`, `</section>`,
+		`<section class="jamf-step jamf-step-optional" id="jamfManualCopy"`, `Copy a Profile Manually (optional)`,
+		`id="mdmTarget"`, `id="mdmProfileSelect"`, `id="copyMdmBtn"`, `id="mdmCopyStatus"`, `</section>`,
+	}
+	at := 0
+	for _, want := range order {
+		i := strings.Index(panel[at:], want)
+		if i < 0 {
+			t.Fatalf("Prepare VM for Jamf: %q missing or out of order", want)
+		}
+		at += i + len(want)
+	}
+	if strings.Count(panel, `class="jamf-step-num"`) != 2 {
+		t.Error("exactly two numbered steps expected")
+	}
+	if strings.Contains(panel, "Deploy MDM Enrollment Profile") {
+		t.Error("the manual copy is no longer presented as a step")
+	}
+}
+
+// The Helper Guide is README.md rendered in the app, where headings get ids from
+// the same rule as the slug function in index.html. A link to a renamed heading
+// would silently go nowhere.
+func TestReadmeInPageLinksPointAtHeadings(t *testing.T) {
+	readme, err := os.ReadFile("../README.md")
+	if err != nil {
+		t.Fatal(err)
+	}
+	nonAlnum := regexp.MustCompile(`[^a-z0-9]+`)
+	slug := func(s string) string { return strings.Trim(nonAlnum.ReplaceAllString(strings.ToLower(s), "-"), "-") }
+	ids := map[string]bool{}
+	inFence := false
+	for _, line := range strings.Split(string(readme), "\n") {
+		if strings.HasPrefix(line, "```") {
+			inFence = !inFence
+			continue
+		}
+		if m := regexp.MustCompile(`^#{1,6} (.+)$`).FindStringSubmatch(line); m != nil && !inFence {
+			ids[slug(m[1])] = true
+		}
+	}
+	links := regexp.MustCompile(`\]\(#([^)]+)\)`).FindAllStringSubmatch(string(readme), -1)
+	if len(links) == 0 {
+		t.Fatal("no in-page links found; the test is not looking at the README")
+	}
+	for _, l := range links {
+		if !ids[l[1]] {
+			t.Errorf("README links to #%s, but no heading has that id", l[1])
+		}
+	}
+}
+
+// The pinned Actions cell must stay opaque in every row state (the Snapshots
+// count showed through it on a hovered running row), is never tinted, and its
+// buttons never shrink.
+func TestPinnedActionsCellStaysOpaqueAndItsButtonsKeepTheirSize(t *testing.T) {
+	b, err := Content.ReadFile("index.html")
+	if err != nil {
+		t.Fatal(err)
+	}
+	html := string(b)
+	for _, want := range []string{
+		`.vm-table tr.row-running:hover td.pin-r {` + "\n" + `    background-color: var(--panel); background-image: none;`,
+		`.vm-table td.acts .row-actions > * { flex: none; }`,
+		`if (!table || !table.offsetParent) return;`,
+		`new ResizeObserver(() => { fitActionsColumn(); updateVmScrollHints(); })`,
+	} {
+		if !strings.Contains(html, want) {
+			t.Errorf("missing %q", want)
+		}
+	}
+	for _, unwanted := range []string{"tr.row-running td.pin-r {", "tr:hover td.pin-r {", "tr.row-running:hover td.pin-r { background-image"} {
+		if strings.Contains(html, unwanted) {
+			t.Errorf("the Actions cell is tinted again: %q", unwanted)
+		}
+	}
+}
+
+// Settings put their switches in a group of their own, apart from the text fields,
+// in every Configuration panel and in Guest provisioning. A master switch (one that
+// turns the fields it sits with on) comes first.
+func TestSettingsKeepSwitchesApartFromTextFields(t *testing.T) {
+	b, err := Content.ReadFile("index.html")
+	if err != nil {
+		t.Fatal(err)
+	}
+	html := string(b)
+	if strings.Contains(html, `<div class="field"><label>&nbsp;</label><label class="radio"><span class="toggle">`) {
+		t.Error("a switch still sits in a text-field grid behind an empty label")
+	}
+	for panel, ids := range map[string][]string{
+		`id="panel-scheduler"`:       {"dailyEnabled", "excludeOciFromScheduler", "noGraphics", "schedulerSuspend"},
+		`id="panel-tart-settings"`:   {"checkTartUpdates"},
+		`id="panel-ssh-commands"`:    {"sshFallbackEnabled", "prioritizeSshShutdown"},
+		`id="panel-server-settings"`: {"tlsEnabled"},
+		`id="panel-app-prefs"`:       {"launchAtBoot", "showJamfFeatures", "showAgentFeatures", "checkOvenUpdates"},
+		`id="panel-agent-access"`:    {"agentEnabled"},
+	} {
+		section := sourceSection(t, html, panel, `<div class="panel" id="`)
+		for _, id := range ids {
+			i := strings.Index(section, `id="`+id+`"`)
+			g := strings.LastIndex(section[:max(i, 0)], `<div class="toggle-group`)
+			if i < 0 || g < 0 || strings.Contains(section[g:i], `<div class="grid">`) {
+				t.Errorf("%s: switch %s is not in a toggle group", panel, id)
+			}
+		}
+	}
+	// Master switches first: agent access, HTTPS, guest provisioning.
+	for _, pair := range [][2]string{
+		{`id="agentEnabled"`, `id="agentMaxTtlMin"`},
+		{`id="tlsEnabled"`, `id="tlsCertPath"`},
+		{`id="provisioningEnabled"`, `id="provisioningFullName"`},
+	} {
+		if strings.Index(html, pair[0]) > strings.Index(html, pair[1]) {
+			t.Errorf("master switch %s must come before %s", pair[0], pair[1])
+		}
+	}
+	if !strings.Contains(html, `<div id="provisioningCreateSection" class="sub-card"`) {
+		t.Error("Guest provisioning should be a card, like the Jamf steps")
+	}
+	for _, want := range []string{`<label>VM info refresh interval (s)<button`, `#vmInfoModalBody { display: flex; flex-direction: column; gap: 14px; max-height: 70vh; overflow-y: auto; padding-right: 12px;`, `.kv-section { border: 1px solid var(--border);`} {
+		if !strings.Contains(html, want) {
+			t.Errorf("missing %q", want)
+		}
+	}
+	for _, gone := range []string{"<label>Compatibility</label>", "Select a VM to check.", "Auto-check interval (seconds)"} {
+		if strings.Contains(html, gone) {
+			t.Errorf("%q should be gone", gone)
+		}
+	}
+}
+
+// The four ideas from the dev4 review: app preferences apart from server setup,
+// fields greyed out while the switch they need is off, rarely changed fields in a
+// collapsed Advanced section, and a save bar that follows the page when needed.
+func TestConfigurationIdeasFromTheDev4Review(t *testing.T) {
+	b, err := Content.ReadFile("index.html")
+	if err != nil {
+		t.Fatal(err)
+	}
+	html := string(b)
+	prefs := sourceSection(t, html, `id="panel-app-prefs"`, `<div class="panel" id="`)
+	if !strings.Contains(prefs, "<h2>App Preferences</h2>") {
+		t.Error("App Preferences needs its title")
+	}
+	server := sourceSection(t, html, `id="panel-server-settings"`, `id="saveBtn"`)
+	for _, id := range []string{"launchAtBoot", "showJamfFeatures", "showAgentFeatures", "checkOvenUpdates"} {
+		if !strings.Contains(prefs, `id="`+id+`"`) || strings.Contains(server, `id="`+id+`"`) {
+			t.Errorf("%s belongs in App Preferences, not Server Settings", id)
+		}
+	}
+	// Dependent fields and their switch.
+	for field, sw := range map[string]string{"dailyStart": "dailyEnabled", "dailyStop": "dailyEnabled", "tlsCertPath": "tlsEnabled", "tlsKeyPath": "tlsEnabled", "agentMaxTtlMin": "agentEnabled", "agentTemplatesBtn": "agentEnabled"} {
+		i := strings.Index(html, `id="`+field+`"`)
+		f := strings.LastIndex(html[:i], `<div class="field"`)
+		if i < 0 || f < 0 || !strings.Contains(html[f:i], `data-depends-on="`+sw+`"`) {
+			t.Errorf("%s should depend on %s", field, sw)
+		}
+	}
+	sched := sourceSection(t, html, `id="panel-scheduler"`, `<div class="panel" id="`)
+	if strings.Index(sched, `id="dailyEnabled"`) > strings.Index(sched, `id="dailyStart"`) {
+		t.Error("Limit scheduler to daily hours must come right before its time fields")
+	}
+	// Advanced sections.
+	for panel, ids := range map[string][]string{
+		`id="panel-tart-settings"`:   {"tartAppPath", "runArgs"},
+		`id="panel-ssh-commands"`:    {"statusCommand"},
+		`id="panel-server-settings"`: {"logPath"},
+	} {
+		section := sourceSection(t, html, panel, `<div class="panel" id="`)
+		adv := strings.Index(section, `<details class="advanced">`)
+		for _, id := range ids {
+			if adv < 0 || strings.Index(section, `id="`+id+`"`) < adv {
+				t.Errorf("%s: %s should be under Advanced", panel, id)
+			}
+		}
+	}
+	for _, want := range []string{`id="cfgSaveBar"`, `.save-bar.dirty { position: sticky; bottom: 0;`, `function syncSaveBar(`, `function syncDependentFields(`, "  syncDependentFields();\n  markConfigClean();"} {
+		if !strings.Contains(html, want) {
+			t.Errorf("missing %q", want)
+		}
+	}
+}
+
+// Auto enroll only works on an English guest: the prerequisites say so and
+// Check compatibility shows the language.
+func TestCompatibilityChecksTheGuestLanguage(t *testing.T) {
+	b, err := Content.ReadFile("index.html")
+	if err != nil {
+		t.Fatal(err)
+	}
+	html := string(b)
+	prereq := sourceSection(t, html, `<template id="prepRequirementsHelp">`, `</template>`)
+	if !strings.Contains(prereq, "English (any region") {
+		t.Error("the prerequisites must say the VM has to be in English")
+	}
+	if !strings.Contains(html, `readinessPill("Language", d.language, "english", "other", d.languageCode)`) {
+		t.Error("Check compatibility must show the Language pill")
 	}
 }

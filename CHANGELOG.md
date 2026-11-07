@@ -12,20 +12,36 @@ A few terms appear throughout:
 - **MDM / Jamf Pro** — the system that manages enrolled Macs. Tart Oven can prepare
   a VM for enrollment and report whether a guest is enrolled.
 
-## 2.3.0 (in progress)
+## 2.3.0 (2026-11-07)
 
 ### Added
 
 - **Internet column.** The VM table shows whether each guest can reach the internet, in the same style as the **Access** column: green **OK**, red **KO**, or grey when it has not been checked yet. Hover a red **KO** for the reason. Tart Oven asks the guest to fetch Apple's captive-portal page, the one macOS itself uses, so a Wi-Fi sign-in page or a filtering proxy that answers instead counts as offline. If the check can't run at all, for example because the guest has no agent or SSH, it stays grey rather than claiming the guest is offline. A stopped VM keeps its last result, faded. The column is sortable, and **VM details** has an **Internet** row.
-- **Automatic checks.** Tart Oven re-checks every running VM's Agent, SSH, Internet, MDM and Info on its own, like **Refresh info**. Set how often in **Configuration → Tart Settings → Auto-check interval (seconds)**: 120 by default, 0 turns it off, 86400 at most.
+- **Automatic checks.** Tart Oven re-checks every running VM's Agent, SSH, Internet, MDM and Info on its own, like **Refresh info**. Set how often in **Configuration → Tart Settings → VM info refresh interval (s)**: 120 by default, 0 turns it off, 86400 at most.
 - **Start suspendable, per VM.** Each VM has its own **Start suspendable** setting in **Edit VM**, and you can turn it on when creating or cloning in **Create / clone VMs**. It is off for new VMs. **VM details** shows it.
-- **Scheduler suspend.** **Configuration → VM Scheduler → Suspend VMs instead of shutting them down** makes the scheduler start its VMs suspendable, suspend them when their run window ends, and resume them on later runs instead of booting them again. A VM that can't be suspended is stopped as before.
+- **Scheduler suspend.** **Configuration → VM Scheduler → Suspend mode** makes the scheduler start its VMs suspendable, suspend them when their run window ends, and resume them on later runs instead of booting them again. A VM that can't be suspended is stopped as before.
 - **Jamf School enrollment profiles** (pull request #18). **Add Jamf Server** now offers **Pro** or **School**. For School, enter the network and location IDs; Tart Oven downloads an enrollment profile from your tenant and copies it to a VM or uses it for auto-enroll. Each download creates a new device identity in Jamf School, so keep School out of the "copy to a base VM, then clone" workflow. Tart Oven protects the identity: the server address must be `https://`, the profile must come from that same host, it is sent to the guest without appearing in any command line on the Mac, and the copy is checked by checksum. Auto-enroll set to **None** never reuses a signed profile, or one with a device identity, that Tart Oven did not put on that same VM; a clone of a base VM that holds one stops with a message asking you to choose a Jamf server profile. If you close the page while a copy runs, it still finishes.
 
 ### Changed
 
-- **The VM table fits narrow windows.** **Name** and the action buttons stay in place while the other columns scroll sideways, with a shadow on the side that has more columns. Drag the line at the right edge of a column title to resize it, or double-click it to reset. Widths are remembered in this browser.
+- **Play, Pause and Stop buttons.** Each VM on the Dashboard has three icon buttons instead of **Run** and **Stop**: **Play** (blue) starts the VM or resumes a suspended one, **Pause** (orange) suspends it, and **Stop** (red) shuts it down, or quits a suspended VM fully by discarding its saved memory. **Pause** is greyed out for a VM that was not started suspendable; hover it for why. **Suspend VM** is gone from the **⋯** menu.
+- **Auto enroll is faster with Jamf School.** The script waited about 2 minutes for a word that the Jamf School profile window never shows, before it clicked **Install**. It now also recognises that window by its buttons, so it goes on as soon as the window is ready. The wait still ends at the same limit as before.
+- **The VM table fits narrow windows.** **Name** and the action buttons stay in place while the other columns scroll sideways, with a shadow on the side that has more columns. Drag the line at the right edge of a column title to resize it, or double-click it to reset. Widths are remembered in this browser. The **Actions** column is only as wide as its buttons, and **Timer** now comes before **Last run** and **Snapshots**.
 - **Start VMs suspendable is no longer a global setting.** It is gone from **Tart Settings**. If it was on, every existing VM keeps starting suspendable through its own setting; if it was off, nothing changes.
+- **Auto enroll shows a warning sign.** In **Create / clone VMs** and **Edit VM**, the auto enroll field has an orange warning sign instead of a **?**: the feature is experimental. Click it for what it needs.
+- **Prepare VM for Jamf is two numbered steps.** **1 Jamf Server Profiles** and **2 Enable Auto-Enrollment Capabilities on Base VM** each sit in their own card, so the script on the base VM, which auto enroll needs, is no longer easy to miss. Copying a profile to a VM manually moved below them as an optional card: auto enroll doesn't need it. Step 2 walks you through three buttons in order: **1. Prerequisites**, **2. Check compatibility**, **3. Run accessibility script**.
+- **Check compatibility checks the language.** It now also shows **Language**: green for English in any region (US, UK and so on), red for any other language, with the code the VM reports. Auto enroll finds buttons by their English names, so it only works on an English VM; **1. Prerequisites** says so too.
+- **The Helper Guide describes the right Jamf workflow.** It no longer says to copy a profile to the base VM before cloning. Add your servers, run the script once on the base VM, then choose a server under **Auto enroll at first boot** when you clone.
+- **Settings are easier to scan.** In every **Configuration** section, the switches sit together in their own group, apart from the text fields. A switch that turns a group of fields on (**Allow AI agents to lease VMs**, **Serve over HTTPS**, **Provision this VM automatically**) comes first. **Guest provisioning** in **Create from IPSW** is a card of its own, and **VM details** shows each section as a card.
+- **App Preferences.** **Launch at login**, **Display Jamf-related features**, **Display agentic AI features** and **Check for Tart Oven updates** moved from **Server Settings** to a new **App Preferences** section at the top of **Configuration**. **Server Settings** keeps the server itself: listen address, log file, history, access token and HTTPS.
+- **Fields that need a switch wait for it.** The daily start and stop times are greyed out until **Limit scheduler to daily hours** is on (the switch now sits right above them), the certificate and key files until **Serve over HTTPS** is on, and the lease settings until **Allow AI agents to lease VMs** is on. Their values are kept.
+- **Advanced settings are folded away.** **Tart binary path** and **Custom run arguments** (Tart Settings), **Status command** (SSH & Commands) and **Log file path** (Server Settings) sit under a collapsed **Advanced** heading in their section. Click **Advanced** to show them.
+- **Save configuration follows you.** While there are unsaved changes, the **Save configuration** bar stays at the bottom of the window with an orange **Unsaved changes** note, so you don't have to scroll down to save.
+
+### Fixed
+
+- **Renaming a VM no longer risks losing its details.** If Tart Oven refreshed its VM list at the moment of a rename, the renamed VM could lose its notes, tags, saved SSH password and snapshot list. A VM name with an apostrophe (such as Bob's Mac) also broke its buttons on the dashboard; both work now.
+
 
 ## 2.2.2 (2026-10-23)
 

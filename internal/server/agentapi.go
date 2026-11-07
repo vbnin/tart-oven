@@ -70,7 +70,7 @@ func (m *Manager) agentHandler(h func(http.ResponseWriter, *http.Request, princi
 		m.mu.Unlock()
 		if !on {
 			writeAgentError(w, agentErr(http.StatusForbidden, "agent_api_disabled",
-				"the agent API is off; enable it in Configuration > Agentic AI access (shown by Server Settings > Display agentic AI features)"))
+				"the agent API is off; enable it in Configuration > Agentic AI access (shown by App Preferences > Display agentic AI features)"))
 			return
 		}
 		h(w, r, principalOf(r))

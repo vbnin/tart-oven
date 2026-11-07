@@ -4,7 +4,7 @@ Tart Oven is a local web console for managing [Tart](https://github.com/openai/t
 
 Tart Oven runs on macOS and manages macOS virtual machines.
 
-Current release: **2.3.0-dev1** · [Changelog](CHANGELOG.md)
+Current release: **2.3.0** · [Changelog](CHANGELOG.md)
 
 <p align="center">
   <img src="assets/screenshots/Tart%20Oven%20Screenshot%201.png" alt="Tart Oven screenshot 1" width="900">
@@ -28,13 +28,13 @@ Tart Oven limits the host to two running VMs at a time. Apple's macOS license al
 
 ### 1. Install Tart Oven
 
-Download `TartOven-2.3.0-dev1.pkg` from the [release page](https://github.com/vbnin/tart-oven/releases).
+Download `TartOven-2.3.0.pkg` from the [release page](https://github.com/vbnin/tart-oven/releases).
 
 Open the package in Finder or install it from Terminal:
 
 ```sh
 cd "$HOME/Downloads"
-sudo installer -pkg "./TartOven-2.3.0-dev1.pkg" -target /
+sudo installer -pkg "./TartOven-2.3.0.pkg" -target /
 ```
 
 The package installs:
@@ -121,14 +121,14 @@ On the Dashboard:
 - The **Snapshots** column counts each VM's [snapshots](#snapshots-and-suspend). Click the number to open them.
 - The **Access** column shows whether commands can reach the guest: **Agent** (the Tart guest agent answers) or **SSH** (the fallback). When the agent works, only it is shown. A stopped VM keeps its last known status, faded.
 - The **Internet** column shows whether the guest can reach the internet, in the same style as **Access**: green **OK**, red **KO**, grey when it has not been checked. Hover a red **KO** for the reason. Tart Oven asks the guest to fetch Apple's captive-portal page, so a Wi-Fi sign-in page or filtering proxy counts as offline. A stopped VM keeps its last result, faded.
-- Access, Internet, MDM and Info are checked after boot, by **Refresh info**, and automatically for every running VM every **Auto-check interval** seconds (**Configuration → Tart Settings**, 120 by default, 0 turns it off, 86400 at most).
+- Access, Internet, MDM and Info are checked after boot, by **Refresh info**, and automatically for every running VM at the **VM info refresh interval (s)** set in **Configuration → Tart Settings** (120 s by default, 0 turns it off, 86400 at most).
 - The **ⓘ** button opens **VM details**: state, IP, last start and stop, uptime, hardware, Access, Internet, MDM enrollment, the last **Refresh info** output, tags and notes. It updates live.
 - Click a **?** beside a setting for its help text. Click a section title to collapse it; Tart Oven remembers which are open. The switch in the header toggles dark and light mode.
 - Leaving **Configuration** with unsaved changes asks whether to save, discard or keep editing.
 
 The **Setup Wizard** (Configuration) opens by itself on a first run with no VMs, and you can relaunch it any time. It has five steps:
 
-1. **Environment** checks that the Mac has an Apple silicon chip, and that Tart is installed and up to date. It can install or update Tart for you, and shows a green check once Tart is in place. Below that, **Extra features** turns on the optional Jamf and agentic AI sections of the dashboard; both are off by default, and you can change them later under **Server Settings**.
+1. **Environment** checks that the Mac has an Apple silicon chip, and that Tart is installed and up to date. It can install or update Tart for you, and shows a green check once Tart is in place. Below that, **Extra features** turns on the optional Jamf and agentic AI sections of the dashboard; both are off by default, and you can change them later under **App Preferences**.
 2. **Storage & Server** shows the VM storage path, which you can change, and the free space there. Tart Oven recommends 40 GB or more, and warns if there is less, but you can continue. It also shows the server address.
 3. **First VM** offers two routes. **Pull an OCI image** is the quickest: it downloads a prepared macOS image you can clone. **Build a fresh VM from an IPSW** starts from Apple's restore image for a clean install, in the macOS version you choose. Pick one, then pull the image or choose a version from the list; versions already downloaded are marked in green. To use a restore image you already have, type its path under **Or a file on this Mac** or click **Browse…** (the Finder window opens on the Mac running Tart Oven; from another computer, type the path). A file works even while the online list is still loading. You can also skip this step.
 4. **Purpose** sets starting defaults. **Testing / Troubleshooting** keeps the scheduler off and runs VMs with a full display and audio. **Demo / Data Generation** turns the scheduler on and runs scheduled VMs headless with audio off. Change any of it later in Configuration.
@@ -136,7 +136,7 @@ The **Setup Wizard** (Configuration) opens by itself on a first run with no VMs,
 
 ### Updates
 
-Tart Oven checks GitHub for new Tart and Tart Oven releases at startup and every 24 hours. A banner in the top right links to **Update Tart** or to the Tart Oven release page. Closing a banner hides it until a newer version appears or Tart Oven restarts. Turn each check off with **Check for Tart updates** (Tart Settings) and **Check for Tart Oven updates** (Server Settings).
+Tart Oven checks GitHub for new Tart and Tart Oven releases at startup and every 24 hours. A banner in the top right links to **Update Tart** or to the Tart Oven release page. Closing a banner hides it until a newer version appears or Tart Oven restarts. Turn each check off with **Check for Tart updates** (Tart Settings) and **Check for Tart Oven updates** (App Preferences).
 
 ### Images and VMs
 
@@ -167,13 +167,13 @@ tart-oven token revoke     # remove the token
 
 ### VM actions
 
-The Dashboard provides **Run** and **Stop** next to each VM, plus a "⋯" menu with the rest:
+The Dashboard provides three buttons next to each VM: **Play** (blue), **Pause** (orange) and **Stop** (red), plus a "⋯" menu with the rest. Hover a button for what it will do; a greyed-out button can't act right now.
 
-- **Run** starts a stopped VM. On a suspended VM the button reads **Resume**.
+- **Play** starts a stopped VM, or resumes a suspended one where it left off.
+- **Pause** suspends a running VM: it saves the VM's memory and stops it, and **Play** brings it back in seconds. It is greyed out for a VM that was not started suspendable (see [Snapshots and suspend](#snapshots-and-suspend)).
 - **Run with arguments** (⋯ menu) opens a window to choose `tart run` options for one run: display (headless, Screen Sharing, or Virtualization VNC, which works before login and in recovery), network (shared NAT, host only, Softnet) and options such as no audio or boot into recovery. The choice replaces **Custom run arguments** for that run, and **Restart VM** keeps it. It opens pre-filled with what a normal run would use.
 - **Restart VM** (⋯ menu) restarts a running VM, keeping the options chosen in **Run with arguments**.
-- **Stop** asks Tart to stop it with a short timeout and may force termination. Enable **Prioritize clean shutdown** in **Configuration → SSH & Commands** to instead ask the guest to shut down cleanly (via the guest agent or SSH) first (up to 30 seconds) before falling back to the fast stop — safer for guests that need time to flush state on power-off.
-- **Suspend VM** (⋯ menu) saves a running VM's memory and stops it; **Resume** brings it back in seconds. It is only available for a VM started suspendable (see [Snapshots and suspend](#snapshots-and-suspend)).
+- **Stop** shuts the VM down. On a paused (suspended) VM it discards the saved memory, so the VM quits fully. On a running VM it asks Tart to stop it with a short timeout and may force termination. Enable **Prioritize clean shutdown** in **Configuration → SSH & Commands** to instead ask the guest to shut down cleanly (via the guest agent or SSH) first (up to 30 seconds) before falling back to the fast stop. It is safer for guests that need time to flush state on power-off.
 - **VM Snapshots** (⋯ menu) opens the VM's snapshots.
 - **Refresh info** (⋯ menu) re-checks the VM's IP, its Agent and SSH status, its internet access and its MDM enrollment, then runs the configured status command inside the guest to collect its info again. Changing a running VM's hostname runs it automatically.
 - **Install Agent** (⋯ menu) installs the bundled Tart guest agent package into a running guest over SSH, so it no longer needs SSH fallback for commands.
@@ -201,15 +201,15 @@ A **snapshot** is a full copy of a VM, taken on demand, to go back to or to try 
 - **Restore** replaces the VM with that snapshot: the snapshot becomes the VM, with its name and settings (tags, notes, credentials), and the VM's current state is discarded. Take a new snapshot first to keep it. Both must be stopped.
 - **Delete** removes a snapshot. Deleting or renaming a VM takes its snapshots into account: renaming renames them too, and deleting asks whether to delete them as well or to use one as the VM.
 
-**Suspend** saves a running VM's memory to disk and stops it. **Resume** (the Run button on a suspended VM) continues exactly where it left off, in a few seconds, without booting. **Stop** on a suspended VM discards the saved memory.
+**Pause** suspends a VM: it saves the running VM's memory to disk and stops it. **Play** on a suspended VM resumes exactly where it left off, in a few seconds, without booting. **Stop** on a suspended VM discards the saved memory.
 
-It only works for a VM started suspendable. Each VM has its own **Start suspendable** setting, off for new VMs: turn it on in **Edit VM**, or when creating or cloning in **Create / clone VMs**. **Run with arguments → Suspendable** does it for one run. The scheduler's **Suspend VMs instead of shutting them down** overrides the VM's setting for the scheduler's own starts (see [Scheduler](#scheduler)). Suspendable VMs have no audio or entropy device (a Tart limitation), so leave it off for a VM that needs sound. A VM started without it can't be suspended: Tart saves a state that can never be restored, so Tart Oven disables **Suspend VM** for it.
+It only works for a VM started suspendable. Each VM has its own **Start suspendable** setting, off for new VMs: turn it on in **Edit VM**, or when creating or cloning in **Create / clone VMs**. **Run with arguments → Suspendable** does it for one run. The scheduler's **Suspend mode** overrides the VM's setting for the scheduler's own starts (see [Scheduler](#scheduler)). Suspendable VMs have no audio or entropy device (a Tart limitation), so leave it off for a VM that needs sound. A VM started without it can't be suspended: Tart saves a state that can never be restored, so Tart Oven greys out **Pause** for it.
 
 Snapshots and suspend work together. A snapshot of a suspended VM keeps its memory (tagged **memory**): running it resumes at the moment the snapshot was taken. For a running suspendable VM, switch on **Include memory** when creating the snapshot: the VM pauses for a few seconds while it is copied, then resumes.
 
 ### Guest commands
 
-Each VM on the Dashboard has a **`>_`** button next to its **Stop** button. Click it to open that VM's terminal window.
+Each VM on the Dashboard has a **`>_`** button next to its **Stop** button (the red square). Click it to open that VM's terminal window.
 
 1. Type a command at the prompt at the bottom, such as `sw_vers`. Enter runs it; Shift+Enter adds a line for a multi-line command. Up and Down bring back earlier commands.
 2. If the command uses `sudo`, Tart Oven supplies the password: the one you type in the **Custom sudo password** field, otherwise the VM's own custom SSH password if it has one (**Edit VM**), otherwise the default one (**Configuration → SSH & Commands**). With no password available, `sudo` fails at once instead of waiting.
@@ -221,11 +221,11 @@ To run a whole script, click **Run script…** and pick a `.sh` file in Finder, 
 
 Commands run as the VM's SSH user (`admin` unless you changed it under **Edit VM**), whether or not that user is logged in. When they are, commands run inside their desktop session, so scripts that drive apps still work; with nobody logged in there is no desktop session to drive. The window shows live guest agent and SSH status at the top, and each VM remembers its own console output, command history, draft and sudo password across open/close cycles.
 
-Shortcut buttons above the prompt let you run common Jamf commands in one click: `jamf manage`, `jamf recon`, `jamf policy`, and `jamf checkJSSConnection`. They appear when **Configuration → Server Settings → Display Jamf-related features** is on.
+Shortcut buttons above the prompt let you run common Jamf commands in one click: `jamf manage`, `jamf recon`, `jamf policy`, and `jamf checkJSSConnection`. They appear when **Configuration → App Preferences → Display Jamf-related features** is on.
 
 ## Configuration
 
-Open **Configuration** to change Tart Oven settings. Click **Save configuration** at the bottom to apply them.
+Open **Configuration** to change Tart Oven settings. Click **Save configuration** to apply them: while there are unsaved changes, it stays at the bottom of the window with an **Unsaved changes** note. Each section lists its text fields first and its switches together below them. A switch that turns some fields on sits right above them, and those fields are greyed out while it is off. Settings you rarely change sit under **Advanced** in their section.
 
 Important defaults include:
 
@@ -255,7 +255,7 @@ You can configure:
 
 The scheduler is off until you start it. When running, it stops VMs whose configured run window expires. Outside configured daily hours, it can stop all running VMs, including VMs started manually.
 
-With **Suspend VMs instead of shutting them down** on, the scheduler starts every VM it picks suspendable, whatever that VM's own **Start suspendable** setting says, and suspends it instead of stopping it when its run window ends or the daily hours are over. Later runs resume suspended VMs as if they were stopped ones, in seconds instead of a full boot. A running VM that was not started suspendable is stopped as before, since its state could never be restored, and so is a VM whose suspend fails. With the setting off, the scheduler leaves suspended VMs alone, so VMs it suspended earlier stay suspended until you resume or stop them yourself.
+With **Suspend mode** on, the scheduler starts every VM it picks suspendable, whatever that VM's own **Start suspendable** setting says, and suspends it instead of stopping it when its run window ends or the daily hours are over. Later runs resume suspended VMs as if they were stopped ones, in seconds instead of a full boot. A running VM that was not started suspendable is stopped as before, since its state could never be restored, and so is a VM whose suspend fails. With the setting off, the scheduler leaves suspended VMs alone, so VMs it suspended earlier stay suspended until you resume or stop them yourself.
 
 Keep **Exclude OCI images from scheduler** enabled so registry cache entries remain clone sources.
 
@@ -269,21 +269,24 @@ Keep **Exclude OCI images from scheduler** enabled so registry cache entries rem
 
 ## Jamf and MDM
 
-Tart Oven can get a Jamf enrollment profile and copy it to a running base VM over SFTP (or the guest agent). It generates a Jamf Pro profile itself; for Jamf School it downloads one from your tenant.
+Tart Oven can enroll the VMs you clone in Jamf Pro or Jamf School on their first boot, with no profile on the base VM. Turn on **Configuration → App Preferences → Display Jamf-related features** (off by default), then open **VM Management → Prepare VM for Jamf**. It has two numbered steps, and auto enroll needs both:
 
-A safe template workflow for Jamf Pro is:
+1. **Jamf Server Profiles.** Click **+ Add Jamf Server**, choose **Jamf Pro** or **Jamf School**, and enter the server name and base URL, then the invitation ID (Pro) or the network and location IDs (School).
+2. **Enable Auto-Enrollment Capabilities on Base VM.** Run this script once on the base VM, before you clone it (see [Preparing the base VM](#preparing-the-base-vm)). This is the step people miss: without it, auto enroll fails on every clone.
 
-1. Turn on **Configuration → Server Settings → Display Jamf-related features** (off by default), then open **VM Management → Prepare VM for Jamf**.
-2. Click **Add Jamf Server**, choose **Jamf Pro**, and enter the server name, base URL and invitation ID.
-3. Start the base VM.
-4. Select the running VM and Jamf server profile.
-5. Click **Copy profile to Desktop** — it uses that VM's own SSH username/password if set, otherwise the defaults from Configuration.
-6. Confirm `~/Desktop/mdm_enroll.mobileconfig` exists in the guest.
-7. Stop the base VM without enrolling it.
-8. Clone it with **Random MAC** and **Random serial** enabled.
-9. Start and enroll each clone separately.
+Then clone the base VM with **Random MAC** and **Random serial** on, and choose a server under **Auto enroll at first boot**. Each clone gets its own profile from that server at its first boot and enrolls itself (see [Auto-enrolling VMs at boot](#auto-enrolling-vms-at-boot-experimental)).
 
-A Jamf School profile is not a template, so keep it out of the workflow above. It contains a client certificate and its password, and Jamf School creates a new one every time it is downloaded. Copy it only to a VM that will enroll itself, never to a base VM you clone: every clone would present the same device identity, and the devices would collide in Jamf School. Tart Oven downloads a fresh profile for every copy and never stores one, so each **Copy profile to Desktop** (and each auto-enroll) adds an enrollment credential in your Jamf School tenant, whether or not that VM ever enrolls. Auto-enroll set to **None** will not reuse a signed profile, or one with a device identity, that it finds on a Desktop unless Tart Oven put that exact profile on that same VM. A clone of a base VM that holds one stops with a message asking you to choose a Jamf server profile, so each VM gets its own. The server address must start with `https://`, and the profile is sent to the guest without appearing in any command line on the Mac. The download replays the steps of Jamf School's own enrollment web page, so a change to that page can break it; the error says which of its three steps failed.
+Do not put an enrollment profile on the base VM, and do not enroll it. A Jamf Pro profile there is simply not needed. A Jamf School profile there would be worse: it contains a client certificate and its password, so every clone would present the same device identity, and the devices would collide in Jamf School. Tart Oven refuses to reuse such a profile on a clone and asks you to choose a server instead.
+
+### Copying a profile manually (optional)
+
+**Copy a Profile Manually**, below the two steps, puts a profile on one running VM's Desktop (`~/Desktop/mdm_enroll.mobileconfig`) so you can install it yourself. Choose the VM and the server, then click **Copy profile to Desktop**. It goes through the guest agent, or over SFTP with the VM's own SSH user and password if set, otherwise the defaults from Configuration. You don't need it for auto enroll.
+
+### Jamf School
+
+Jamf School creates a new profile, with a new client certificate, every time one is downloaded. Tart Oven downloads a fresh one for every copy and every auto enroll and never stores it, so each one adds an enrollment credential in your Jamf School tenant, whether or not that VM ever enrolls. The server address must start with `https://`, and the profile is sent to the guest without appearing in any command line on the Mac. The download replays the steps of Jamf School's own enrollment web page, so a change to that page can break it; the error says which of its three steps failed.
+
+### The MDM column
 
 The **MDM** column is updated when Tart Oven probes a guest:
 
@@ -295,46 +298,40 @@ Jamf invitation values, Jamf School network and location IDs, and guest SSH pass
 
 ## Auto-enrolling VMs at boot (experimental)
 
-Copying the profile by hand still works, but Tart Oven can also drive System Settings itself — clicking through Install and Enroll over SSH — so a batch of freshly-cloned VMs can enroll themselves with no further intervention.
+Tart Oven can drive System Settings inside a clone itself, through the guest agent or SSH: it pushes the profile, clicks through Install and Enroll, and types the password, so a batch of freshly cloned VMs enroll themselves.
 
-### Priming a base VM
+### Preparing the base VM
 
-This script prepares a base VM to support the Auto Enrollment VM feature on new VMs cloned from it.
+**VM Management → Prepare VM for Jamf → 2 Enable Auto-Enrollment Capabilities on Base VM** runs a script once on the base VM. It grants the two permissions the enrollment script needs (Automation and Accessibility). They live on the base VM's disk, so every clone made from it afterward inherits them: run it once per base VM, not per clone, and again only if you rebuild the base VM.
 
-Prior to execute this script, complete the following requirements:
+Before you run it (**1. Prerequisites** in the step lists this too):
 
-1. Create a clean base VM from an IPSW file or OCI source
-2. Complete Setup Assistant if needed
-3. Ensure FileVault is OFF
-4. Enable autologin for the main user
-5. Install Tart guest agent (or enable key-based SSH access)
+1. Create a clean base VM from an IPSW file or OCI source, and complete Setup Assistant.
+2. Make sure FileVault is off, and turn on autologin for the main user (**System Settings → Users & Groups → Login Options**; the option needs FileVault off).
+3. Install the Tart guest agent, or set up key-based SSH access.
+4. Set the VM's language to English, in any region (US, UK, Australia...). The enrollment script finds buttons by their English names, so another language makes it fail.
 
-Keep Screen Sharing open to the VM while this script runs as it triggers a one-time TCC permission prompt to enable "sshd-keygen-wrapper" (over SSH) or the Tart guest agent (when the VM has it) in Privacy settings. The script completes once a confirmation popup displays on the VM.
+Then:
 
-**VM Management → Prepare VM for Jamf → Enable Auto-Enrollment Capabilities on Base VM** runs it:
+1. Start the base VM and keep Screen Sharing open to it.
+2. Select it under **Target Running VM**, click **2. Check compatibility** if you want to see where it stands, then **3. Run accessibility script**.
+3. Click **Allow** on the Automation prompt, and turn on "sshd-keygen-wrapper" (over SSH) or the Tart guest agent (when the VM has it) in the Accessibility settings the script opens for you.
+4. Wait for the confirmation dialog on the VM's screen, or the banner in Tart Oven, once both permissions are confirmed. Then stop the base VM.
 
-1. Enable autologin on the base VM yourself first (**System Settings → Users & Groups → Login Options**). FileVault must be off for that option to be available.
-2. Start the base VM and keep Screen Sharing open to it.
-3. Select it under **Target Running VM** and click **Run script**.
-4. Click **Allow** on the Automation prompt it triggers, and enable "sshd-keygen-wrapper" (or the Tart guest agent, if the VM has it) in the Accessibility settings it opens for you.
-5. Watch for the confirmation dialog on the VM's own screen, or the banner in Tart Oven, once both grants are confirmed.
-
-Use **Check compatibility** at any time to see a VM's current Autologin and Accessibility status. A check reports Unknown rather than guessing when it can't complete — that is not the same as "not compatible."
-
-These two permissions live on the base VM's disk, so every clone made from it afterward inherits them. It's a one-time step per base VM, not per clone.
+**2. Check compatibility** shows a VM's current Autologin, Accessibility and Language status at any time (Language is green for any English variant, with the code the VM reports, such as `en-GB`). A check reports Unknown rather than guessing when it can't complete; that is not the same as "not compatible."
 
 ### Enrolling automatically
 
-With a primed base VM:
+With a prepared base VM:
 
-- **Auto enroll at first boot**, in **Clone from template**, is a list of your Jamf server profiles (Pro or School; see [Jamf and MDM](#jamf-and-mdm) for what a School profile costs). Choose one and each clone is flagged so its very next boot — scheduler-triggered or manual — runs the enrollment script on its own: push that server's profile, click through Install and Enroll, then refresh the MDM column. Leave it on **None** to skip.
+- **Auto enroll at first boot**, in **Clone from template**, lists your Jamf server profiles (Pro or School; see [Jamf School](#jamf-school) for what a School profile costs). Choose one and each clone is flagged so its very next boot, by the scheduler or by hand, runs the enrollment script on its own: push that server's profile, click through Install and Enroll, then refresh the MDM column. Leave it on **None** to skip.
 - **Auto enroll at next boot**, in **Edit VM → Enrollment**, does the same once, the next time the VM starts. It clears itself after that attempt, whether it succeeds or fails.
 
-Because the chosen profile is pushed to the clone, the base VM doesn't need one: keep it un-enrolled and choose a different server for each batch of clones.
+Because each clone gets the chosen server's profile, you can keep one un-enrolled base VM and choose a different server for each batch of clones.
 
-Both handle the full first-boot Setup Assistant walkthrough automatically when it appears: `--random-serial` gives a clone a hardware identity macOS has never seen, so it re-runs the entire OOBE (network, Apple Account, FileVault) on its very first boot. The script recognizes and clicks through that before ever touching the enrollment profile. macOS 27 does not have this behavior, so a clone lands straight on the desktop and the script skips this step entirely.
+Both handle the full first-boot Setup Assistant walkthrough when it appears: `--random-serial` gives a clone a hardware identity macOS has never seen, so it re-runs the entire OOBE (network, Apple Account, FileVault) on its first boot. The script clicks through that before it touches the enrollment profile. macOS 27 does not do this, so a clone lands straight on the desktop and the script skips the step.
 
-This feature is experimental, as the **?** next to the field says: it drives the same System Settings UI a person would, so a macOS point release that changes that UI's wording or layout can require an update. The guest must also be set to English, because the script finds buttons and panes by their English names; it can't enroll a VM in another language.
+This feature is experimental, as the orange warning sign next to the field says: it drives the same System Settings screens a person would, so a macOS update that changes their wording or layout can break it. The guest must be set to English (any region): the script finds buttons and panes by their English names.
 
 ## Automation
 
@@ -391,7 +388,7 @@ Build the template once, by hand, and keep it stopped:
 ### Turning it on
 
 1. Generate the dashboard access token (**Configuration → Server Settings → Access token**). Agent tokens only limit access when a login is required.
-2. Switch on **Display agentic AI features** under **Configuration → Server Settings**, then in the **Agentic AI access** section above it switch on **Allow AI agents to lease VMs**, pick the templates agents may clone from the **Agent templates** dropdown (tick one or more existing VMs), and set the longest lease.
+2. Switch on **Display agentic AI features** under **Configuration → App Preferences**, then in the **Agentic AI access** section switch on **Allow AI agents to lease VMs**, pick the templates agents may clone from the **Agent templates** dropdown (tick one or more existing VMs), and set the longest lease.
 3. Click **Create agent token**, give it a name such as `claude`, and copy it. It is shown once. From Terminal: `tart-oven token agent create claude`; `tart-oven token agent list` and `tart-oven token agent revoke claude` manage them.
 4. Save the configuration.
 
@@ -491,7 +488,7 @@ Use **Install Tart** in the dashboard. The current upstream Homebrew command is:
 brew install openai/tools/tart
 ```
 
-The default Tart Oven binary path is `/Applications/tart.app/Contents/MacOS/tart`. If your installation differs, update **Configuration → Tart Settings → Tart binary path**.
+The default Tart Oven binary path is `/Applications/tart.app/Contents/MacOS/tart`. If your installation differs, update **Configuration → Tart Settings → Advanced → Tart binary path**.
 
 ### A pull reports insufficient disk space
 

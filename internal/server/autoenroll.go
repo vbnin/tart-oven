@@ -447,6 +447,41 @@ on run argv
 end run
 EOF
 
+# Reports, in one pass over window 1, what the profile-install wait needs:
+# rights=1 when an element's name contains "Rights" (the Jamf Pro profile
+# sheet), and anon=<n>, the number of unnamed buttons, counted exactly as
+# clickgeneric.scpt counts them. One pass, because walking the entire contents
+# of System Settings takes seconds (about 8 s per pass in a 2026-11-07 run).
+cat > /tmp/ae/sheetstate.scpt << 'EOF'
+on run argv
+  set procName to item 1 of argv
+  tell application "System Events"
+    tell process procName
+      set allEls to entire contents of window 1
+      set rights to 0
+      set anon to 0
+      repeat with el in allEls
+        set r to ""
+        set d to ""
+        set n to "x"
+        try
+          set r to (role of el) as string
+        end try
+        try
+          set d to (description of el) as string
+        end try
+        try
+          set n to (name of el) as string
+        end try
+        if n contains "Rights" then set rights to 1
+        if r is "AXButton" and d is "button" and (n is "missing value" or n is "") then set anon to anon + 1
+      end repeat
+      return "rights=" & rights & " anon=" & anon
+    end tell
+  end tell
+end run
+EOF
+
 # Clicks the "+" (add profile) button under General > Device Management.
 # macOS 26/27's redesigned System Settings sidebar renders its ~30 nav rows
 # as anonymous AXButtons (no name, description "button") — the same shape
@@ -575,6 +610,43 @@ dumpproc() { osascript /tmp/ae/dumpproc.scpt "$1" 2>&1; }
 frontproc() { osascript -e 'tell application "System Events" to name of first process whose frontmost is true' 2>&1; }
 log() { echo "[$(date +%T)] $*" | tee -a "$LOG"; }
 
+# wait_for_real_sheet waits for the profile sheet that carries the final
+# Install button, after the bootstrap step has fetched the real profile from
+# the server. The Jamf Pro sheet names its "Rights"; the Jamf School sheet has
+# no element with that name, so the old wait for "Rights" always ran out (2 min
+# 45 s in a 2026-11-07 run) although the sheet was long ready. So it also
+# accepts the sheet's shape: 1 or 2 unnamed buttons in window 1, seen twice in a
+# row. In that run the bootstrap sheet had 4 unnamed buttons, the real sheet 2,
+# and the main window has about 30. Unconfirmed beyond that run: that no
+# transient state in between also shows 1 or 2. Gives up after SHEET_WAIT_SECS
+# (about the old worst case) and returns 1; the caller then clicks Install
+# anyway, as before.
+wait_for_real_sheet() {
+  local deadline=$((SECONDS + ${SHEET_WAIT_SECS:-150})) stable=0 state rights anon
+  while [ "$SECONDS" -lt "$deadline" ]; do
+    state=$(osascript /tmp/ae/sheetstate.scpt "System Settings" 2>&1)
+    rights=$(printf '%s' "$state" | sed -n 's/.*rights=\([0-9]*\).*/\1/p')
+    anon=$(printf '%s' "$state" | sed -n 's/.*anon=\([0-9]*\).*/\1/p')
+    if [ "$rights" = "1" ]; then
+      log "Real MDM profile sheet detected (Rights)"
+      return 0
+    fi
+    if [ -n "$anon" ] && [ "$anon" -ge 1 ] && [ "$anon" -le 2 ]; then
+      stable=$((stable + 1))
+    else
+      stable=0
+    fi
+    if [ "$stable" -ge 2 ]; then
+      log "Real MDM profile sheet detected ($anon unnamed buttons)"
+      return 0
+    fi
+    log "Still waiting for the real MDM profile sheet (${state:-no answer})"
+    sleep 1
+  done
+  log "Real MDM profile sheet not detected after ${SHEET_WAIT_SECS:-150} s; trying Install anyway"
+  return 1
+}
+
 # Tries a fixed list of common "move forward" / "decline this optional step"
 # button labels in order, for a pane this script doesn't have specific
 # handling for (new informational panes appear across macOS versions —
@@ -698,14 +770,7 @@ osascript /tmp/ae/clickexact.scpt "Install" "System Settings" | tee -a "$LOG"
 sleep 3
 
 log "Waiting for the real MDM profile sheet (bootstrap fetches it from the server)"
-for i in $(seq 1 20); do
-  PANE=$(dumpproc "System Settings")
-  if echo "$PANE" | grep -q "Rights"; then
-    log "Real MDM profile sheet detected"
-    break
-  fi
-  sleep 1
-done
+wait_for_real_sheet || true
 
 log "Clicking Install on the real MDM profile"
 osascript /tmp/ae/clickgeneric.scpt -1 "System Settings" | tee -a "$LOG"

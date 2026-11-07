@@ -17,9 +17,44 @@ type enrollReadiness struct {
 	Autologin     string `json:"autologin"`     // enabled | disabled | unknown
 	Accessibility string `json:"accessibility"` // granted | not_granted | unknown
 	Profile       string `json:"profile"`       // present | absent | unknown
+
+	// Language is the guest's first preferred language: english (any region),
+	// other, or unknown. The auto-enroll script finds buttons by their English
+	// names, so any other language makes it fail. LanguageCode is what the guest
+	// reported (for example en-GB or fr-FR), for the UI.
+	Language     string `json:"language"`
+	LanguageCode string `json:"languageCode,omitempty"`
 }
 
-// checkEnrollReadiness runs three quick, read-only guest probes, each with
+// firstPreferredLanguage reads the first entry of `defaults read -g
+// AppleLanguages`, which prints a plist array such as
+//
+//	(
+//	    "en-GB",
+//	    fr
+//	)
+//
+// and returns it without quotes ("" when there is none).
+func firstPreferredLanguage(output string) string {
+	for _, line := range strings.Split(output, "\n") {
+		v := strings.Trim(strings.TrimSpace(line), `",`)
+		v = strings.TrimSpace(v)
+		if v == "" || v == "(" || v == ")" {
+			continue
+		}
+		return v
+	}
+	return ""
+}
+
+// isEnglishLanguage reports whether a language code is English, in any region
+// or script: en, en-US, en-GB, en_AU, en-Latn-GB...
+func isEnglishLanguage(code string) bool {
+	c := strings.ToLower(code)
+	return c == "en" || strings.HasPrefix(c, "en-") || strings.HasPrefix(c, "en_")
+}
+
+// checkEnrollReadiness runs four quick, read-only guest probes, each with
 // its own bounded timeout.
 //
 // They go through execInGuest, so they use the guest agent when it answers and
@@ -35,7 +70,7 @@ type enrollReadiness struct {
 // deadline) when it has not been checked since boot; after that execInGuest
 // knows which transport to use and answers within the probe timeout.
 func (m *Manager) checkEnrollReadiness(parent context.Context, name string) enrollReadiness {
-	r := enrollReadiness{Autologin: "unknown", Accessibility: "unknown", Profile: "unknown"}
+	r := enrollReadiness{Autologin: "unknown", Accessibility: "unknown", Profile: "unknown", Language: "unknown"}
 
 	m.mu.Lock()
 	vm := m.vms[name]
@@ -76,6 +111,22 @@ func (m *Manager) checkEnrollReadiness(parent context.Context, name string) enro
 			r.Accessibility = "granted"
 		} else {
 			r.Accessibility = "not_granted"
+		}
+	}
+
+	// The language of the account the script runs as (execInGuest runs commands
+	// as the VM's user), which is what System Settings shows its buttons in.
+	languageCtx, cancel := context.WithTimeout(parent, probeTimeout)
+	res = m.execInGuest(languageCtx, name, "defaults read -g AppleLanguages 2>/dev/null", "")
+	cancel()
+	if res.Error == "" && res.ExitCode == 0 {
+		if code := firstPreferredLanguage(res.Stdout); code != "" {
+			r.LanguageCode = code
+			if isEnglishLanguage(code) {
+				r.Language = "english"
+			} else {
+				r.Language = "other"
+			}
 		}
 	}
 

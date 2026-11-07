@@ -30,10 +30,11 @@ func TestEnrollReadinessWorksThroughTheGuestAgentWithoutSSH(t *testing.T) {
   *autoLoginUser*) echo admin ;;
   *osascript*) exit 0 ;;
   *mdm_enroll*) echo yes ;;
+  *AppleLanguages*) printf '(\n    "en-GB",\n    fr\n)\n' ;;
 esac
 exit 0`)
 	got := m.checkEnrollReadiness(t.Context(), "vm")
-	want := enrollReadiness{Autologin: "enabled", Accessibility: "granted", Profile: "present"}
+	want := enrollReadiness{Autologin: "enabled", Accessibility: "granted", Profile: "present", Language: "english", LanguageCode: "en-GB"}
 	if got != want {
 		t.Fatalf("readiness = %+v, want %+v", got, want)
 	}
@@ -123,5 +124,47 @@ func TestHandleMDMProfileThroughTheGuestAgent(t *testing.T) {
 	}
 	if _, err := os.Stat(filepath.Join(home, "Desktop", "mdm_enroll.mobileconfig")); err != nil {
 		t.Fatalf("profile not written: %v", err)
+	}
+}
+
+func TestFirstPreferredLanguageAndEnglishVariants(t *testing.T) {
+	for out, want := range map[string]string{
+		"(\n    \"en-GB\",\n    fr\n)\n": "en-GB",
+		"(\n    en\n)\n":                 "en",
+		"(\n    \"fr-FR\",\n    en\n)\n": "fr-FR",
+		"(\n)\n":                         "",
+		"":                               "",
+	} {
+		if got := firstPreferredLanguage(out); got != want {
+			t.Errorf("firstPreferredLanguage(%q) = %q, want %q", out, got, want)
+		}
+	}
+	for code, want := range map[string]bool{
+		"en": true, "en-US": true, "en-GB": true, "en-AU": true, "en_IE": true, "en-Latn-GB": true, "EN-gb": true,
+		"fr-FR": false, "de": false, "es-419": false, "eng": false, "": false,
+	} {
+		if got := isEnglishLanguage(code); got != want {
+			t.Errorf("isEnglishLanguage(%q) = %v, want %v", code, got, want)
+		}
+	}
+}
+
+// The script finds buttons by their English names: a French guest must show up as
+// not compatible, and a guest that can't answer as unknown, never as fine.
+func TestEnrollReadinessReportsANonEnglishGuest(t *testing.T) {
+	m := newAgentOnlyManager(t, `case "$*" in
+  *AppleLanguages*) printf '(\n    "fr-FR",\n    en\n)\n' ;;
+esac
+exit 0`)
+	got := m.checkEnrollReadiness(t.Context(), "vm")
+	if got.Language != "other" || got.LanguageCode != "fr-FR" {
+		t.Fatalf("language = %q (%q), want other (fr-FR)", got.Language, got.LanguageCode)
+	}
+	unknown := newAgentOnlyManager(t, `case "$*" in
+  *AppleLanguages*) exit 1 ;;
+esac
+exit 0`)
+	if got := unknown.checkEnrollReadiness(t.Context(), "vm"); got.Language != "unknown" {
+		t.Fatalf("a failed probe should be unknown, got %q", got.Language)
 	}
 }

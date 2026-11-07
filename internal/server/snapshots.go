@@ -250,8 +250,11 @@ func (m *Manager) finishSnapshot(t *Task, parent, name, mac, comment string, wit
 	if err != nil {
 		m.tartCmd(m.storage(), "delete", name).Run()
 	}
-	m.finishTask(t, err)
+	// Reconcile before the task reads as finished, so whoever waits on the task
+	// (the UI, a test) sees the VM list settled, not a reconcile still running
+	// against a `tart list` read before their next step.
 	m.reconcile()
+	m.finishTask(t, err)
 	m.releaseVMName(name)
 	m.broadcast()
 	if suspended {

@@ -809,7 +809,7 @@ test("showTab asks before leaving Configuration with unsaved changes", () => {
 
 test("isConfigDirty compares the form with its last loaded or saved state", () => {
   let form = { listen: "a", intervalMinutes: 5, paused: false, sshPassword: "" };
-  const context = vm.createContext({ readConfig: () => Object.assign({}, form), configLoaded: true });
+  const context = vm.createContext({ readConfig: () => Object.assign({}, form), configLoaded: true, syncSaveBar: () => {} });
   vm.runInContext(["configFormKey", "markConfigClean", "isConfigDirty"].map(extractFunction).join("\n") +
     "; let configSnapshot = null; globalThis.api = { markConfigClean, isConfigDirty };", context);
   const { markConfigClean, isConfigDirty } = context.api;
@@ -1478,6 +1478,9 @@ test("renderTable toggles emptyDashboardHero visibility based on local VM count"
       openRowMenuName: "",
       positionRowMenu: () => {},
       updateVmScrollHints: () => {},
+      fitActionsColumn: () => {},
+      vmControlButtons: () => "",
+      jsArg: (s) => s,
       sortRows: (_table, rows) => rows,
       latest: { config: {} },
     }
@@ -1911,7 +1914,7 @@ test("a snapshot can't start while its original or another snapshot of it runs",
 });
 
 test("the Snapshots column shows the count and opens the snapshots window", () => {
-  const snapshotsCell = evaluateFunction("snapshotsCell", { esc: s => s });
+  const snapshotsCell = evaluateFunction("snapshotsCell", { esc: s => s, jsArg: s => s });
   const some = snapshotsCell({ name: "web", snapshots: [{}, {}, {}] });
   assert.match(some, /openSnapshotsModal\('web'\)/);
   assert.match(some, />3<\/button>/);
@@ -1994,6 +1997,7 @@ test("scrollHints shows a gradient only on the side that has more columns", () =
 
 test("setVmColWidth resizes a column, rewrites the table width and ignores the pinned columns", () => {
   const cols = ["name", "state", "ip", "actions"].map(key => ({ dataset: { col: key }, style: {} }));
+  // "ip" stands in for the column that takes the spare width (Info in the app).
   const table = { style: {} };
   const context = Object.assign(colGlobals(), {
     VM_COL_DEFAULTS: colDefaults,
@@ -2003,13 +2007,15 @@ test("setVmColWidth resizes a column, rewrites the table width and ignores the p
       getElementById: id => id === "localVmTable" ? table : null,
     },
     updateVmScrollHints: () => {},
+    VM_COL_SPARE: "ip",
   });
   const vmContext = vm.createContext(context);
   vm.runInContext(["normalizeColWidths", "applyVmColWidths", "setVmColWidth"].map(extractFunction).join("\n"), vmContext);
 
   vm.runInContext('setVmColWidth("state", 180)', vmContext);
   assert.equal(cols[1].style.width, "180px");
-  assert.equal(cols[3].style.width, "", "Actions takes the spare width, so it has no set width");
+  assert.equal(cols[3].style.width, "300px", "Actions has its own (fitted) width, so it no longer soaks up the spare width");
+  assert.equal(cols[2].style.width, "", "the spare-width column has no set width");
   assert.equal(table.style.width, (200 + 180 + 120 + 300) + "px", "the table is as wide as its columns");
 
   vm.runInContext('setVmColWidth("state", 10)', vmContext);
@@ -2017,7 +2023,7 @@ test("setVmColWidth resizes a column, rewrites the table width and ignores the p
 
   vm.runInContext('setVmColWidth("name", 500); setVmColWidth("actions", 50);', vmContext);
   assert.equal(cols[0].style.width, "200px", "Name is not resizable");
-  assert.equal(table.style.width, (200 + 64 + 120 + 300) + "px", "Actions keeps its 300px share of the table width");
+  assert.equal(table.style.width, (200 + 64 + 120 + 300) + "px", "Actions keeps its width");
 });
 
 test("canPin unpins Name and Actions when there is no room left between them", () => {
@@ -2367,4 +2373,166 @@ test("profile names and URLs are HTML-escaped in the table, the picker and the e
   const enroll = { dataset: {}, value: "", options: [], set innerHTML(v) { this.html = v; this.options = []; }, get innerHTML() { return this.html; } };
   evaluateFunctions(["syncEnrollProfileSelects", "jamfKind", "jamfKindLabel", "esc"], "syncEnrollProfileSelects", { document: { querySelectorAll: () => [enroll] } })([evil]);
   assert.doesNotMatch(enroll.html, /<img/);
+});
+
+test("actionsColumnWidth fits the widest row of buttons plus the cell padding, with a floor", () => {
+  const width = evaluateFunction("actionsColumnWidth", { VM_COL_ACTIONS_MIN: 120 });
+  assert.equal(width([212, 236.4, 212], 29), 266, "widest row (Resume) plus padding, rounded up");
+  assert.equal(width([], 29), 120, "no rows: the floor");
+  assert.equal(width([40], 29), 120, "never narrower than the header needs");
+});
+
+test("saveVmColWidths never stores the pinned columns (Actions is measured on every render)", () => {
+  const store = {};
+  const save = evaluateFunction("saveVmColWidths", {
+    VM_COL_DEFAULTS: { name: 200, state: 132, actions: 300 },
+    VM_COL_FIXED: { name: true, actions: true },
+    VM_COLS_KEY: "k",
+    vmColWidths: { name: 200, state: 150, actions: 247 },
+    localStorage: { setItem: (k, v) => { store[k] = v; } },
+  });
+  save();
+  assert.deepEqual(JSON.parse(store.k), { state: 150 });
+});
+
+// ---- Play / pause / stop ----
+function controls(vm, busy = false) {
+  const fn = evaluateFunction("vmControlButtons", {
+    esc: v => String(v), jsArg: v => String(v),
+    VM_ICON_PLAY: "<svg-play>", VM_ICON_PAUSE: "<svg-pause>", VM_ICON_STOP: "<svg-stop>",
+  });
+  const html = fn(vm, vm.name, busy);
+  const btn = cls => {
+    const m = html.match(new RegExp('<button class="vm-ctl ' + cls + '"([^>]*)>'));
+    assert.ok(m, "no " + cls + " button");
+    return { disabled: / disabled/.test(m[1]), title: (m[1].match(/title="([^"]*)"/) || [])[1] || "", attrs: m[1] };
+  };
+  return { html, play: btn("play"), pause: btn("pause"), stop: btn("stop") };
+}
+
+test("a running suspendable VM can be paused and stopped, not played", () => {
+  const c = controls({ name: "vm1", state: "running", suspendable: true });
+  assert.equal(c.play.disabled, true);
+  assert.equal(c.pause.disabled, false);
+  assert.equal(c.stop.disabled, false);
+  assert.match(c.pause.attrs, /onclick="suspendVM\('vm1'\)"/, "Pause suspends");
+  assert.match(c.stop.attrs, /onclick="act\('stop','vm1'\)"/, "Stop shuts down as before");
+  assert.match(c.html, /<svg-play>.*<svg-pause>.*<svg-stop>/, "icons, in play / pause / stop order");
+  assert.doesNotMatch(c.html, />(Run|Stop|Resume)</, "icon buttons, no text labels");
+});
+
+test("Pause is greyed out, with the reason, when the VM was not started suspendable", () => {
+  const c = controls({ name: "vm1", state: "running", suspendable: false });
+  assert.equal(c.pause.disabled, true);
+  assert.match(c.pause.title, /not started suspendable/);
+  assert.match(c.pause.title, /Edit VM/);
+  const off = controls({ name: "vm1", state: "stopped", startSuspendable: false });
+  assert.equal(off.pause.disabled, true);
+  assert.match(off.pause.title, /Start suspendable is off/);
+});
+
+test("a stopped VM can be played; a suspended one resumes with Play and fully quits with Stop", () => {
+  const stopped = controls({ name: "vm1", state: "stopped", startSuspendable: true });
+  assert.equal(stopped.play.disabled, false);
+  assert.match(stopped.play.attrs, /onclick="act\('run','vm1'\)"/);
+  assert.equal(stopped.pause.disabled, true, "nothing to pause");
+  const susp = controls({ name: "vm1", state: "suspended", suspendable: true });
+  assert.equal(susp.play.disabled, false);
+  assert.match(susp.play.attrs, /aria-label="Resume vm1"/);
+  assert.equal(susp.pause.disabled, true, "already paused");
+  assert.equal(susp.stop.disabled, false);
+  assert.match(susp.stop.title, /discards its saved memory/);
+});
+
+test("nothing can be pressed while an operation is in flight", () => {
+  for (const state of ["running", "stopped", "suspended"]) {
+    const c = controls({ name: "vm1", state, suspendable: true }, true);
+    assert.ok(c.play.disabled && c.pause.disabled && c.stop.disabled, state);
+  }
+  const starting = controls({ name: "vm1", state: "starting", suspendable: true });
+  assert.equal(starting.play.disabled, true, "no second start while starting");
+});
+
+// On another tab the table has no layout, so every width reads 0: measuring then
+// shrank Actions to its floor and squeezed the buttons into slivers.
+test("fitActionsColumn leaves the width alone while the table is not on screen", () => {
+  let applied = 0;
+  const run = (visible) => {
+    const widths = { actions: 248 };
+    const ctx = vm.createContext({
+      vmColWidths: widths,
+      VM_COL_ACTIONS_MIN: 120,
+      applyVmColWidths: () => { applied++; },
+      getComputedStyle: () => ({ paddingLeft: "14", paddingRight: "14", borderLeftWidth: "1", borderRightWidth: "0" }),
+      document: {
+        getElementById: id => id === "localVmTable" ? { offsetParent: visible ? {} : null } : null,
+        querySelectorAll: () => [{
+          closest: () => ({}),
+          firstElementChild: { getBoundingClientRect: () => ({ left: visible ? 100 : 0 }) },
+          lastElementChild: { getBoundingClientRect: () => ({ right: visible ? 319 : 0 }) },
+        }],
+      },
+    });
+    vm.runInContext(["actionsColumnWidth", "fitActionsColumn"].map(extractFunction).join("\n") + "; fitActionsColumn();", ctx);
+    return widths.actions;
+  };
+  assert.equal(run(false), 248, "hidden: no measurement, the last good width stays");
+  assert.equal(applied, 0);
+  assert.equal(run(true), 248, "visible: 219 px of buttons + 29 px of cell = 248");
+});
+
+test("a field that depends on a switch is disabled and greyed while the switch is off", () => {
+  const sw = { checked: false };
+  const inputs = [{ disabled: false }, { disabled: false }];
+  const field = { dataset: { dependsOn: "tlsEnabled" }, classList: createMockClassList(), querySelectorAll: () => inputs };
+  const sync = evaluateFunction("syncDependentFields", {
+    document: { querySelectorAll: () => [field], getElementById: id => id === "tlsEnabled" ? sw : null },
+  });
+  sync();
+  assert.ok(inputs.every(i => i.disabled), "switch off: inputs disabled");
+  assert.ok(field.classList.contains("field-off"));
+  sw.checked = true;
+  sync();
+  assert.ok(inputs.every(i => !i.disabled), "switch on: inputs editable again");
+  assert.ok(!field.classList.contains("field-off"));
+});
+
+test("the save bar sticks only while there are unsaved changes", () => {
+  let dirty = false;
+  const bar = { classList: createMockClassList() };
+  const sync = evaluateFunction("syncSaveBar", { document: { getElementById: () => bar }, isConfigDirty: () => dirty });
+  sync();
+  assert.ok(!bar.classList.contains("dirty"));
+  dirty = true;
+  sync();
+  assert.ok(bar.classList.contains("dirty"));
+});
+
+test("the Language pill is green for English, red otherwise, and shows the code", () => {
+  const pill = evaluateFunction("readinessPill", {
+    esc: v => String(v).replace(/</g, "&lt;"),
+    READINESS_LABELS: { english: "English", other: "Not English", unknown: "Unknown" },
+  });
+  assert.match(pill("Language", "english", "english", "other", "en-GB"), /readiness-ok">Language: English \(en-GB\)</);
+  assert.match(pill("Language", "other", "english", "other", "fr-FR"), /readiness-bad">Language: Not English \(fr-FR\)</);
+  assert.match(pill("Language", "unknown", "english", "other", ""), /readiness-pill ">Language: Unknown</);
+  assert.doesNotMatch(pill("Language", "other", "english", "other", "<img>"), /<img>/, "the guest's answer is escaped");
+});
+
+// A VM name is user-controlled (and a VM made outside Tart Oven is never checked):
+// a ' must not end the JavaScript string in a button's onclick.
+test("names with quotes reach the click handlers intact and run nothing", () => {
+  const esc = evaluateFunction("esc", {});
+  const jsArg = evaluateFunction("jsArg", { esc });
+  const decode = html => html.replace(/&quot;/g, '"').replace(/&lt;/g, "<").replace(/&gt;/g, ">").replace(/&amp;/g, "&");
+  for (const name of ["Bob's Mac", "x');alert(1);('", "back\\slash", 'quo"te', "a<b>c"]) {
+    const html = evaluateFunction("vmControlButtons", { esc, jsArg, VM_ICON_PLAY: "", VM_ICON_PAUSE: "", VM_ICON_STOP: "" })(
+      { name, state: "stopped" }, esc(name), false);
+    const handler = decode(html.match(/class="vm-ctl play" onclick="([^"]*)"/)[1]);
+    const calls = [];
+    let alerted = false;
+    new Function("act", "alert", handler)((op, vmName) => calls.push([op, vmName]), () => { alerted = true; });
+    assert.deepEqual(calls, [["run", name]], "the handler gets the exact name: " + name);
+    assert.equal(alerted, false, "nothing else runs: " + name);
+  }
 });

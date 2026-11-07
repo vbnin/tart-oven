@@ -5,7 +5,7 @@ package tartoven
 import "embed"
 
 // Version is the current release version of tart-oven.
-const Version = "2.3.0-dev1"
+const Version = "2.3.0"
 
 // Docs embeds README.md and CHANGELOG.md at build time.
 //
