@@ -1041,13 +1041,14 @@
           <thead>
             <tr>
               <th>Server Name</th>
-              <th>Jamf Pro Base URL</th>
-              <th>Invitation</th>
+              <th>Type</th>
+              <th>Base URL</th>
+              <th>Credentials</th>
               <th style="text-align: right;">Actions</th>
             </tr>
           </thead>
           <tbody id="jamfProfileRows">
-            <tr><td colspan="4" class="muted">No Jamf server profiles added yet. Click <b>+ Add Jamf Server</b> to create one.</td></tr>
+            <tr><td colspan="5" class="muted">No Jamf server profiles added yet. Click <b>+ Add Jamf Server</b> to create one.</td></tr>
           </tbody>
         </table>
       </div>
@@ -1056,10 +1057,22 @@
       <div id="jamfProfileEditor" style="display: none; background: var(--panel2); border: 1px solid var(--border); padding: 14px; margin-bottom: 16px; border-radius: 8px;">
         <h3 id="jamfEditorTitle" style="margin: 0 0 10px 0; font-size: 14px;">Add Jamf Server Profile</h3>
         <input type="hidden" id="jamfProfileId">
+        <input type="hidden" id="jamfProfileKind" value="pro">
+        <div class="segmented-control" role="group" aria-label="Jamf server type" style="margin-bottom:12px">
+          <button type="button" class="subtab-btn active" id="jamfKindProBtn" aria-pressed="true" onclick="setJamfEditorKind('pro')">Jamf Pro</button>
+          <button type="button" class="subtab-btn" id="jamfKindSchoolBtn" aria-pressed="false" onclick="setJamfEditorKind('school')">Jamf School</button>
+        </div>
+        <div class="muted" id="jamfKindNote" style="display: none; font-size: 12px; margin: -4px 0 10px 0;">Changing the type discards the credentials saved for the old type; enter the new ones below.</div>
         <div class="grid">
           <div class="field"><label>Server Name</label><input type="text" id="jamfProfileName" placeholder="e.g. Production, Sandbox, Staging"></div>
-          <div class="field"><label>Jamf Pro base URL</label><input type="url" id="jamfBaseUrl" placeholder="https://tenant.jamfcloud.com"></div>
-          <div class="field" style="grid-column: span 2;"><label>Invitation ID<button type="button" class="help-tip" data-help="Enter the value after invitation=, not the full URL" aria-label="About Invitation ID" aria-expanded="false">?</button></label><input type="password" id="jamfInvitationCode" autocomplete="new-password" placeholder="Enter invitation value"></div>
+          <div class="field"><label>Base URL</label><input type="url" id="jamfBaseUrl" placeholder="https://tenant.jamfcloud.com"></div>
+          <div class="field" id="jamfProFields" style="grid-column: span 2;"><label>Invitation ID<button type="button" class="help-tip" data-help="Enter the value after invitation=, not the full URL" aria-label="About Invitation ID" aria-expanded="false">?</button></label><input type="password" id="jamfInvitationCode" autocomplete="new-password" placeholder="Enter invitation value"></div>
+          <div class="field" id="jamfSchoolFields" style="grid-column: span 2; display: none;">
+            <div class="grid">
+              <div class="field"><label>Network ID</label><input type="password" id="jamfNetwork" autocomplete="new-password" placeholder="Enter network ID"></div>
+              <div class="field"><label>Location ID</label><input type="password" id="jamfLocation" autocomplete="new-password" placeholder="Enter location ID"></div>
+            </div>
+          </div>
         </div>
         <div class="actions" style="margin-top: 10px;">
           <button id="saveJamfProfileBtn">Save Profile</button>
@@ -2373,11 +2386,33 @@ function getJamfProfiles() {
     return [{
       id: "default",
       name: "Default Server",
+      kind: "pro",
       baseUrl: latest.config.jamfBaseUrl,
       invitationCodeSet: !!latest.config.jamfInvitationCodeSet
     }];
   }
   return [];
+}
+
+// A profile written before School support, or by an older client, has no kind: it is Pro.
+function jamfKind(p) {
+  return p && p.kind === "school" ? "school" : "pro";
+}
+function jamfKindLabel(kind) {
+  return kind === "school" ? "School" : "Pro";
+}
+// What the Credentials column shows. The secrets are write-only, so this is
+// only ever "saved" or "not set", driven by the *Set flags.
+function jamfCredentialStatus(p) {
+  const saved = '<span style="color:var(--green)">•••••• (saved)</span>';
+  const unset = '<span class="muted">not set</span>';
+  if (jamfKind(p) === "school") {
+    return 'Network ' + (p.networkSet ? saved : unset) + ' · Location ' + (p.locationSet ? saved : unset);
+  }
+  return p.invitationCodeSet ? '<span style="color:var(--green)">•••••••• (saved)</span>' : unset;
+}
+function jamfProfileLabel(p) {
+  return (p.name || "Unnamed Server") + " · " + jamfKindLabel(jamfKind(p)) + " (" + (p.baseUrl || "") + ")";
 }
 
 function renderJamfProfiles() {
@@ -2387,14 +2422,14 @@ function renderJamfProfiles() {
   if (!tb || !sel) return;
 
   if (!profiles.length) {
-    tb.innerHTML = '<tr><td colspan="4" class="muted">No Jamf server profiles configured yet. Click <b>+ Add Jamf Server</b> to create one.</td></tr>';
+    tb.innerHTML = '<tr><td colspan="5" class="muted">No Jamf server profiles configured yet. Click <b>+ Add Jamf Server</b> to create one.</td></tr>';
   } else {
     tb.innerHTML = profiles.map(p => {
-      const invStatus = p.invitationCodeSet ? '<span style="color:var(--green)">•••••••• (saved)</span>' : '<span class="muted">not set</span>';
       return '<tr>' +
         '<td><b>' + esc(p.name || "Unnamed Server") + '</b></td>' +
+        '<td>' + jamfKindLabel(jamfKind(p)) + '</td>' +
         '<td class="mono">' + esc(p.baseUrl || "") + '</td>' +
-        '<td>' + invStatus + '</td>' +
+        '<td>' + jamfCredentialStatus(p) + '</td>' +
         '<td style="text-align: right;">' +
           '<button class="ghost" style="padding: 2px 8px; font-size: 11px; margin-right: 4px;" onclick="openEditJamfProfile(\'' + esc(p.id) + '\')">Edit</button>' +
           '<button class="ghost danger" style="padding: 2px 8px; font-size: 11px;" onclick="deleteJamfProfile(\'' + esc(p.id) + '\')">Delete</button>' +
@@ -2407,12 +2442,34 @@ function renderJamfProfiles() {
   if (!profiles.length) {
     sel.innerHTML = '<option value="">No server profiles configured</option>';
   } else {
-    sel.innerHTML = profiles.map(p => '<option value="' + esc(p.id) + '">' + esc(p.name) + ' (' + esc(p.baseUrl) + ')</option>').join("");
+    sel.innerHTML = profiles.map(p => '<option value="' + esc(p.id) + '">' + esc(jamfProfileLabel(p)) + '</option>').join("");
     if (prevVal && profiles.some(p => p.id === prevVal)) {
       sel.value = prevVal;
     }
   }
 
+}
+
+// Shows the credential fields for one kind of server. A saved secret is only
+// advertised as "(saved)" while the editor is still on the kind it was saved for:
+// the server discards the other kind's credentials when the kind changes.
+function setJamfEditorKind(kind) {
+  kind = kind === "school" ? "school" : "pro";
+  const prev = getJamfProfiles().find(x => x.id === document.getElementById("jamfProfileId").value);
+  const same = !!prev && jamfKind(prev) === kind;
+  const keep = (isSet, prompt) => same && isSet ? "•••••• (saved)" : prompt;
+  document.getElementById("jamfProfileKind").value = kind;
+  for (const [id, active] of [["jamfKindProBtn", kind === "pro"], ["jamfKindSchoolBtn", kind === "school"]]) {
+    const btn = document.getElementById(id);
+    btn.classList.toggle("active", active);
+    btn.setAttribute("aria-pressed", active ? "true" : "false");
+  }
+  document.getElementById("jamfProFields").style.display = kind === "pro" ? "" : "none";
+  document.getElementById("jamfSchoolFields").style.display = kind === "school" ? "" : "none";
+  document.getElementById("jamfKindNote").style.display = prev && !same ? "block" : "none";
+  document.getElementById("jamfInvitationCode").placeholder = same && prev.invitationCodeSet ? "•••••••• (saved)" : "Enter invitation value";
+  document.getElementById("jamfNetwork").placeholder = keep(prev && prev.networkSet, "Enter network ID");
+  document.getElementById("jamfLocation").placeholder = keep(prev && prev.locationSet, "Enter location ID");
 }
 
 function openAddJamfProfile() {
@@ -2422,7 +2479,9 @@ function openAddJamfProfile() {
   document.getElementById("jamfProfileName").value = "";
   document.getElementById("jamfBaseUrl").value = "";
   document.getElementById("jamfInvitationCode").value = "";
-  document.getElementById("jamfInvitationCode").placeholder = "Enter invitation value";
+  document.getElementById("jamfNetwork").value = "";
+  document.getElementById("jamfLocation").value = "";
+  setJamfEditorKind("pro");
   document.getElementById("jamfSaveStatus").textContent = "";
   document.getElementById("jamfProfileName").focus();
 }
@@ -2437,7 +2496,9 @@ function openEditJamfProfile(id) {
   document.getElementById("jamfProfileName").value = p.name || "";
   document.getElementById("jamfBaseUrl").value = p.baseUrl || "";
   document.getElementById("jamfInvitationCode").value = "";
-  document.getElementById("jamfInvitationCode").placeholder = p.invitationCodeSet ? "•••••••• (saved)" : "Enter invitation value";
+  document.getElementById("jamfNetwork").value = "";
+  document.getElementById("jamfLocation").value = "";
+  setJamfEditorKind(jamfKind(p));
   document.getElementById("jamfSaveStatus").textContent = "";
   document.getElementById("jamfProfileName").focus();
 }
@@ -2448,14 +2509,26 @@ function closeJamfProfileEditor() {
   document.getElementById("jamfProfileName").value = "";
   document.getElementById("jamfBaseUrl").value = "";
   document.getElementById("jamfInvitationCode").value = "";
+  document.getElementById("jamfNetwork").value = "";
+  document.getElementById("jamfLocation").value = "";
+  setJamfEditorKind("pro");
   document.getElementById("jamfSaveStatus").textContent = "";
+}
+
+// What a profile row is sent back as. Secrets are never echoed: the server keeps
+// what it has stored for any secret left out.
+function jamfProfileBase(p) {
+  return { id: p.id, kind: jamfKind(p), name: p.name, baseUrl: p.baseUrl };
 }
 
 async function saveJamfProfile() {
   const id = document.getElementById("jamfProfileId").value;
+  const kind = document.getElementById("jamfProfileKind").value === "school" ? "school" : "pro";
   const name = document.getElementById("jamfProfileName").value.trim();
   const baseUrl = document.getElementById("jamfBaseUrl").value.trim();
-  const invitationCode = document.getElementById("jamfInvitationCode").value.trim();
+  const secrets = kind === "school"
+    ? { network: document.getElementById("jamfNetwork").value.trim(), location: document.getElementById("jamfLocation").value.trim() }
+    : { invitationCode: document.getElementById("jamfInvitationCode").value.trim() };
   const statusEl = document.getElementById("jamfSaveStatus");
 
   if (!name) {
@@ -2463,36 +2536,41 @@ async function saveJamfProfile() {
     return;
   }
   if (!baseUrl) {
-    statusEl.textContent = "Jamf Pro base URL is required";
+    statusEl.textContent = "Base URL is required";
     return;
   }
+  if (kind === "school") {
+    // Pro tolerates a missing invitation (the copy step reports it); a School
+    // profile cannot do anything without both IDs, so insist on them here.
+    // "Already saved" only counts while the kind is unchanged.
+    const prev = getJamfProfiles().find(p => p.id === id);
+    const saved = prev && jamfKind(prev) === "school" ? prev : {};
+    if (!secrets.network && !saved.networkSet) {
+      statusEl.textContent = "Network ID is required";
+      return;
+    }
+    if (!secrets.location && !saved.locationSet) {
+      statusEl.textContent = "Location ID is required";
+      return;
+    }
+  }
 
+  const profiles = getJamfProfiles().map(jamfProfileBase);
+  let target = id ? profiles.find(p => p.id === id) : null;
+  if (id && !target) {
+    statusEl.textContent = "This profile no longer exists";
+    return;
+  }
   statusEl.textContent = "saving…";
-  const profiles = getJamfProfiles().map(p => ({
-    id: p.id,
-    name: p.name,
-    baseUrl: p.baseUrl
-  }));
-
-  if (id) {
-    const idx = profiles.findIndex(p => p.id === id);
-    if (idx >= 0) {
-      profiles[idx].name = name;
-      profiles[idx].baseUrl = baseUrl;
-      if (invitationCode) {
-        profiles[idx].invitationCode = invitationCode;
-      }
-    }
-  } else {
-    const newProfile = {
-      id: "jamf-" + Date.now(),
-      name,
-      baseUrl
-    };
-    if (invitationCode) {
-      newProfile.invitationCode = invitationCode;
-    }
-    profiles.push(newProfile);
+  if (!target) {
+    target = { id: "jamf-" + Date.now() };
+    profiles.push(target);
+  }
+  target.kind = kind;
+  target.name = name;
+  target.baseUrl = baseUrl;
+  for (const [field, value] of Object.entries(secrets)) {
+    if (value) target[field] = value;
   }
 
   try {
@@ -2521,11 +2599,7 @@ async function deleteJamfProfile(id) {
   if (!confirm("Are you sure you want to delete Jamf profile \"" + (target.name || target.baseUrl) + "\"?")) {
     return;
   }
-  const updated = profiles.filter(p => p.id !== id).map(p => ({
-    id: p.id,
-    name: p.name,
-    baseUrl: p.baseUrl
-  }));
+  const updated = profiles.filter(p => p.id !== id).map(jamfProfileBase);
   try {
     const res = await api("/api/config", {
       method: "POST",
@@ -4317,12 +4391,16 @@ async function saveEditVmModal() {
 // Options come from the Jamf server profiles in VM Management. They're rebuilt
 // only when the list changes, so the SSE refresh doesn't reset a choice in progress.
 function syncEnrollProfileSelects(profiles) {
-  const signature = JSON.stringify((profiles || []).map(p => [p.id, p.name, p.baseUrl]));
+  const signature = JSON.stringify((profiles || []).map(p => [p.id, p.name, p.baseUrl, jamfKind(p)]));
   for (const sel of document.querySelectorAll("select[data-enroll-profiles]")) {
     if (sel.dataset.signature === signature) continue;
     const keep = sel.value;
+    // Both kinds can be chosen. The kind is in the label because it changes what a run
+    // does: Pro generates a profile locally, School downloads one and so mints a fresh
+    // credential in the tenant every time.
     sel.innerHTML = '<option value="">None</option>' + (profiles || []).map(p =>
-      '<option value="' + esc(p.id) + '">' + esc(p.name || p.baseUrl) + "</option>").join("");
+      '<option value="' + esc(p.id) + '">' + esc(p.name || p.baseUrl) + " · " + jamfKindLabel(jamfKind(p)) + "</option>"
+    ).join("");
     sel.dataset.signature = signature;
     sel.value = Array.from(sel.options).some(o => o.value === keep) ? keep : "";
   }
@@ -4927,9 +5005,10 @@ q("#unsavedModal .modal-backdrop").onclick = closeUnsavedModal;
 document.addEventListener("keydown", e => {
   if (e.key === "Escape" && !document.getElementById("unsavedModal").classList.contains("hidden")) closeUnsavedModal();
 });
-window.addEventListener("beforeunload", e => {
-  if (isConfigDirty()) { e.preventDefault(); e.returnValue = ""; }
-});
+function warnBeforeUnload(e) {
+  if (isConfigDirty() || mdmCopyInFlight) { e.preventDefault(); e.returnValue = ""; }
+}
+window.addEventListener("beforeunload", warnBeforeUnload);
 
 // ---- IPSW source picker (Create from IPSW) ----
 // A dropdown of installable macOS versions from AppleDB (through the server),
@@ -5233,6 +5312,27 @@ function updateMdmCopyButton(vms) {
   copyBtn.disabled = mdmCopyInFlight || !hasRunningVM;
 }
 
+// A School profile is downloaded from the server (up to 30s) before it is copied.
+// Navigating away cancels the request server-side, which can leave an identity
+// minted in the tenant but never delivered, so say so rather than abort early.
+function mdmCopyProgressText(profile) {
+  return jamfKind(profile) === "school"
+    ? "Connecting and copying profile… (downloading from Jamf School can take up to a minute — keep this page open)"
+    : "Connecting and copying profile…";
+}
+// What the banner says depends on how the profile was obtained: a Pro profile is
+// generated here from the invitation code, a School one is downloaded from the
+// server (and mints a fresh credential there each time). The server does not
+// report the profile's name, so it comes from the selection. payloadUUID is only
+// reported for Pro; a downloaded School profile is opaque, so the key is absent.
+function mdmCopySummary(data, profile) {
+  const label = profile && profile.name ? " (" + profile.name + ")" : "";
+  const made = jamfKind(profile) === "school"
+    ? "Downloaded a new profile from Jamf School" + label + " and copied it"
+    : "Generated a Jamf Pro profile" + label + " and copied it";
+  return made + " to " + data.name + " at " + data.path + (data.payloadUUID ? " · UUID " + data.payloadUUID : "");
+}
+
 async function copyMdmProfile() {
   const name = document.getElementById("mdmTarget").value;
   const profileId = document.getElementById("mdmProfileSelect").value;
@@ -5244,7 +5344,7 @@ async function copyMdmProfile() {
 
   mdmCopyInFlight = true;
   updateMdmCopyButton();
-  status.textContent = "Connecting and copying profile…";
+  status.textContent = mdmCopyProgressText(getJamfProfiles().find(p => p.id === profileId));
   try {
     const res = await api("/api/vm/mdm-profile", {
       method: "POST", headers: { "Content-Type": "application/json" },
@@ -5252,7 +5352,7 @@ async function copyMdmProfile() {
     });
     const data = await res.json();
     if (!res.ok || !data.ok) throw new Error((data.stage ? data.stage + ": " : "") + (data.error || "copy failed"));
-    status.textContent = "Copied " + (data.profileName ? data.profileName + " profile" : "profile") + " to " + data.name + " at " + data.path + " · UUID " + data.payloadUUID;
+    status.textContent = mdmCopySummary(data, getJamfProfiles().find(p => p.id === profileId));
   } catch (err) {
     status.textContent = "Copy failed — " + err.message;
   } finally {

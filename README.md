@@ -264,12 +264,12 @@ Keep **Exclude OCI images from scheduler** enabled so registry cache entries rem
 
 ## Jamf and MDM
 
-Tart Oven can generate a Jamf enrollment profile and copy it to a running base VM over SFTP.
+Tart Oven can get a Jamf enrollment profile and copy it to a running base VM over SFTP (or the guest agent). It generates a Jamf Pro profile itself; for Jamf School it downloads one from your tenant.
 
 A safe template workflow is:
 
 1. Turn on **Configuration → Server Settings → Display Jamf-related features** (off by default), then open **VM Management → Prepare VM for Jamf**.
-2. Click **Add Jamf Server** and enter the server name, Jamf Pro base URL, and invitation ID.
+2. Click **Add Jamf Server**, choose **Pro** or **School**, and enter the server name and base URL, then the invitation ID (Pro) or the network and location IDs (School).
 3. Start the base VM.
 4. Select the running VM and Jamf server profile.
 5. Click **Copy profile to Desktop** — it uses that VM's own SSH username/password if set, otherwise the defaults from Configuration.
@@ -278,13 +278,15 @@ A safe template workflow is:
 8. Clone it with **Random MAC** and **Random serial** enabled.
 9. Start and enroll each clone separately.
 
+A Jamf School profile is not a template: it contains a client certificate and its password, and Jamf School creates a new one every time it is downloaded. Tart Oven therefore downloads a fresh profile for every copy and never stores or reuses one, so each **Copy profile to Desktop** (and each auto-enroll) adds an enrollment credential in your Jamf School tenant, whether or not that VM ever enrolls. The download replays the steps of Jamf School's own enrollment web page, so a change to that page can break it; the error says which of its three steps failed.
+
 The **MDM** column is updated when Tart Oven probes a guest:
 
 - Grey means it has not been checked.
 - Red means no enrollment was reported.
 - Green shows an enrolled server.
 
-Jamf invitation values and guest SSH passwords are stored locally in `~/.tart-oven/state.json`. The file is owner-only, but the values are not encrypted.
+Jamf invitation values, Jamf School network and location IDs, and guest SSH passwords are stored locally in `~/.tart-oven/state.json`. The file is owner-only, but the values are not encrypted.
 
 ## Auto-enrolling VMs at boot (experimental)
 
@@ -320,7 +322,7 @@ These two permissions live on the base VM's disk, so every clone made from it af
 
 With a primed base VM:
 
-- **Auto enroll at first boot**, in **Clone from template**, is a list of your Jamf server profiles. Choose one and each clone is flagged so its very next boot — scheduler-triggered or manual — runs the enrollment script on its own: push that server's profile, click through Install and Enroll, then refresh the MDM column. Leave it on **None** to skip.
+- **Auto enroll at first boot**, in **Clone from template**, is a list of your Jamf server profiles (Pro or School; see [Jamf and MDM](#jamf-and-mdm) for what a School profile costs). Choose one and each clone is flagged so its very next boot — scheduler-triggered or manual — runs the enrollment script on its own: push that server's profile, click through Install and Enroll, then refresh the MDM column. Leave it on **None** to skip.
 - **Auto enroll at next boot**, in **Edit VM → Enrollment**, does the same once, the next time the VM starts. It clears itself after that attempt, whether it succeeds or fails.
 
 Because the chosen profile is pushed to the clone, the base VM doesn't need one: keep it un-enrolled and choose a different server for each batch of clones.
