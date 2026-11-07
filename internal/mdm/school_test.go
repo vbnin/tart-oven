@@ -107,7 +107,7 @@ func newSchoolTestServerAt(t *testing.T, pathPrefix string) *schoolTestServer {
 	mux.HandleFunc(pathPrefix+fakeProfilePath, testServer.handleProfile)
 	mux.HandleFunc(pathPrefix+fakeRedirectedProfilePath, testServer.handleProfileRedirect)
 	mux.HandleFunc(pathPrefix+"/enroll/", testServer.handleLanding)
-	testServer.server = httptest.NewServer(mux)
+	testServer.server = httptest.NewTLSServer(mux)
 	t.Cleanup(testServer.server.Close)
 	return testServer
 }
@@ -426,6 +426,18 @@ func TestSchoolFetcherReportsTheStageThatFailed(t *testing.T) {
 		{"session json profile has a non-http scheme", func(s *schoolTestServer) {
 			s.profileURL = "file:///etc/passwd"
 		}, StageSession},
+		{"session json profile is plain http", func(s *schoolTestServer) {
+			s.profileURL = "http://" + strings.TrimPrefix(s.server.URL, "https://") + fakeProfilePath
+		}, StageSession},
+		{"session json profile is on another host", func(s *schoolTestServer) {
+			s.profileURL = "https://attacker.example" + fakeProfilePath
+		}, StageSession},
+		{"session json profile is on another port of the same host", func(s *schoolTestServer) {
+			s.profileURL = "https://127.0.0.1:1" + fakeProfilePath
+		}, StageSession},
+		{"profile download redirects from https to http on the same host", func(s *schoolTestServer) {
+			s.profileRedirectTo = "http://" + strings.TrimPrefix(s.server.URL, "https://") + fakeRedirectedProfilePath
+		}, StageDownload},
 		{"session body is oversized", func(s *schoolTestServer) {
 			s.sessionBody = []byte(`{"note":"` + strings.Repeat("x", maxSchoolProfileBytes) + bodySecretSentinel + `"}`)
 		}, StageSession},
@@ -643,5 +655,65 @@ func TestSchoolFetcherDoesNotMutateTheProvidedClient(t *testing.T) {
 	}
 	if client.Jar != nil {
 		t.Fatalf("FetchProfile installed a cookie jar on the caller's client")
+	}
+}
+
+// The profile holds a private key and its password, and the calls before it carry a
+// session cookie and CSRF token: none of it may travel over plain http.
+func TestSchoolFetcherRefusesAPlainHTTPServer(t *testing.T) {
+	server := newSchoolTestServer(t)
+	input := server.input()
+	input.BaseURL = "http://" + strings.TrimPrefix(server.server.URL, "https://")
+
+	_, err := NewSchoolFetcher(server.server.Client()).FetchProfile(context.Background(), input)
+
+	requireStage(t, err, StageConfiguration)
+	if err == nil || !strings.Contains(err.Error(), "https") {
+		t.Fatalf("error should say https is required, got %v", err)
+	}
+	if got := len(server.recorded()); got != 0 {
+		t.Fatalf("a request reached the server (%d) although the URL is not https", got)
+	}
+}
+
+func TestSameSchoolHostComparesHostAndEffectivePort(t *testing.T) {
+	parse := func(raw string) *url.URL {
+		u, err := url.Parse(raw)
+		if err != nil {
+			t.Fatal(err)
+		}
+		return u
+	}
+	for _, c := range []struct {
+		a, b string
+		want bool
+	}{
+		{"https://school.example/a", "https://school.example/b", true},
+		{"https://School.Example/a", "https://school.example/b", true},
+		{"https://school.example:443/a", "https://school.example/b", true},
+		{"https://school.example:8443/a", "https://school.example/b", false},
+		{"https://other.example/a", "https://school.example/b", false},
+		{"https://school.example.evil.example/a", "https://school.example/b", false},
+	} {
+		if got := sameSchoolHost(parse(c.a), parse(c.b)); got != c.want {
+			t.Errorf("sameSchoolHost(%s, %s) = %v, want %v", c.a, c.b, got, c.want)
+		}
+	}
+}
+
+func TestRefuseCrossHostRedirectRefusesAnHTTPSDowngrade(t *testing.T) {
+	req := func(raw string) *http.Request {
+		r, err := http.NewRequest(http.MethodGet, raw, nil)
+		if err != nil {
+			t.Fatal(err)
+		}
+		return r
+	}
+	first := req("https://school.example/enroll/")
+	if err := refuseCrossHostRedirect(req("https://school.example/next"), []*http.Request{first}); err != nil {
+		t.Fatalf("a same-host https redirect was refused: %v", err)
+	}
+	if err := refuseCrossHostRedirect(req("http://school.example/next"), []*http.Request{first}); err == nil {
+		t.Fatal("a redirect from https to http was followed")
 	}
 }

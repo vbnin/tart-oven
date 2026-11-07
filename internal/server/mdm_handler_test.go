@@ -49,11 +49,19 @@ type recordingSchoolFetcher struct {
 	called    int
 	lockHeld  bool
 	checkLock func() bool
+	// afterRequestGone runs inside FetchProfile (the browser tab closing mid-fetch);
+	// ctxErr is what the fetch's own context reports after it ran.
+	afterRequestGone func()
+	ctxErr           error
 }
 
-func (f *recordingSchoolFetcher) FetchProfile(_ context.Context, in mdm.SchoolInput) ([]byte, error) {
+func (f *recordingSchoolFetcher) FetchProfile(ctx context.Context, in mdm.SchoolInput) ([]byte, error) {
 	f.called++
 	f.in = in
+	if f.afterRequestGone != nil {
+		f.afterRequestGone()
+	}
+	f.ctxErr = ctx.Err()
 	if f.checkLock != nil && !f.checkLock() {
 		f.lockHeld = true
 		return nil, errors.New("manager lock held during Jamf School profile fetch")
@@ -94,10 +102,12 @@ type recordingMDMProfileCopier struct {
 	err         error
 	called      bool
 	checkLock   func() bool
+	ctxErr      error // the copy's own context at call time
 }
 
-func (f *recordingMDMProfileCopier) CopyAndVerify(_ context.Context, target mdm.TransferTarget, profile []byte, payloadUUID string) error {
+func (f *recordingMDMProfileCopier) CopyAndVerify(ctx context.Context, target mdm.TransferTarget, profile []byte, payloadUUID string) error {
 	f.called = true
+	f.ctxErr = ctx.Err()
 	f.target = target
 	f.profile = append([]byte(nil), profile...)
 	f.payloadUUID = payloadUUID
@@ -940,5 +950,73 @@ func TestHandleMDMProfileWithNamedProfileAndCredentialOverrides(t *testing.T) {
 	response := decodeMDMProfileResponse(t, rr, "ok", "name", "path", "payloadUUID")
 	if !response.OK || response.Name != "base" {
 		t.Fatalf("response=%#v", response)
+	}
+}
+
+// A School fetch makes the tenant issue a device identity. If the browser tab goes
+// away mid-request the identity must still reach the guest, not be thrown away.
+func TestHandleMDMProfileFinishesASchoolDeliveryAfterTheRequestIsGone(t *testing.T) {
+	m, copier, fetcher := newSchoolMDMHandlerManager()
+	ctx, cancel := context.WithCancel(context.Background())
+	fetcher.afterRequestGone = cancel
+	req := httptest.NewRequest(http.MethodPost, "/api/vm/mdm-profile", strings.NewReader(`{"name":"base"}`)).WithContext(ctx)
+	rr := httptest.NewRecorder()
+
+	m.handleMDMProfile(rr, req)
+
+	if ctx.Err() == nil {
+		t.Fatal("test setup: the request was not cancelled")
+	}
+	if fetcher.ctxErr != nil {
+		t.Fatalf("the fetch was cancelled with the request: %v", fetcher.ctxErr)
+	}
+	if !copier.called || copier.ctxErr != nil {
+		t.Fatalf("copier called=%v ctxErr=%v: the minted profile was not delivered", copier.called, copier.ctxErr)
+	}
+}
+
+// A Jamf Pro profile is generated locally and costs nothing to redo, so it keeps
+// following the request.
+func TestHandleMDMProfileProDeliveryStillFollowsTheRequest(t *testing.T) {
+	m := newMDMHandlerManager()
+	copier := &recordingMDMProfileCopier{}
+	m.mdmCopier = copier
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	req := httptest.NewRequest(http.MethodPost, "/api/vm/mdm-profile", strings.NewReader(`{"name":"base"}`)).WithContext(ctx)
+
+	m.handleMDMProfile(httptest.NewRecorder(), req)
+
+	if copier.called && copier.ctxErr == nil {
+		t.Fatal("a Jamf Pro copy was detached from its request")
+	}
+}
+
+// The record is what lets auto-enroll tell a VM's own identity from a copied one.
+func TestHandleMDMProfileRecordsTheSchoolIdentityPushedToTheVM(t *testing.T) {
+	m, _, _ := newSchoolMDMHandlerManager()
+
+	rr := performMDMProfileRequest(t, m, http.MethodPost, `{"name":"base"}`)
+
+	if rr.Code != http.StatusOK {
+		t.Fatalf("status=%d body=%s", rr.Code, rr.Body.String())
+	}
+	if got, want := m.vms["base"].EnrollIdentitySHA256, identitySHA256(testSchoolProfileBytes()); got != want {
+		t.Fatalf("recorded %q, want %q", got, want)
+	}
+}
+
+func TestHandleMDMProfileProPushForgetsARecordedSchoolIdentity(t *testing.T) {
+	m := newMDMHandlerManager()
+	m.mdmCopier = &recordingMDMProfileCopier{}
+	m.vms["base"].EnrollIdentitySHA256 = "stale"
+
+	rr := performMDMProfileRequest(t, m, http.MethodPost, `{"name":"base"}`)
+
+	if rr.Code != http.StatusOK {
+		t.Fatalf("status=%d body=%s", rr.Code, rr.Body.String())
+	}
+	if got := m.vms["base"].EnrollIdentitySHA256; got != "" {
+		t.Fatalf("recorded %q after a Jamf Pro profile replaced the School one", got)
 	}
 }

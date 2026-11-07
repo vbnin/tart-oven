@@ -315,6 +315,12 @@ type VM struct {
 	InternetDetail    string    `json:"internetDetail,omitempty"`    // why the last probe failed, for the tooltip
 	InternetCheckedAt time.Time `json:"internetCheckedAt,omitempty"` // zero means never probed this boot, which renders as unknown
 
+	// EnrollIdentitySHA256 is the SHA-256 of the Jamf School profile Tart Oven last
+	// pushed to this VM's Desktop. That profile carries a device identity (a PKCS#12
+	// key), which must belong to one VM only. A clone inherits the file but not this
+	// record, which is how auto-enroll tells the VM's own identity from a copied one.
+	EnrollIdentitySHA256 string `json:"enrollIdentitySha256,omitempty"`
+
 	AutoEnroll        bool   `json:"autoEnroll,omitempty"`        // set at clone time; next boot (manual or scheduler) runs the MDM auto-enroll script once
 	AutoEnrollProfile string `json:"autoEnrollProfile,omitempty"` // Jamf server profile ID to enroll into; "" = whatever profile is already on the guest's Desktop, else the first one
 

@@ -232,6 +232,17 @@ func (m *Manager) handleMDMProfile(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// A School fetch makes the tenant issue a device identity, and that identity is
+	// wasted if the browser tab closes or reloads before it reaches the guest. So
+	// from here on the work no longer dies with the HTTP request, but it is still
+	// bounded. (A Jamf Pro profile is generated locally and costs nothing to redo.)
+	deliverCtx := r.Context()
+	if targetProfile.Kind == JamfKindSchool {
+		var cancelDeliver context.CancelFunc
+		deliverCtx, cancelDeliver = context.WithTimeout(context.WithoutCancel(r.Context()), schoolDeliverTimeout)
+		defer cancelDeliver()
+	}
+
 	// Only profile *production* branches on kind. Pro generates one locally from a
 	// template; School downloads one over the network. Both kinds then go through the
 	// same copier to the same path on the guest's Desktop.
@@ -253,7 +264,7 @@ func (m *Manager) handleMDMProfile(w http.ResponseWriter, r *http.Request) {
 		// hand-edited state.json, or any writer other than handleConfig); untrimmed
 		// they would travel into the landing URL's query as network=+12345+ and come
 		// back as an unexplained failure at the landing stage.
-		profile, err = m.schoolFetcher.FetchProfile(r.Context(), mdm.SchoolInput{
+		profile, err = m.schoolFetcher.FetchProfile(deliverCtx, mdm.SchoolInput{
 			BaseURL:  baseURL,
 			Network:  strings.TrimSpace(targetProfile.Network),
 			Location: strings.TrimSpace(targetProfile.Location),
@@ -292,7 +303,7 @@ func (m *Manager) handleMDMProfile(w http.ResponseWriter, r *http.Request) {
 		Password: password,
 		Timeout:  time.Duration(sshTimeout) * time.Second,
 	}
-	if err := m.copyProfile(r.Context(), name, viaAgent, target, profile, payloadUUID); err != nil {
+	if err := m.copyProfile(deliverCtx, name, viaAgent, target, profile, payloadUUID); err != nil {
 		stage := mdm.StageSFTP
 		if viaAgent {
 			stage = mdm.StageAgent
@@ -306,6 +317,8 @@ func (m *Manager) handleMDMProfile(w http.ResponseWriter, r *http.Request) {
 		writeMDMProfileError(w, status, name, stage, message)
 		return
 	}
+
+	m.recordEnrollProfile(name, profile, targetProfile.Kind == JamfKindSchool)
 
 	writeJSON(w, mdmProfileResponse{
 		OK:          true,
@@ -1107,8 +1120,26 @@ func (m *Manager) handleConfig(w http.ResponseWriter, r *http.Request) {
 		}
 		for _, p := range list {
 			if strings.TrimSpace(p.BaseURL) != "" {
-				if _, err := normalizeJamfBaseURL(p.BaseURL); err != nil {
+				norm, err := normalizeJamfBaseURL(p.BaseURL)
+				if err != nil {
 					http.Error(w, err.Error(), http.StatusBadRequest)
+					return
+				}
+				// A School profile holds a private key: say so now, not at the first
+				// copy behind a generic message. A client that omits the kind keeps
+				// the stored one (see the merge below).
+				kind := p.Kind
+				if kind == "" {
+					m.mu.Lock()
+					for _, old := range m.cfg.JamfProfiles {
+						if old.ID == p.ID {
+							kind = old.Kind
+						}
+					}
+					m.mu.Unlock()
+				}
+				if kind == JamfKindSchool && !strings.HasPrefix(strings.ToLower(norm), "https://") {
+					http.Error(w, "Jamf School server base URL must use https", http.StatusBadRequest)
 					return
 				}
 			}

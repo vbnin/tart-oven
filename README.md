@@ -266,10 +266,10 @@ Keep **Exclude OCI images from scheduler** enabled so registry cache entries rem
 
 Tart Oven can get a Jamf enrollment profile and copy it to a running base VM over SFTP (or the guest agent). It generates a Jamf Pro profile itself; for Jamf School it downloads one from your tenant.
 
-A safe template workflow is:
+A safe template workflow for Jamf Pro is:
 
 1. Turn on **Configuration → Server Settings → Display Jamf-related features** (off by default), then open **VM Management → Prepare VM for Jamf**.
-2. Click **Add Jamf Server**, choose **Pro** or **School**, and enter the server name and base URL, then the invitation ID (Pro) or the network and location IDs (School).
+2. Click **Add Jamf Server**, choose **Jamf Pro**, and enter the server name, base URL and invitation ID.
 3. Start the base VM.
 4. Select the running VM and Jamf server profile.
 5. Click **Copy profile to Desktop** — it uses that VM's own SSH username/password if set, otherwise the defaults from Configuration.
@@ -278,7 +278,7 @@ A safe template workflow is:
 8. Clone it with **Random MAC** and **Random serial** enabled.
 9. Start and enroll each clone separately.
 
-A Jamf School profile is not a template: it contains a client certificate and its password, and Jamf School creates a new one every time it is downloaded. Tart Oven therefore downloads a fresh profile for every copy and never stores or reuses one, so each **Copy profile to Desktop** (and each auto-enroll) adds an enrollment credential in your Jamf School tenant, whether or not that VM ever enrolls. The download replays the steps of Jamf School's own enrollment web page, so a change to that page can break it; the error says which of its three steps failed.
+A Jamf School profile is not a template, so keep it out of the workflow above. It contains a client certificate and its password, and Jamf School creates a new one every time it is downloaded. Copy it only to a VM that will enroll itself, never to a base VM you clone: every clone would present the same device identity, and the devices would collide in Jamf School. Tart Oven downloads a fresh profile for every copy and never stores one, so each **Copy profile to Desktop** (and each auto-enroll) adds an enrollment credential in your Jamf School tenant, whether or not that VM ever enrolls. Auto-enroll set to **None** will not reuse a signed profile, or one with a device identity, that it finds on a Desktop unless Tart Oven put that exact profile on that same VM. A clone of a base VM that holds one stops with a message asking you to choose a Jamf server profile, so each VM gets its own. The server address must start with `https://`, and the profile is sent to the guest without appearing in any command line on the Mac. The download replays the steps of Jamf School's own enrollment web page, so a change to that page can break it; the error says which of its three steps failed.
 
 The **MDM** column is updated when Tart Oven probes a guest:
 

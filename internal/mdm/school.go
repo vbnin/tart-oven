@@ -139,7 +139,27 @@ func refuseCrossHostRedirect(request *http.Request, via []*http.Request) error {
 	if len(via) > 0 && !strings.EqualFold(request.URL.Host, via[0].URL.Host) {
 		return errors.New("refusing to follow a redirect away from the configured Jamf School host")
 	}
+	// The download carries a private key and its password, so a redirect must
+	// not drop from https to plain http, even on the same host.
+	if len(via) > 0 && via[0].URL.Scheme == "https" && request.URL.Scheme != "https" {
+		return errors.New("refusing to follow a redirect from https to http")
+	}
 	return nil
+}
+
+// sameSchoolHost reports whether two URLs name the same host and port. A missing
+// port means the scheme's default (443 for https).
+func sameSchoolHost(a, b *url.URL) bool {
+	port := func(u *url.URL) string {
+		if p := u.Port(); p != "" {
+			return p
+		}
+		if u.Scheme == "https" {
+			return "443"
+		}
+		return "80"
+	}
+	return strings.EqualFold(a.Hostname(), b.Hostname()) && port(a) == port(b)
 }
 
 func schoolBaseURL(in SchoolInput) (*url.URL, error) {
@@ -153,6 +173,13 @@ func schoolBaseURL(in SchoolInput) (*url.URL, error) {
 	base, err := url.Parse(normalized)
 	if err != nil {
 		return nil, &StageError{Stage: StageConfiguration, Err: errors.New("Jamf School server base URL could not be parsed")}
+	}
+	// The profile this server hands out holds a private key and its cleartext
+	// password, and the enrollment calls carry a session cookie and CSRF token,
+	// so none of it may cross the network unencrypted. (Jamf Pro never had this
+	// exposure: its profile is generated locally.)
+	if base.Scheme != "https" {
+		return nil, &StageError{Stage: StageConfiguration, Err: errors.New("Jamf School server base URL must use https")}
 	}
 	if strings.TrimSpace(in.Network) == "" {
 		return nil, &StageError{Stage: StageConfiguration, Err: errors.New("Jamf School network is required")}
@@ -290,8 +317,15 @@ func startSchoolEnrollment(ctx context.Context, client *http.Client, base *url.U
 	// Resolving against the base accepts both the absolute URL the server sends
 	// today and a bare path, without assuming either.
 	profileURL := base.ResolveReference(reference)
-	if profileURL.Scheme != "http" && profileURL.Scheme != "https" {
-		return nil, &StageError{Stage: StageSession, Err: fmt.Errorf("%s: server response JSON %q value is not an http or https URL", operation, "profile")}
+	if profileURL.Scheme != "https" {
+		return nil, &StageError{Stage: StageSession, Err: fmt.Errorf("%s: server response JSON %q value is not an https URL", operation, "profile")}
+	}
+	// The download is a private key. A response that points it at another host
+	// (a compromised or misconfigured server, or an injected reply) must not
+	// make us send it there. Unconfirmed against a real tenant: if Jamf School
+	// serves profiles from a different host, this is the line to widen.
+	if !sameSchoolHost(profileURL, base) {
+		return nil, &StageError{Stage: StageSession, Err: fmt.Errorf("%s: server response JSON %q value is on a different host than the configured Jamf School server", operation, "profile")}
 	}
 	return profileURL, nil
 }

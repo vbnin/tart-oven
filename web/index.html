@@ -1058,11 +1058,13 @@
         <h3 id="jamfEditorTitle" style="margin: 0 0 10px 0; font-size: 14px;">Add Jamf Server Profile</h3>
         <input type="hidden" id="jamfProfileId">
         <input type="hidden" id="jamfProfileKind" value="pro">
-        <div class="segmented-control" role="group" aria-label="Jamf server type" style="margin-bottom:12px">
-          <button type="button" class="subtab-btn active" id="jamfKindProBtn" aria-pressed="true" onclick="setJamfEditorKind('pro')">Jamf Pro</button>
-          <button type="button" class="subtab-btn" id="jamfKindSchoolBtn" aria-pressed="false" onclick="setJamfEditorKind('school')">Jamf School</button>
+        <div style="display: flex; align-items: center; margin-bottom: 12px;">
+          <div class="segmented-control" role="group" aria-label="Jamf server type">
+            <button type="button" class="subtab-btn active" id="jamfKindProBtn" aria-pressed="true" onclick="setJamfEditorKind('pro')">Jamf Pro</button>
+            <button type="button" class="subtab-btn" id="jamfKindSchoolBtn" aria-pressed="false" onclick="setJamfEditorKind('school')">Jamf School</button>
+          </div>
+          <button type="button" class="help-tip" id="jamfKindNote" style="display: none;" data-help="Changing the type discards the credentials saved for the old type. Enter the new ones below." aria-label="About changing the server type" aria-expanded="false">?</button>
         </div>
-        <div class="muted" id="jamfKindNote" style="display: none; font-size: 12px; margin: -4px 0 10px 0;">Changing the type discards the credentials saved for the old type; enter the new ones below.</div>
         <div class="grid">
           <div class="field"><label>Server Name</label><input type="text" id="jamfProfileName" placeholder="e.g. Production, Sandbox, Staging"></div>
           <div class="field"><label>Base URL</label><input type="url" id="jamfBaseUrl" placeholder="https://tenant.jamfcloud.com"></div>
@@ -2466,7 +2468,9 @@ function setJamfEditorKind(kind) {
   }
   document.getElementById("jamfProFields").style.display = kind === "pro" ? "" : "none";
   document.getElementById("jamfSchoolFields").style.display = kind === "school" ? "" : "none";
-  document.getElementById("jamfKindNote").style.display = prev && !same ? "block" : "none";
+  const kindNote = document.getElementById("jamfKindNote");
+  kindNote.style.display = prev && !same ? "" : "none";
+  if (kindNote.style.display === "none" && helpOwner === kindNote) closeHelp(); // never leave a popover on a hidden button
   document.getElementById("jamfInvitationCode").placeholder = same && prev.invitationCodeSet ? "•••••••• (saved)" : "Enter invitation value";
   document.getElementById("jamfNetwork").placeholder = keep(prev && prev.networkSet, "Enter network ID");
   document.getElementById("jamfLocation").placeholder = keep(prev && prev.locationSet, "Enter location ID");
@@ -5006,7 +5010,7 @@ document.addEventListener("keydown", e => {
   if (e.key === "Escape" && !document.getElementById("unsavedModal").classList.contains("hidden")) closeUnsavedModal();
 });
 function warnBeforeUnload(e) {
-  if (isConfigDirty() || mdmCopyInFlight) { e.preventDefault(); e.returnValue = ""; }
+  if (isConfigDirty()) { e.preventDefault(); e.returnValue = ""; }
 }
 window.addEventListener("beforeunload", warnBeforeUnload);
 
@@ -5313,11 +5317,10 @@ function updateMdmCopyButton(vms) {
 }
 
 // A School profile is downloaded from the server (up to 30s) before it is copied.
-// Navigating away cancels the request server-side, which can leave an identity
-// minted in the tenant but never delivered, so say so rather than abort early.
+// The server finishes the delivery even if this page goes away.
 function mdmCopyProgressText(profile) {
   return jamfKind(profile) === "school"
-    ? "Connecting and copying profile… (downloading from Jamf School can take up to a minute — keep this page open)"
+    ? "Connecting and copying profile… (downloading from Jamf School can take up to a minute)"
     : "Connecting and copying profile…";
 }
 // What the banner says depends on how the profile was obtained: a Pro profile is

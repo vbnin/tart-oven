@@ -165,6 +165,9 @@ func (m *Manager) pruneHistory() {
 
 // save writes state atomically. Caller MUST hold m.mu.
 func (m *Manager) save() {
+	if m.statePath == "" {
+		return // a Manager built without a state file (tests) must not write one into the working directory
+	}
 	p := persisted{Config: m.cfg, VMs: m.vms, History: m.history}
 	data, err := json.MarshalIndent(p, "", "  ")
 	if err != nil {

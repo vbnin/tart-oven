@@ -1968,13 +1968,15 @@ function jamfEditorFixture(profiles, extraGlobals) {
     api: async (path, opts) => { posts.push({ path, body: JSON.parse(opts.body) }); return { ok: true, text: async () => "" }; },
     setTimeout: () => {},
     closeJamfProfileEditor: () => {},
+    helpOwner: null,
+    closeHelp: () => {},
     esc: s => String(s == null ? "" : s),
   }, extraGlobals);
   const ctx = vm.createContext(globals);
   const names = ["getJamfProfiles", "jamfKind", "jamfProfileBase", "setJamfEditorKind", "openAddJamfProfile", "openEditJamfProfile", "saveJamfProfile", "deleteJamfProfile"];
   vm.runInContext(names.map(extractFunction).join("\n") + "; globalThis.fn = { " + names.join(", ") + " };", ctx);
   ctx.fn.__setProfiles = list => { latest.config.jamfProfiles = list; };
-  return { els, posts, fn: ctx.fn };
+  return { els, posts, fn: ctx.fn, ctx };
 }
 
 test("jamfKind treats a missing or unknown kind as Pro", () => {
@@ -2170,14 +2172,15 @@ test("the copy summary says what was done for each kind, and omits a UUID that w
     "Generated a Jamf Pro profile and copied it to vm1 at ~/Desktop/mdm_enroll.mobileconfig", "an unknown profile is treated as Pro, like a legacy one");
 });
 
-test("the copy progress text warns School users to keep the page open", () => {
+test("the copy progress text tells School users the download can take a while, without asking them to stay", () => {
   const progress = evaluateFunctions(["mdmCopyProgressText", "jamfKind"], "mdmCopyProgressText", {});
   assert.equal(progress({ kind: "pro" }), "Connecting and copying profile…");
-  assert.match(progress({ kind: "school" }), /keep this page open/i);
+  assert.match(progress({ kind: "school" }), /up to a minute/i);
+  assert.ok(!/keep this page open|—/.test(progress({ kind: "school" })), "the server finishes the copy without the page, and no em dashes");
   assert.equal(progress(undefined), "Connecting and copying profile…");
 });
 
-test("leaving the page mid-copy is guarded like unsaved config", () => {
+test("leaving the page asks only about unsaved config: a profile copy finishes on the server without it", () => {
   const make = (dirty, inFlight) => {
     const e = { prevented: false, returnValue: undefined, preventDefault() { this.prevented = true; } };
     evaluateFunction("warnBeforeUnload", { isConfigDirty: () => dirty, mdmCopyInFlight: inFlight })(e);
@@ -2185,7 +2188,7 @@ test("leaving the page mid-copy is guarded like unsaved config", () => {
   };
   assert.equal(make(false, false).prevented, false);
   assert.equal(make(true, false).prevented, true);
-  assert.equal(make(false, true).prevented, true, "a School handshake cancelled by navigation can orphan an identity in the tenant");
+  assert.equal(make(false, true).prevented, false, "the server delivers a Jamf School profile even if the page is gone");
 });
 
 test("saveJamfProfile does not resurrect a profile that was deleted while its editor was open", async () => {
@@ -2204,18 +2207,34 @@ test("switching kind in the editor notes the discarded credentials and drops the
   assert.equal(els.jamfKindNote.style.display, "none");
   assert.equal(els.jamfInvitationCode.placeholder, "•••••••• (saved)");
   fn.setJamfEditorKind("school");
-  assert.equal(els.jamfKindNote.style.display, "block");
+  assert.equal(els.jamfKindNote.style.display, "");
   fn.setJamfEditorKind("pro");
   assert.equal(els.jamfKindNote.style.display, "none");
   fn.openAddJamfProfile();
   assert.equal(els.jamfKindNote.style.display, "none", "a new profile has nothing to discard");
 });
 
+test("hiding the kind note closes its open help popover", () => {
+  let closed = 0;
+  const pro = { id: "p1", kind: "pro", name: "P", baseUrl: "https://p.example.com", invitationCodeSet: true };
+  const { els, fn, ctx } = jamfEditorFixture([pro], { closeHelp: () => { closed++; } });
+  fn.openEditJamfProfile("p1");
+  fn.setJamfEditorKind("school");
+  ctx.helpOwner = els.jamfKindNote; // the user opened the tip
+  fn.setJamfEditorKind("pro");      // switching back hides it
+  assert.equal(els.jamfKindNote.style.display, "none");
+  assert.equal(closed, 1, "a popover must not stay pinned to a hidden button");
+  ctx.helpOwner = els.jamfProfileName; // some other tip is open
+  fn.setJamfEditorKind("school");
+  fn.setJamfEditorKind("pro");
+  assert.equal(closed, 1, "an unrelated popover is left alone");
+});
+
 test("closeJamfProfileEditor clears the School secrets and returns to Pro", () => {
   const els = jamfElements(JAMF_EDITOR_IDS);
   els.jamfNetwork.value = "n"; els.jamfLocation.value = "l"; els.jamfProfileKind.value = "school";
   const names = ["closeJamfProfileEditor", "setJamfEditorKind", "getJamfProfiles", "jamfKind"];
-  const ctx = vm.createContext({ document: { getElementById: id => els[id] }, latest: { config: { jamfProfiles: [] } } });
+  const ctx = vm.createContext({ document: { getElementById: id => els[id] }, latest: { config: { jamfProfiles: [] } }, helpOwner: null, closeHelp: () => {} });
   vm.runInContext(names.map(extractFunction).join("\n") + "; globalThis.close = closeJamfProfileEditor;", ctx);
   ctx.close();
   assert.equal(els.jamfNetwork.value, "");

@@ -281,8 +281,10 @@ func TestCopyMDMProfileToVMMapsSchoolFailuresToCannedMessages(t *testing.T) {
 // serialized SSE frame that carries them to every connected browser.
 //
 // The second case is the one a fetch-only test would miss: the guest's own stderr, which
-// copyProfileViaAgent folds into its error. The base64 of the profile is on that command
-// line, so a shell that echoes a failed command puts the credential in the error text.
+// copyProfileViaAgent folds into its error. The profile no longer travels in the command
+// line (see TestAgentPushKeepsTheProfileOutOfTheCommandLine), but the case stays as a
+// guard: a shell that echoes whatever it was given must still not put the credential in
+// the error text.
 func TestAutoEnrollSchoolFailuresKeepSecretsOutOfTaskAndLogs(t *testing.T) {
 	profileB64 := base64.StdEncoding.EncodeToString(testSchoolProfileBytes())
 	cases := []struct {
@@ -376,5 +378,136 @@ func TestSchoolProfilePushThroughTheGuestAgentWritesTheFetchedBytes(t *testing.T
 	}
 	if !bytes.Equal(data, testSchoolProfileBytes()) {
 		t.Fatalf("guest holds %q, want the fetched bytes verbatim", data)
+	}
+}
+
+// A command line is visible to every local user in the host's process list for as long
+// as `tart exec` runs. A School profile holds a private key and its cleartext password,
+// so it must reach the guest on stdin, never in the arguments.
+func TestAgentPushKeepsTheProfileOutOfTheCommandLine(t *testing.T) {
+	home := t.TempDir()
+	argvLog := filepath.Join(t.TempDir(), "argv.log")
+	m := newAgentOnlyManager(t, `printf '%s\n' "$@" >> "`+argvLog+`"
+for a; do last=$a; done
+HOME="`+home+`" exec /bin/sh -c "$last"`)
+	m.cfg.SSHUser, m.cfg.SSHPassword = "", ""
+	profile := testSchoolProfileBytes()
+
+	if err := m.copyProfileViaAgent(t.Context(), "vm", profile); err != nil {
+		t.Fatalf("copyProfileViaAgent: %v", err)
+	}
+
+	argv, err := os.ReadFile(argvLog)
+	if err != nil {
+		t.Fatal(err)
+	}
+	b64 := base64.StdEncoding.EncodeToString(profile)
+	for _, secret := range []string{b64, b64[:32], testSchoolProfileSecret} {
+		if strings.Contains(string(argv), secret) {
+			t.Fatalf("the profile reached tart's command line: %.80q", secret)
+		}
+	}
+	hasI := false
+	for _, line := range strings.Split(string(argv), "\n") {
+		hasI = hasI || line == "-i"
+	}
+	if !hasI {
+		t.Fatal("tart exec was not asked to forward stdin (-i)")
+	}
+	data, err := os.ReadFile(filepath.Join(home, "Desktop", "mdm_enroll.mobileconfig"))
+	if err != nil || !bytes.Equal(data, profile) {
+		t.Fatalf("guest holds %q (err %v), want the profile verbatim", data, err)
+	}
+	if info, _ := os.Stat(filepath.Join(home, "Desktop", "mdm_enroll.mobileconfig")); info.Mode().Perm() != 0o600 {
+		t.Fatalf("mode = %v, want 0600", info.Mode().Perm())
+	}
+}
+
+// The check runs in the guest, so a copy that arrives damaged (or a guest that answers
+// for a different file) is caught without the profile ever coming back over stdout.
+func TestAgentPushDetectsACorruptedCopyByChecksum(t *testing.T) {
+	home := t.TempDir()
+	m := newAgentOnlyManager(t, `for a; do last=$a; done
+case "$last" in *shasum*) echo "0000000000000000000000000000000000000000000000000000000000000000  profile"; exit 0 ;; esac
+HOME="`+home+`" exec /bin/sh -c "$last"`)
+	m.cfg.SSHUser, m.cfg.SSHPassword = "", ""
+
+	err := m.copyProfileViaAgent(t.Context(), "vm", testSchoolProfileBytes())
+
+	var stageErr *mdm.StageError
+	if !errors.As(err, &stageErr) || stageErr.Stage != mdm.StageVerification {
+		t.Fatalf("err = %v, want a verification-stage error", err)
+	}
+	if strings.Contains(err.Error(), testSchoolProfileSecret) {
+		t.Fatal("the error leaked the profile")
+	}
+}
+
+func TestAgentPushReportsAnEmptyChecksumAnswerAsFailure(t *testing.T) {
+	home := t.TempDir()
+	m := newAgentOnlyManager(t, `for a; do last=$a; done
+case "$last" in *shasum*) exit 0 ;; esac
+HOME="`+home+`" exec /bin/sh -c "$last"`)
+	m.cfg.SSHUser, m.cfg.SSHPassword = "", ""
+
+	if err := m.copyProfileViaAgent(t.Context(), "vm", testSchoolProfileBytes()); err == nil {
+		t.Fatal("a guest that returned no checksum was accepted")
+	}
+}
+
+// A line that does not decode, or a stream that breaks, must not leave a truncated
+// profile where the next run would find and reuse it. The old file stays whole.
+func TestAgentPushLeavesTheExistingProfileAloneWhenTheLineIsDamaged(t *testing.T) {
+	home := t.TempDir()
+	desktop := filepath.Join(home, "Desktop")
+	if err := os.MkdirAll(desktop, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	target := filepath.Join(desktop, "mdm_enroll.mobileconfig")
+	if err := os.WriteFile(target, []byte("previous profile"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	// The "guest" receives garbage instead of the base64 line.
+	m := newAgentOnlyManager(t, `for a; do last=$a; done
+case "$last" in
+  *"read -r"*) printf '%s\n' '@@@ not base64 @@@' | HOME="`+home+`" /bin/sh -c "$last"; exit $? ;;
+esac
+HOME="`+home+`" exec /bin/sh -c "$last"`)
+	m.cfg.SSHUser, m.cfg.SSHPassword = "", ""
+
+	if err := m.copyProfileViaAgent(t.Context(), "vm", testSchoolProfileBytes()); err == nil {
+		t.Fatal("a damaged line was accepted")
+	}
+
+	if got, _ := os.ReadFile(target); string(got) != "previous profile" {
+		t.Fatalf("the existing profile was damaged: %q", got)
+	}
+	entries, _ := os.ReadDir(desktop)
+	if len(entries) != 1 {
+		t.Fatalf("temporary files left on the Desktop: %v", entries)
+	}
+}
+
+// An older, world-readable file is replaced by a private one, not written through.
+func TestAgentPushReplacesAnOlderWorldReadableFileWithAPrivateOne(t *testing.T) {
+	home := t.TempDir()
+	m := newAgentOnlyManager(t, fakeAgentTart(home))
+	m.cfg.SSHUser, m.cfg.SSHPassword = "", ""
+	desktop := filepath.Join(home, "Desktop")
+	if err := os.MkdirAll(desktop, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	target := filepath.Join(desktop, "mdm_enroll.mobileconfig")
+	if err := os.WriteFile(target, []byte("old"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	if err := m.copyProfileViaAgent(t.Context(), "vm", testSchoolProfileBytes()); err != nil {
+		t.Fatal(err)
+	}
+
+	info, err := os.Stat(target)
+	if err != nil || info.Mode().Perm() != 0o600 {
+		t.Fatalf("mode = %v (err %v), want 0600", info.Mode().Perm(), err)
 	}
 }

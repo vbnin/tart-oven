@@ -176,6 +176,22 @@ func agentExecArgs(name, user, command string, stdin bool) []string {
 // second return value reports whether the agent handled the call at all; when it is
 // false the caller should fall back to SSH.
 func (m *Manager) execViaAgent(ctx context.Context, name, command, sudoPassword string) (execResult, bool) {
+	if sudoPassword != "" {
+		return m.runAgentExec(ctx, name, rewriteSudoForStdin(command), sudoPassword+"\n", true)
+	}
+	return m.runAgentExec(ctx, name, command, "", false)
+}
+
+// execViaAgentInput is execViaAgent with input on the command's standard input.
+// Use it for anything secret: a command line is visible to every local user in
+// the host's process list for as long as `tart exec` runs, stdin is not. The
+// command must read exactly what it needs (for example one line with `read -r`)
+// and not wait for end of input, which `tart exec -i` is not known to deliver.
+func (m *Manager) execViaAgentInput(ctx context.Context, name, command, input string) (execResult, bool) {
+	return m.runAgentExec(ctx, name, command, input, true)
+}
+
+func (m *Manager) runAgentExec(ctx context.Context, name, remote, input string, withInput bool) (execResult, bool) {
 	m.mu.Lock()
 	home := m.cfg.VMStoragePath
 	user, _ := effectiveSSHCredentials(m.cfg, m.vms[name])
@@ -184,15 +200,10 @@ func (m *Manager) execViaAgent(ctx context.Context, name, command, sudoPassword 
 		user = "admin"
 	}
 
-	remote := command
-	if sudoPassword != "" {
-		remote = rewriteSudoForStdin(command)
-	}
-
-	cmd := m.tartCmdCtx(ctx, home, agentExecArgs(name, user, guestPATHExport+remote, sudoPassword != "")...)
+	cmd := m.tartCmdCtx(ctx, home, agentExecArgs(name, user, guestPATHExport+remote, withInput)...)
 	cmd.WaitDelay = cancelGrace
-	if sudoPassword != "" {
-		cmd.Stdin = strings.NewReader(sudoPassword + "\n")
+	if withInput {
+		cmd.Stdin = strings.NewReader(input)
 	}
 	stdout, stderr := newCapBuffer(ctx), newCapBuffer(ctx)
 	cmd.Stdout = stdout
