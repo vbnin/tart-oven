@@ -26,7 +26,9 @@ const (
 
 	agentVMPrefix = "agent-"
 	// agentSharedSub is the folder under the shared directory where each agent
-	// VM gets its own subfolder, so agents never see each other's files.
+	// VM gets its own subfolder. That subfolder is all the VM is given as
+	// host_resources (sharedDirForRun), so agents never see each other's files,
+	// the owner's files, or the guest agent installer kept in the shared folder.
 	agentSharedSub = "agent"
 	// guestSharedMount is where Virtualization.framework shows the host_resources
 	// share inside a macOS guest.
@@ -105,6 +107,19 @@ func (m *Manager) setAgentOp(name string, op *agentOp) {
 	}
 	op.Updated = time.Now()
 	m.agentOps[name] = op
+}
+
+// sharedDirForRun is the host folder a VM is given as host_resources. A leased
+// (agent) VM gets only its own subfolder: the whole shared folder holds other
+// agents' files and the guest agent installer that Install Agent later runs as
+// root in the owner's VMs, so an agent must not be able to read or replace it.
+// It is decided from the lease, not from the start request, so a manual start
+// of an agent VM is limited the same way.
+func sharedDirForRun(cfgShared, name string, leased bool) string {
+	if leased {
+		return filepath.Join(cfgShared, agentSharedSub, name)
+	}
+	return cfgShared
 }
 
 // agentSharedHostDir is the host folder an agent VM can use to exchange files.
@@ -221,7 +236,14 @@ func (m *Manager) startAgentVM(owner string, req agentCreateReq) (string, *agent
 	}
 	// Register the VM now, busy, so the scheduler ignores it and reconcile
 	// keeps it while the clone is still being written.
-	m.vms[name] = &VM{Name: name, State: "stopped", Lease: lease}
+	clone := &VM{Name: name, State: "stopped", Lease: lease}
+	// Commands run as the template's user (agentguide.md), so the clone keeps the
+	// template's own SSH user and password; without them it would fall back to
+	// the global default, which may not exist in the guest.
+	if tpl := m.vms[req.Template]; tpl != nil {
+		clone.SSHUser, clone.SSHPassword = tpl.SSHUser, tpl.SSHPassword
+	}
+	m.vms[name] = clone
 	m.setBusy(name, true)
 	m.setAgentOp(name, &agentOp{Owner: owner, Template: req.Template, Phase: "cloning"})
 	m.save()

@@ -90,6 +90,43 @@ func TestSFTPProfileCopierCopiesAndVerifiesProfile(t *testing.T) {
 	}
 }
 
+// TestSFTPProfileCopierVerifiesAProfileWithNoPayloadUUID covers the Jamf School path.
+// A School profile is minted by the server, usually as a signed DER blob we deliberately
+// do not parse, so there is no generated UUID to assert and callers pass "". The
+// byte-for-byte comparison is what verifies the copy for both kinds, and it must still
+// reject a mismatch when the UUID assertion is skipped.
+func TestSFTPProfileCopierVerifiesAProfileWithNoPayloadUUID(t *testing.T) {
+	profile := []byte("\x30\x82\x25\xd4 opaque signed school profile")
+
+	t.Run("accepts an exact copy", func(t *testing.T) {
+		remote := &fakeRemoteProfileFS{files: map[string][]byte{}}
+		copier := &sftpProfileCopier{dialer: fakeRemoteProfileDialer{remote: remote}}
+
+		err := copier.CopyAndVerify(context.Background(), TransferTarget{
+			Address: "192.0.2.10:22", Username: "admin", Password: "admin", Timeout: time.Second,
+		}, profile, "")
+		if err != nil {
+			t.Fatalf("CopyAndVerify with an empty payloadUUID: %v", err)
+		}
+		if !bytes.Equal(remote.files[ProfileRemotePath], profile) {
+			t.Fatal("wrong remote profile")
+		}
+	})
+
+	t.Run("still rejects a mismatch", func(t *testing.T) {
+		remote := &fakeRemoteProfileFS{files: map[string][]byte{}, readResult: []byte("truncated")}
+		copier := &sftpProfileCopier{dialer: fakeRemoteProfileDialer{remote: remote}}
+
+		err := copier.CopyAndVerify(context.Background(), TransferTarget{
+			Address: "192.0.2.10:22", Username: "admin", Password: "admin", Timeout: time.Second,
+		}, profile, "")
+		var stageErr *StageError
+		if !errors.As(err, &stageErr) || stageErr.Stage != StageVerification {
+			t.Fatalf("error = %v (%T), want a *StageError at stage %q", err, err, StageVerification)
+		}
+	})
+}
+
 func TestSFTPProfileCopierReportsFailureStageAndClosesRemote(t *testing.T) {
 	tests := []struct {
 		name       string

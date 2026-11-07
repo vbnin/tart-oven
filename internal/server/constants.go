@@ -8,6 +8,7 @@ import (
 	"regexp"
 	"strings"
 	"sync"
+	"time"
 )
 
 // ---------------------------------------------------------------------------
@@ -36,6 +37,20 @@ const (
 	// Apple's Virtualization.framework refuses to run more than 2 VMs at once,
 	// so this is enforced regardless of the configured MaxConcurrent.
 	hardMaxConcurrent = 2
+
+	// Auto-check: how often running VMs are re-checked (Agent, SSH, Internet,
+	// MDM, Info). 0 turns it off; a probe can take several seconds, so a
+	// non-zero value below the minimum is raised to it.
+	defaultAutoCheckSeconds = 120
+	minAutoCheckSeconds     = 10
+	maxAutoCheckSeconds     = 86400
+
+	// schoolDeliverTimeout bounds fetching a Jamf School profile and copying it to
+	// the guest once the request that asked for it may be gone.
+	schoolDeliverTimeout = 3 * time.Minute
+
+	// agentPushTimeout bounds writing a profile to a guest through the agent.
+	agentPushTimeout = 2 * time.Minute
 )
 
 // defaultTartBin is the full path to the tart binary used by default. The

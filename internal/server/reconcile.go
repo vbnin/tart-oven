@@ -51,9 +51,14 @@ func (m *Manager) reconcile() {
 			}
 		}
 	}
-	// Drop VMs that no longer exist in tart (and aren't mid-operation).
+	// Drop VMs that no longer exist in tart (and aren't mid-operation). A name
+	// reserved by a create, rename or snapshot in progress is kept too: this
+	// list may have been read just before that operation made the VM appear
+	// under its new name, and dropping the record would lose its notes, tags,
+	// saved SSH password and snapshots.
 	for name := range m.vms {
-		if !seen[name] && !m.busy[name] {
+		_, reserved := m.reservedNames[name]
+		if !seen[name] && !m.busy[name] && !reserved {
 			delete(m.vms, name)
 		}
 	}

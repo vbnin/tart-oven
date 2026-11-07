@@ -176,6 +176,22 @@ func agentExecArgs(name, user, command string, stdin bool) []string {
 // second return value reports whether the agent handled the call at all; when it is
 // false the caller should fall back to SSH.
 func (m *Manager) execViaAgent(ctx context.Context, name, command, sudoPassword string) (execResult, bool) {
+	if sudoPassword != "" {
+		return m.runAgentExec(ctx, name, rewriteSudoForStdin(command), sudoPassword+"\n", true)
+	}
+	return m.runAgentExec(ctx, name, command, "", false)
+}
+
+// execViaAgentInput is execViaAgent with input on the command's standard input.
+// Use it for anything secret: a command line is visible to every local user in
+// the host's process list for as long as `tart exec` runs, stdin is not. The
+// command must read exactly what it needs (for example one line with `read -r`)
+// and not wait for end of input, which `tart exec -i` is not known to deliver.
+func (m *Manager) execViaAgentInput(ctx context.Context, name, command, input string) (execResult, bool) {
+	return m.runAgentExec(ctx, name, command, input, true)
+}
+
+func (m *Manager) runAgentExec(ctx context.Context, name, remote, input string, withInput bool) (execResult, bool) {
 	m.mu.Lock()
 	home := m.cfg.VMStoragePath
 	user, _ := effectiveSSHCredentials(m.cfg, m.vms[name])
@@ -184,15 +200,10 @@ func (m *Manager) execViaAgent(ctx context.Context, name, command, sudoPassword 
 		user = "admin"
 	}
 
-	remote := command
-	if sudoPassword != "" {
-		remote = rewriteSudoForStdin(command)
-	}
-
-	cmd := m.tartCmdCtx(ctx, home, agentExecArgs(name, user, guestPATHExport+remote, sudoPassword != "")...)
+	cmd := m.tartCmdCtx(ctx, home, agentExecArgs(name, user, guestPATHExport+remote, withInput)...)
 	cmd.WaitDelay = cancelGrace
-	if sudoPassword != "" {
-		cmd.Stdin = strings.NewReader(sudoPassword + "\n")
+	if withInput {
+		cmd.Stdin = strings.NewReader(input)
 	}
 	stdout, stderr := newCapBuffer(ctx), newCapBuffer(ctx)
 	cmd.Stdout = stdout
@@ -279,11 +290,22 @@ func (m *Manager) guestAgentAvailable(name string) bool {
 // setAgentOK records whether the guest agent answered, for display only.
 func (m *Manager) setAgentOK(name string, ok bool) {
 	m.mu.Lock()
-	if vm := m.vms[name]; vm != nil {
+	if vm := m.liveVMLocked(name); vm != nil {
 		vm.AgentOK = ok
 		vm.AgentCheckedAt = time.Now()
 	}
 	m.mu.Unlock()
+}
+
+// liveVMLocked returns the VM only while it is running. A check started on a
+// running VM can finish after the VM began stopping or suspending (the
+// auto-check runs every few minutes); its result then describes the shutdown,
+// not the guest, and must not replace the last known status. Caller holds mu.
+func (m *Manager) liveVMLocked(name string) *VM {
+	if vm := m.vms[name]; vm != nil && vm.State == "running" {
+		return vm
+	}
+	return nil
 }
 
 // probeGuestChannels checks the guest agent and SSH independently and records
@@ -307,8 +329,8 @@ func (m *Manager) probeGuestChannels(name string) (agentOK, sshOK bool) {
 }
 
 // refreshVMInfo is "Refresh info": it re-checks a running VM's IP, its Agent
-// and SSH status and its MDM enrollment, then runs the status command to
-// refresh the collected info. It returns the status command's result.
+// and SSH status, its MDM enrollment and its internet access, then runs the
+// status command to refresh the collected info. It returns the status command's result.
 func (m *Manager) refreshVMInfo(name string) execResult {
 	m.refreshVMIP(name)
 	m.probeGuestChannels(name)
@@ -320,12 +342,13 @@ func (m *Manager) refreshVMInfo(name string) execResult {
 	res := m.sshExec(name, cmd, "")
 	_, info := sshOutcome(res)
 	m.mu.Lock()
-	if vm := m.vms[name]; vm != nil {
+	if vm := m.liveVMLocked(name); vm != nil {
 		vm.Info = info
 		vm.InfoAt = time.Now()
 	}
 	m.mu.Unlock()
 	m.refreshMDMStatus(name)
+	m.refreshInternetStatus(name)
 	m.broadcast()
 	return res
 }
@@ -383,7 +406,7 @@ func (m *Manager) probeSSH(name string) bool {
 		checkedAt = time.Now()
 	}
 	m.mu.Lock()
-	if vm := m.vms[name]; vm != nil {
+	if vm := m.liveVMLocked(name); vm != nil {
 		vm.SSHOK = ok
 		vm.SSHCheckedAt = checkedAt
 	}

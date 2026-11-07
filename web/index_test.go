@@ -1,7 +1,9 @@
 package web
 
 import (
+	"os"
 	"regexp"
+	"strconv"
 	"strings"
 	"testing"
 )
@@ -30,7 +32,7 @@ func TestDashboardContainsJamfProfileControls(t *testing.T) {
 		`id="jamfBaseUrl"`, `id="jamfInvitationCode"`, `id="mdmProfileSelect"`,
 		`id="mdmTarget"`,
 		`id="copyMdmBtn"`, `/api/vm/mdm-profile`, `~/Desktop/mdm_enroll.mobileconfig`,
-		`placeholder="https://tenant.jamfcloud.com"`, `Enter the value after invitation=, not the full URL`,
+		`placeholder="https://tenant.jamfcloud.com"`, `id="jamfHowProBtn" data-help-src="jamfInvitationHelp"`,
 	} {
 		if !strings.Contains(html, want) {
 			t.Errorf("dashboard missing %q", want)
@@ -43,6 +45,48 @@ func TestDashboardContainsJamfProfileControls(t *testing.T) {
 		if strings.Contains(html, unwanted) {
 			t.Errorf("dashboard still has removed control %q", unwanted)
 		}
+	}
+}
+
+// A saved Jamf server is either Pro (invitation code) or School (network and
+// location IDs). The editor swaps the credential fields on a segmented control
+// and the table gains a Type column.
+func TestDashboardJamfProfileEditorSupportsProAndSchool(t *testing.T) {
+	b, err := Content.ReadFile("index.html")
+	if err != nil {
+		t.Fatal(err)
+	}
+	html := string(b)
+	for _, want := range []string{
+		`id="jamfKindProBtn"`, `id="jamfKindSchoolBtn"`, `id="jamfProfileKind"`,
+		`id="jamfProFields"`, `id="jamfSchoolFields"`, `id="jamfNetwork"`, `id="jamfLocation"`,
+		`id="jamfKindNote"`, `<th>Type</th>`, `<th>Base URL</th>`,
+	} {
+		if !strings.Contains(html, want) {
+			t.Errorf("dashboard missing %q", want)
+		}
+	}
+	// "Jamf Pro" is no longer the only kind of server, so neither the column
+	// nor the field may claim it.
+	for _, unwanted := range []string{`<th>Jamf Pro Base URL</th>`, `<label>Jamf Pro base URL</label>`} {
+		if strings.Contains(html, unwanted) {
+			t.Errorf("dashboard still labels the base URL as Pro-only: %q", unwanted)
+		}
+	}
+	// The secrets are write-only like the invitation code: password inputs, so
+	// they are masked while typed and never prefilled.
+	for _, id := range []string{"jamfNetwork", "jamfLocation"} {
+		if !regexp.MustCompile(`<input[^>]*type="password"[^>]*id="` + id + `"`).MatchString(html) {
+			t.Errorf("%s must be a password input", id)
+		}
+	}
+	// The unload guard must actually be registered, or a mid-copy navigation is unprotected.
+	if !strings.Contains(html, `window.addEventListener("beforeunload", warnBeforeUnload)`) {
+		t.Error("warnBeforeUnload is not registered as the beforeunload listener")
+	}
+	// Every column has a matching cell: the empty-state row spans them all.
+	if got := strings.Count(sourceSection(t, html, `<tbody id="jamfProfileRows">`, `</tbody>`), `colspan="5"`); got != 1 {
+		t.Errorf("empty-state row should span the 5 columns, found %d colspan=5", got)
 	}
 }
 
@@ -335,11 +379,19 @@ func TestMemoryRecoveryActionsOnlyEnableForRunningVMs(t *testing.T) {
 	renderTable := sourceSection(t, string(b), `function renderTable`, `// keep "time remaining"`)
 	for _, want := range []string{
 		`const notRunning = vm.state !== "running" ? " disabled" : "";`,
-		`const stopDisabled = busy;`,
-		`act(\'stop\'`,
+		`vmControlButtons(vm, n, !!vm.busy)`,
 	} {
 		if !strings.Contains(renderTable, want) {
 			t.Errorf("running-only action guard missing %q", want)
+		}
+	}
+	controls := sourceSection(t, string(b), `function vmControlButtons(`, `function renderTable(`)
+	for _, want := range []string{
+		`act(\'stop\'`, `(busy ? " disabled" : "")`, // Stop: only while an operation is in flight
+		`act(\'run\'`, `suspendVM(\'`,
+	} {
+		if !strings.Contains(controls, want) {
+			t.Errorf("vmControlButtons missing %q", want)
 		}
 	}
 }
@@ -523,10 +575,10 @@ func TestHelpersLiveInQuestionMarkTips(t *testing.T) {
 	}
 	for _, want := range []string{
 		`data-help="How often the scheduler acts"`, `data-help="Quote values with spaces, e.g. --dir=&quot;~/My Shared Folder&quot;"`,
-		`id="helpPopover"`, `function openHelp(`, `function closeHelp(`, `e.target.closest(".help-tip")`,
+		`id="helpPopover"`, `function openHelp(`, `function closeHelp(`, `e.target.closest(".help-tip, .help-btn")`,
 		// Enable Auto-Enrollment Capabilities: requirements in a tip, first and last sentence kept.
 		`id="prepRequirementsBtn"`, `<template id="prepRequirementsHelp">`, `<h4>Before you run the script</h4>`,
-		`<p class="muted">Generate and deploy Jamf enrollment profiles on VMs.</p>`,
+		`<p class="muted">Auto enroll needs both steps: add your Jamf servers, then run the script once on the base VM. Clones get their own profile at first boot.</p>`,
 		`Keep Screen Sharing open to the VM while this script runs`,
 	} {
 		if !strings.Contains(html, want) {
@@ -640,9 +692,10 @@ func TestAgentAccessHasItsOwnPanelAboveServerSettings(t *testing.T) {
 			t.Errorf("%s is still in Server Settings", id)
 		}
 	}
-	// The toggle that shows the panel belongs to Server Settings.
-	if !strings.Contains(html[server:], `id="showAgentFeatures"`) {
-		t.Error("Server Settings needs the Display agentic AI features toggle")
+	// The toggle that shows the panel belongs to Add-Ons.
+	addons := sourceSection(t, html, `id="panel-addons"`, `id="cfgSaveBar"`)
+	if !strings.Contains(addons, `id="showAgentFeatures"`) {
+		t.Error("Add-Ons needs the Display agentic AI features toggle")
 	}
 	for _, want := range []string{`showAgentFeatures: chk("showAgentFeatures")`, `applyAgentVisibility(state.config.showAgentFeatures === true)`, `.agent-off { display: none !important; }`} {
 		if !strings.Contains(html, want) {
@@ -830,21 +883,57 @@ func TestSnapshotsHaveAColumnAMenuEntryAndAWindow(t *testing.T) {
 	}
 }
 
-func TestSuspendableLivesInTartSettingsAndNoAudioIsGone(t *testing.T) {
+func TestInternetHasAColumnAndADetailsRow(t *testing.T) {
+	b, err := Content.ReadFile("index.html")
+	if err != nil {
+		t.Fatal(err)
+	}
+	html := string(b)
+	for _, want := range []string{
+		`<th data-sort="internet">Internet</th>`, `internetCell(vm)`, `row("Internet", internet)`,
+	} {
+		if !strings.Contains(html, want) {
+			t.Errorf("internet UI is missing %q", want)
+		}
+	}
+	// The table has one cell per header; the loading row and the message row span them all.
+	if got := strings.Count(html, `<td colspan="11" class="muted">`); got != 2 {
+		t.Errorf("found %d full-width VM table rows spanning 11 columns, want 2", got)
+	}
+}
+
+func TestSuspendIsPerVMWithASchedulerOverrideAndNoAudioIsGone(t *testing.T) {
 	b, err := Content.ReadFile("index.html")
 	if err != nil {
 		t.Fatal(err)
 	}
 	html := string(b)
 	tart := sourceSection(t, html, `id="panel-tart-settings"`, `id="updateTartBtn"`)
-	if !strings.Contains(tart, `id="suspendable"`) {
-		t.Error("Start VMs suspendable belongs in Tart Settings")
+	if strings.Contains(tart, `id="suspendable"`) {
+		t.Error("the global Start VMs suspendable setting is gone: it is per VM now")
+	}
+	if !strings.Contains(tart, `id="autoCheckSeconds"`) {
+		t.Error("the auto-check interval belongs in Tart Settings")
 	}
 	sched := sourceSection(t, html, `id="panel-scheduler"`, `id="panel-tart-settings"`)
-	if strings.Contains(sched, `id="suspendable"`) || strings.Contains(sched, `id="noAudio"`) {
-		t.Error("the scheduler section should have neither Start VMs suspendable nor Disable audio")
+	if !strings.Contains(sched, `id="schedulerSuspend"`) {
+		t.Error("the scheduler section needs Suspend mode")
 	}
-	if strings.Contains(html, `id="noAudio"`) || strings.Contains(html, "noAudio") {
+	if strings.Contains(sched, `id="suspendable"`) || strings.Contains(sched, `id="noAudio"`) {
+		t.Error("the scheduler section should have neither the old global suspendable toggle nor Disable audio")
+	}
+	// The per-VM setting is offered when editing, creating and cloning, and sent to the server.
+	for _, want := range []string{
+		`id="editVmStartSuspendable"`, `id="createStartSuspendable"`,
+		`startSuspendable: document.getElementById("editVmStartSuspendable").checked`,
+		`startSuspendable: document.getElementById("createStartSuspendable").checked`,
+		`vm.startSuspendable`,
+	} {
+		if !strings.Contains(html, want) {
+			t.Errorf("per-VM suspendable UI is missing %q", want)
+		}
+	}
+	if strings.Contains(html, "noAudio") {
 		t.Error("nothing should refer to the removed noAudio setting")
 	}
 }
@@ -860,6 +949,480 @@ func TestEditVMCanRemoveCustomSSHCredentials(t *testing.T) {
 	} {
 		if !strings.Contains(html, want) {
 			t.Errorf("Edit VM can't remove custom credentials: missing %q", want)
+		}
+	}
+}
+
+func TestVMTablePinsNameAndActionsAndScrollsTheRest(t *testing.T) {
+	b, err := Content.ReadFile("index.html")
+	if err != nil {
+		t.Fatal(err)
+	}
+	html := string(b)
+	table := sourceSection(t, html, `id="vmShell"`, `id="localVmRows"`)
+	for _, want := range []string{
+		`id="vmScroll"`, `class="vm-table"`, `id="vmCols"`,
+		`<th class="pin-l" data-sort="name">Name</th>`, `<th class="pin-r">Actions</th>`,
+	} {
+		if !strings.Contains(table, want) {
+			t.Errorf("VM table markup is missing %q", want)
+		}
+	}
+	// One <col> per header: widths come from the colgroup (table-layout: fixed).
+	cols := strings.Count(table, `<col data-col=`)
+	heads := strings.Count(sourceSection(t, html, `id="localVmHead"`, `</thead>`), `<th`)
+	if cols != heads || cols != 11 {
+		t.Errorf("%d <col> elements for %d headers, want 11 of each", cols, heads)
+	}
+	row := sourceSection(t, html, `function renderTable(`, `// keep "time remaining"`)
+	for _, want := range []string{`<td class="name pin-l">`, `<td class="acts pin-r">`, `updateVmScrollHints()`} {
+		if !strings.Contains(row, want) {
+			t.Errorf("renderTable no longer produces %q", want)
+		}
+	}
+	// The pinned cells must be opaque (else scrolled columns show through), and an
+	// open row menu must stay above the pinned cells of the rows below it.
+	css := sourceSection(t, html, `.table-shell { position: relative; }`, `body.col-resizing {`)
+	for _, want := range []string{
+		`.vm-table tr.row-running:hover td.pin-r {` + "\n" + `    background-color: var(--panel);`,
+		`.table-shell.can-left::before`, `.table-shell.can-right::after`,
+		`var(--scroll-shade)`,
+	} {
+		if !strings.Contains(css, want) {
+			t.Errorf("VM table CSS is missing %q", want)
+		}
+	}
+	// Both themes define the gradient colour.
+	if strings.Count(html, `--scroll-shade:`) != 2 {
+		t.Error("--scroll-shade must be defined for the dark and the light theme")
+	}
+}
+
+func TestDev2FeedbackMarkup(t *testing.T) {
+	b, err := Content.ReadFile("index.html")
+	if err != nil {
+		t.Fatal(err)
+	}
+	html := string(b)
+	// Timer comes before Snapshots, in the header, the colgroup and the rows.
+	head := sourceSection(t, html, `id="localVmHead"`, `</thead>`)
+	if strings.Index(head, `data-sort="remaining"`) > strings.Index(head, `data-sort="snapshots"`) {
+		t.Error("Timer must come before Snapshots in the header")
+	}
+	cols := sourceSection(t, html, `id="vmCols"`, `</colgroup>`)
+	if strings.Index(cols, `data-col="remaining"`) > strings.Index(cols, `data-col="snapshots"`) {
+		t.Error("Timer must come before Snapshots in the colgroup")
+	}
+	rows := sourceSection(t, html, `function renderTable(`, `// keep "time remaining"`)
+	if strings.Index(rows, `data-stop=`) > strings.Index(rows, `snapshotsCell(vm)`) {
+		t.Error("the Timer cell must come before the Snapshots cell")
+	}
+	// Actions is fitted to its buttons; the spare width goes to Info.
+	for _, want := range []string{`fitActionsColumn();`, `const VM_COL_SPARE = "info";`} {
+		if !strings.Contains(html, want) {
+			t.Errorf("missing %q", want)
+		}
+	}
+	// The scheduler toggle is called Suspend mode.
+	sched := sourceSection(t, html, `id="panel-scheduler"`, `id="panel-tart-settings"`)
+	if !strings.Contains(sched, `</span></span> Suspend mode<button type="button" class="help-tip"`) {
+		t.Error("the scheduler toggle should read Suspend mode, with its ? tip")
+	}
+	// A tip inside a flex label must not shrink.
+	if !strings.Contains(html, "flex: none; /* inside a flex label") {
+		t.Error("button.help-tip must not shrink (flex: none)")
+	}
+	// Auto enroll gets a warning sign, not a ?, in both places.
+	for _, field := range []string{`Auto enroll at first boot<button`, `Auto enroll at next boot<button`} {
+		i := strings.Index(html, field)
+		if i < 0 {
+			t.Fatalf("missing %q", field)
+		}
+		tip := html[i : i+200]
+		if !strings.Contains(tip, `class="help-tip warn-tip"`) || strings.Contains(tip, `>?</button>`) {
+			t.Errorf("%s should carry the warning sign: %s", field, tip)
+		}
+	}
+}
+
+// People skipped the auto-enrollment script because it read as a footnote of the
+// server list. The panel is two numbered steps in their own cards, and copying a
+// profile by hand is a separate optional card after them, so it is not read as a
+// step towards cloning.
+func TestPrepareVMForJamfIsTwoNumberedStepsThenAnOptionalCopy(t *testing.T) {
+	b, err := Content.ReadFile("index.html")
+	if err != nil {
+		t.Fatal(err)
+	}
+	html := string(b)
+	panel := sourceSection(t, html, `id="panel-prep-jamf"`, `id="panel-guest-agent"`)
+	order := []string{
+		`<section class="jamf-step" id="jamfStep1"`, `<span class="jamf-step-num" aria-hidden="true">1</span>`, `>Jamf Server Profiles</h3>`,
+		`id="jamfProfileRows"`, `id="jamfProfileEditor"`, `</section>`,
+		`<section class="jamf-step" id="jamfStep2"`, `<span class="jamf-step-num" aria-hidden="true">2</span>`, `>Enable Auto-Enrollment Capabilities on Base VM</h3>`,
+		`Run it once on the base VM, before you clone it`, `id="prepTarget"`,
+		`id="prepRequirementsBtn" data-help-src="prepRequirementsHelp" aria-expanded="false">1. Prerequisites</button>`,
+		`id="checkCompatBtn">2. Check compatibility</button>`, `id="prepGoldenBtn">3. Run accessibility script</button>`,
+		`id="prepReadiness"`, `</section>`,
+		`<section class="jamf-step jamf-step-optional" id="jamfManualCopy"`, `Copy a Profile Manually (optional)`,
+		`id="mdmTarget"`, `id="mdmProfileSelect"`, `id="copyMdmBtn"`, `id="mdmCopyStatus"`, `</section>`,
+	}
+	at := 0
+	for _, want := range order {
+		i := strings.Index(panel[at:], want)
+		if i < 0 {
+			t.Fatalf("Prepare VM for Jamf: %q missing or out of order", want)
+		}
+		at += i + len(want)
+	}
+	if strings.Count(panel, `class="jamf-step-num"`) != 2 {
+		t.Error("exactly two numbered steps expected")
+	}
+	if strings.Contains(panel, "Deploy MDM Enrollment Profile") {
+		t.Error("the manual copy is no longer presented as a step")
+	}
+}
+
+// The Helper Guide is README.md rendered in the app, where headings get ids from
+// the same rule as the slug function in index.html. A link to a renamed heading
+// would silently go nowhere.
+func TestReadmeInPageLinksPointAtHeadings(t *testing.T) {
+	readme, err := os.ReadFile("../README.md")
+	if err != nil {
+		t.Fatal(err)
+	}
+	nonAlnum := regexp.MustCompile(`[^a-z0-9]+`)
+	slug := func(s string) string { return strings.Trim(nonAlnum.ReplaceAllString(strings.ToLower(s), "-"), "-") }
+	ids := map[string]bool{}
+	inFence := false
+	for _, line := range strings.Split(string(readme), "\n") {
+		if strings.HasPrefix(line, "```") {
+			inFence = !inFence
+			continue
+		}
+		if m := regexp.MustCompile(`^#{1,6} (.+)$`).FindStringSubmatch(line); m != nil && !inFence {
+			ids[slug(m[1])] = true
+		}
+	}
+	links := regexp.MustCompile(`\]\(#([^)]+)\)`).FindAllStringSubmatch(string(readme), -1)
+	if len(links) == 0 {
+		t.Fatal("no in-page links found; the test is not looking at the README")
+	}
+	for _, l := range links {
+		if !ids[l[1]] {
+			t.Errorf("README links to #%s, but no heading has that id", l[1])
+		}
+	}
+}
+
+// The pinned Actions cell must stay opaque in every row state (the Snapshots
+// count showed through it on a hovered running row), is never tinted, and its
+// buttons never shrink.
+func TestPinnedActionsCellStaysOpaqueAndItsButtonsKeepTheirSize(t *testing.T) {
+	b, err := Content.ReadFile("index.html")
+	if err != nil {
+		t.Fatal(err)
+	}
+	html := string(b)
+	for _, want := range []string{
+		`.vm-table tr.row-running:hover td.pin-r {` + "\n" + `    background-color: var(--panel); background-image: none;`,
+		`.vm-table td.acts .row-actions > * { flex: none; }`,
+		`if (!table || !table.offsetParent) return;`,
+		`new ResizeObserver(() => { fitActionsColumn(); updateVmScrollHints(); })`,
+	} {
+		if !strings.Contains(html, want) {
+			t.Errorf("missing %q", want)
+		}
+	}
+	for _, unwanted := range []string{"tr.row-running td.pin-r {", "tr:hover td.pin-r {", "tr.row-running:hover td.pin-r { background-image"} {
+		if strings.Contains(html, unwanted) {
+			t.Errorf("the Actions cell is tinted again: %q", unwanted)
+		}
+	}
+}
+
+// Settings put their switches in a group of their own, apart from the text fields,
+// in every Configuration panel and in Guest provisioning. A master switch (one that
+// turns the fields it sits with on) comes first.
+func TestSettingsKeepSwitchesApartFromTextFields(t *testing.T) {
+	b, err := Content.ReadFile("index.html")
+	if err != nil {
+		t.Fatal(err)
+	}
+	html := string(b)
+	if strings.Contains(html, `<div class="field"><label>&nbsp;</label><label class="radio"><span class="toggle">`) {
+		t.Error("a switch still sits in a text-field grid behind an empty label")
+	}
+	for panel, ids := range map[string][]string{
+		`id="panel-scheduler"`:       {"dailyEnabled", "excludeOciFromScheduler", "noGraphics", "schedulerSuspend"},
+		`id="panel-tart-settings"`:   {"checkTartUpdates"},
+		`id="panel-ssh-commands"`:    {"sshFallbackEnabled", "prioritizeSshShutdown"},
+		`id="panel-server-settings"`: {"launchAtBoot", "checkOvenUpdates", "tlsEnabled"},
+		`id="panel-addons"`:          {"showJamfFeatures", "showAgentFeatures"},
+		`id="panel-agent-access"`:    {"agentEnabled"},
+	} {
+		section := sourceSection(t, html, panel, `<div class="panel" id="`)
+		for _, id := range ids {
+			i := strings.Index(section, `id="`+id+`"`)
+			g := strings.LastIndex(section[:max(i, 0)], `<div class="toggle-group`)
+			if i < 0 || g < 0 || strings.Contains(section[g:i], `<div class="grid">`) {
+				t.Errorf("%s: switch %s is not in a toggle group", panel, id)
+			}
+		}
+	}
+	// Master switches first: agent access, HTTPS, guest provisioning.
+	for _, pair := range [][2]string{
+		{`id="agentEnabled"`, `id="agentMaxTtlMin"`},
+		{`id="tlsEnabled"`, `id="tlsCertPath"`},
+		{`id="provisioningEnabled"`, `id="provisioningFullName"`},
+	} {
+		if strings.Index(html, pair[0]) > strings.Index(html, pair[1]) {
+			t.Errorf("master switch %s must come before %s", pair[0], pair[1])
+		}
+	}
+	if !strings.Contains(html, `<div id="provisioningCreateSection" class="sub-card"`) {
+		t.Error("Guest provisioning should be a card, like the Jamf steps")
+	}
+	for _, want := range []string{`<label>VM info refresh interval (s)<button`, `#vmInfoModalBody { display: flex; flex-direction: column; gap: 14px; max-height: 70vh; overflow-y: auto; padding-right: 12px;`, `.kv-section { border: 1px solid var(--border);`} {
+		if !strings.Contains(html, want) {
+			t.Errorf("missing %q", want)
+		}
+	}
+	for _, gone := range []string{"<label>Compatibility</label>", "Select a VM to check.", "Auto-check interval (seconds)"} {
+		if strings.Contains(html, gone) {
+			t.Errorf("%q should be gone", gone)
+		}
+	}
+}
+
+// The four ideas from the dev4 review: app preferences apart from server setup,
+// fields greyed out while the switch they need is off, rarely changed fields in a
+// collapsed Advanced section, and a save bar that follows the page when needed.
+func TestConfigurationIdeasFromTheDev4Review(t *testing.T) {
+	b, err := Content.ReadFile("index.html")
+	if err != nil {
+		t.Fatal(err)
+	}
+	html := string(b)
+	// The two extra-feature switches have a section of their own; launch at login
+	// and the update check stay with the server.
+	addons := sourceSection(t, html, `id="panel-addons"`, `id="cfgSaveBar"`)
+	if !strings.Contains(addons, "<h2>Add-Ons</h2>") {
+		t.Error("the Add-Ons section needs its title")
+	}
+	server := sourceSection(t, html, `id="panel-server-settings"`, `id="panel-addons"`)
+	for _, id := range []string{"showJamfFeatures", "showAgentFeatures"} {
+		if !strings.Contains(addons, `id="`+id+`"`) || strings.Contains(server, `id="`+id+`"`) {
+			t.Errorf("%s belongs in Add-Ons", id)
+		}
+	}
+	for _, id := range []string{"launchAtBoot", "checkOvenUpdates"} {
+		if !strings.Contains(server, `id="`+id+`"`) || strings.Contains(addons, `id="`+id+`"`) {
+			t.Errorf("%s belongs in Server Settings", id)
+		}
+	}
+	if strings.Contains(html, "App Preferences") {
+		t.Error("the App Preferences section is gone")
+	}
+	// Dependent fields and their switch.
+	for field, sw := range map[string]string{"dailyStart": "dailyEnabled", "dailyStop": "dailyEnabled", "tlsCertPath": "tlsEnabled", "tlsKeyPath": "tlsEnabled", "agentMaxTtlMin": "agentEnabled", "agentTemplatesBtn": "agentEnabled"} {
+		i := strings.Index(html, `id="`+field+`"`)
+		f := strings.LastIndex(html[:i], `<div class="field"`)
+		if i < 0 || f < 0 || !strings.Contains(html[f:i], `data-depends-on="`+sw+`"`) {
+			t.Errorf("%s should depend on %s", field, sw)
+		}
+	}
+	sched := sourceSection(t, html, `id="panel-scheduler"`, `<div class="panel" id="`)
+	if strings.Index(sched, `id="dailyEnabled"`) > strings.Index(sched, `id="dailyStart"`) {
+		t.Error("Limit scheduler to daily hours must come right before its time fields")
+	}
+	// Advanced sections.
+	for panel, ids := range map[string][]string{
+		`id="panel-tart-settings"`:   {"tartAppPath", "runArgs"},
+		`id="panel-ssh-commands"`:    {"statusCommand"},
+		`id="panel-server-settings"`: {"logPath"},
+	} {
+		section := sourceSection(t, html, panel, `<div class="panel" id="`)
+		adv := strings.Index(section, `<details class="advanced">`)
+		for _, id := range ids {
+			if adv < 0 || strings.Index(section, `id="`+id+`"`) < adv {
+				t.Errorf("%s: %s should be under Advanced", panel, id)
+			}
+		}
+	}
+	for _, want := range []string{`id="cfgSaveBar"`, `.save-bar.dirty { position: sticky; bottom: 0;`, `function syncSaveBar(`, `function syncDependentFields(`, "  syncDependentFields();\n  markConfigClean();"} {
+		if !strings.Contains(html, want) {
+			t.Errorf("missing %q", want)
+		}
+	}
+}
+
+// Auto enroll only works on an English guest: the prerequisites say so and
+// Check compatibility shows the language.
+func TestCompatibilityChecksTheGuestLanguage(t *testing.T) {
+	b, err := Content.ReadFile("index.html")
+	if err != nil {
+		t.Fatal(err)
+	}
+	html := string(b)
+	prereq := sourceSection(t, html, `<template id="prepRequirementsHelp">`, `</template>`)
+	if !strings.Contains(prereq, "English (any region") {
+		t.Error("the prerequisites must say the VM has to be in English")
+	}
+	if !strings.Contains(html, `readinessPill("Language", d.language, "english", "other", d.languageCode)`) {
+		t.Error("Check compatibility must show the Language pill")
+	}
+}
+
+// dev6: every on/off checkbox is a toggle (the Agent templates picker is a list,
+// not a switch, and keeps its checkboxes); Guest provisioning waits for its
+// switch; the Jamf invitation ID tip has a copyable API recipe; the row menu
+// opens from <body> so a scroll box can't crop it.
+func TestDev6ConsistencyAndHelp(t *testing.T) {
+	b, err := Content.ReadFile("index.html")
+	if err != nil {
+		t.Fatal(err)
+	}
+	html := string(b)
+	for _, line := range strings.Split(html, "\n") {
+		if strings.Contains(line, `<input type="checkbox"`) && !strings.Contains(line, `<span class="toggle"><input type="checkbox"`) && !strings.Contains(line, "multi-select-item") {
+			t.Errorf("checkbox that is not a toggle: %.140s", strings.TrimSpace(line))
+		}
+	}
+	if strings.Contains(html, "(--insecure)") {
+		t.Error("no CLI flags in labels")
+	}
+	for _, id := range []string{"provisioningFullName", "provisioningUsername", "provisioningPassword", "provisioningAutoLogin", "provisioningRemoteLogin"} {
+		i := strings.Index(html, `id="`+id+`"`)
+		f := strings.LastIndex(html[:i], `data-depends-on="provisioningEnabled"`)
+		if i < 0 || f < 0 || strings.Count(html[f:i], "<div") > 2 {
+			t.Errorf("%s should wait for Provision this VM automatically", id)
+		}
+	}
+	help := sourceSection(t, html, `<template id="jamfInvitationHelp">`, `</template>`)
+	for _, want := range []string{"/api/v1/auth/token", "/JSSResource/computerinvitations/id/0", "<invitation_type>USER_INITIATED_URL</invitation_type>", "<expiration_date>Unlimited</expiration_date>", "string(//invitation)", "/enroll?invitation=", `onclick="copyPopoverCode()"`} {
+		if !strings.Contains(strings.ReplaceAll(strings.ReplaceAll(help, "&lt;", "<"), "&gt;", ">"), want) {
+			t.Errorf("invitation recipe is missing %q", want)
+		}
+	}
+	// The DEFAULT invitation type and the multiple_users/uses fields made Jamf Cloud answer HTTP 500
+	// (2026-11-07 live test); USER_INITIATED_URL with an empty account is the form that works.
+	for _, bad := range []string{"<invitation_type>DEFAULT<", "multiple_users_allowed", "multiple_uses_allowed"} {
+		if strings.Contains(strings.ReplaceAll(strings.ReplaceAll(help, "&lt;", "<"), "&gt;", ">"), bad) {
+			t.Errorf("invitation recipe must not send %q", bad)
+		}
+	}
+	for _, want := range []string{"function clearPortaledMenus(", "document.body.appendChild(list);", ".row-menu-list.portal-open"} {
+		if !strings.Contains(html, want) {
+			t.Errorf("missing %q", want)
+		}
+	}
+}
+
+// The how-to for each Jamf type is a visible button next to the type selector, not a
+// ? on a label: the invitation recipe for Pro, where to find the IDs for School.
+func TestJamfHowToButtonsSitNextToTheTypeSelector(t *testing.T) {
+	b, err := Content.ReadFile("index.html")
+	if err != nil {
+		t.Fatal(err)
+	}
+	html := string(b)
+	editor := sourceSection(t, html, `id="jamfProfileEditor"`, `id="saveJamfProfileBtn"`)
+	sel := strings.Index(editor, `aria-label="Jamf server type"`)
+	pro := strings.Index(editor, `id="jamfHowProBtn"`)
+	school := strings.Index(editor, `id="jamfHowSchoolBtn"`)
+	fields := strings.Index(editor, `id="jamfProfileName"`)
+	if sel < 0 || pro < sel || school < sel || pro > fields || school > fields {
+		t.Fatalf("the buttons must sit between the type selector and the fields (%d %d %d %d)", sel, pro, school, fields)
+	}
+	for _, want := range []string{
+		`>How to get an enrollment invitation ID</button>`, `>How to find enrollment information</button>`,
+		`data-help-src="jamfInvitationHelp"`, `data-help-src="jamfSchoolHelp"`,
+	} {
+		if !strings.Contains(editor, want) {
+			t.Errorf("missing %q", want)
+		}
+	}
+	if strings.Contains(editor, `<label>Invitation ID<button`) {
+		t.Error("the Invitation ID label no longer carries a ? tip")
+	}
+	school2 := sourceSection(t, html, `<template id="jamfSchoolHelp">`, `</template>`)
+	for _, want := range []string{"Devices", "Enroll Devices", "Network ID", "Location ID"} {
+		if !strings.Contains(school2, want) {
+			t.Errorf("the Jamf School help should mention %q", want)
+		}
+	}
+}
+
+// Add-Ons sits right after Server Settings (the last panel before the save bar); the AI
+// client instructions are a button that is available once an agent token exists.
+func TestAddOnsFollowServerSettingsAndConnectIsAButton(t *testing.T) {
+	b, err := Content.ReadFile("index.html")
+	if err != nil {
+		t.Fatal(err)
+	}
+	html := string(b)
+	server := strings.Index(html, `id="panel-server-settings"`)
+	addons := strings.Index(html, `id="panel-addons"`)
+	save := strings.Index(html, `id="cfgSaveBar"`)
+	if !(server > 0 && server < addons && addons < save) {
+		t.Fatalf("want Server Settings (%d), then Add-Ons (%d), then the save bar (%d)", server, addons, save)
+	}
+	for _, between := range []string{`id="panel-scheduler"`, `id="panel-tart-settings"`, `id="panel-agent-access"`} {
+		if i := strings.Index(html, between); i > server && i < addons {
+			t.Errorf("%s sits between Server Settings and Add-Ons", between)
+		}
+	}
+	agent := sourceSection(t, html, `id="panel-agent-access"`, `id="panel-server-settings"`)
+	if !strings.Contains(agent, `id="agentConnectBtn" class="ghost hidden"`) || !strings.Contains(agent, `>How to connect an AI client</button>`) {
+		t.Error("the connect instructions need their own button, hidden until a token exists")
+	}
+	for _, want := range []string{`function syncAgentConnectButton(`, `el("agentConnectBtn").onclick = toggleAgentConnect;`, `function currentAgentTokenOnScreen(`} {
+		if !strings.Contains(html, want) {
+			t.Errorf("missing %q", want)
+		}
+	}
+}
+
+// The row menu lives in <body> while open (a scroll box can't crop it), so it must
+// bring its own keyboard handling and stay inside short windows.
+func TestRowMenuKeyboardAndWindowFit(t *testing.T) {
+	b, err := Content.ReadFile("index.html")
+	if err != nil {
+		t.Fatal(err)
+	}
+	html := string(b)
+	for _, want := range []string{
+		"function rowMenuTop(", "evt.detail === 0", `list.setAttribute("role", "menu")`,
+		`if (e.key === "Escape" || e.key === "Tab") { e.preventDefault(); close(); return; }`,
+		`max-height: calc(100vh - 16px); overflow-y: auto;`,
+	} {
+		if !strings.Contains(html, want) {
+			t.Errorf("missing %q", want)
+		}
+	}
+}
+
+// The open row menu lives in <body> at z-index 30. A pinned Actions cell lifted above
+// that (the old td.pin-r:has(.row-menu.open) { z-index: 40 }) painted over the top of
+// the menu and hid its first items, most of all in Safari.
+func TestNoTableLayerIsAboveTheOpenRowMenu(t *testing.T) {
+	b, err := Content.ReadFile("index.html")
+	if err != nil {
+		t.Fatal(err)
+	}
+	html := string(b)
+	if strings.Contains(html, ":has(.row-menu.open) {") {
+		t.Error("an open row's cell must not be lifted above the menu")
+	}
+	menu := regexp.MustCompile(`\.row-menu-list \{[^}]*z-index: (\d+)`).FindStringSubmatch(html)
+	if menu == nil {
+		t.Fatal("row-menu-list has no z-index")
+	}
+	menuZ, _ := strconv.Atoi(menu[1])
+	for _, m := range regexp.MustCompile(`(?s)\.vm-table[^{}]*\{[^}]*z-index: (\d+)`).FindAllStringSubmatch(html, -1) {
+		if z, _ := strconv.Atoi(m[1]); z >= menuZ {
+			t.Errorf("a table layer has z-index %d, not below the menu's %d", z, menuZ)
 		}
 	}
 }

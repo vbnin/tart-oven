@@ -36,6 +36,7 @@
     --text: #fafafa;
     --muted: #b0b0b9;
     --row-hover: rgba(59, 130, 246, 0.08);
+    --scroll-shade: rgba(0, 0, 0, 0.4);
     --btn-ghost: #26262d;
     --btn-ghost-hover: #32323b;
     --btn-border: #4a4a55;
@@ -80,6 +81,7 @@
     --text: #09090b;
     --muted: #5c5c66;
     --row-hover: rgba(37, 99, 235, 0.06);
+    --scroll-shade: rgba(0, 0, 0, 0.12);
     --btn-ghost: #ffffff;
     --btn-ghost-hover: #e8ebf0;
     --btn-border: #b8bcc6;
@@ -558,6 +560,59 @@
   td.acts { white-space: nowrap; width: 1%; text-align: right; }
   td.info { width: 200px; min-width: 170px; max-width: 220px; }
   td.mdm { min-width: 160px; max-width: 200px; }
+
+  /* VM table: fixed column widths. The first (Name) and last (Actions) columns
+     stay put while the others scroll sideways and can be resized. */
+  .table-shell { position: relative; }
+  .table-shell::before, .table-shell::after {
+    content: ""; position: absolute; top: 0; bottom: 0; width: 34px; z-index: 5;
+    pointer-events: none; opacity: 0; transition: opacity .15s;
+  }
+  .table-shell::before { left: var(--pin-l, 0px); background: linear-gradient(to right, var(--scroll-shade), transparent); }
+  .table-shell::after { right: var(--pin-r, 0px); background: linear-gradient(to left, var(--scroll-shade), transparent); }
+  .table-shell.can-left::before, .table-shell.can-right::after { opacity: 1; }
+  table.vm-table { table-layout: fixed; min-width: 100%; width: auto; }
+  .vm-table th, .vm-table td { overflow: hidden; text-overflow: ellipsis; overflow-wrap: anywhere; }
+  .vm-table td.name, .vm-table td.info, .vm-table td.mdm { width: auto; min-width: 0; max-width: none; }
+  .vm-table td.name { overflow-wrap: break-word; }
+  .vm-table td.nowrap, .vm-table .access-line { white-space: nowrap; }
+  .vm-table td.acts { width: auto; overflow: visible; }
+  /* Buttons start right after the cell padding; a shorter row (Run, not Resume)
+     leaves its slack at the right edge, not as a gap before the first button. */
+  .vm-table td.acts { text-align: left; }
+  .vm-table td.acts .row-actions { justify-content: flex-start; }
+  /* Buttons keep their own size: a column that is (briefly) too narrow must not
+     squeeze them, or the next measurement would read the squeezed size. */
+  .vm-table td.acts .row-actions > * { flex: none; }
+  .vm-table th { z-index: 3; }
+  .vm-table th.pin-l, .vm-table th.pin-r { z-index: 4; }
+  .vm-table .pin-l, .vm-table .pin-r { position: sticky; }
+  .vm-table .pin-l { left: 0; border-right: 1px solid var(--border); }
+  .vm-table .pin-r { right: 0; border-left: 1px solid var(--border); }
+  /* Pinned cells cover what scrolls under them, so they must stay opaque in
+     every row state. Each state is listed: the row-wide "tr.row-running:hover td"
+     rule sets a see-through background and outranks a plain "td.pin-r" rule,
+     which let the Snapshots count show through the Actions cell. Name keeps the
+     row's tints, layered on the opaque base; Actions is never tinted. */
+  .vm-table tr td.pin-l, .vm-table tr:hover td.pin-l, .vm-table tr.row-running td.pin-l, .vm-table tr.row-running:hover td.pin-l,
+  .vm-table tr td.pin-r, .vm-table tr:hover td.pin-r, .vm-table tr.row-running td.pin-r, .vm-table tr.row-running:hover td.pin-r {
+    background-color: var(--panel); background-image: none; z-index: 2;
+  }
+  .vm-table tr.row-running td.pin-l { background-image: linear-gradient(rgba(16, 185, 129, 0.04), rgba(16, 185, 129, 0.04)); }
+  .vm-table tr:hover td.pin-l { background-image: linear-gradient(var(--row-hover), var(--row-hover)); }
+  .vm-table tr.row-running:hover td.pin-l { background-image: linear-gradient(rgba(16, 185, 129, 0.08), rgba(16, 185, 129, 0.08)); }
+  /* Too narrow to keep both pinned columns side by side: everything scrolls. */
+  .table-shell.no-pin .vm-table .pin-l, .table-shell.no-pin .vm-table .pin-r { position: static; }
+  .table-shell.no-pin::before, .table-shell.no-pin::after { display: none; }
+  /* No z-index lift for the open row's cell: the "..." menu list lives in <body>
+     while open (z-index 30), above every table layer. A lifted cell (z-index 40)
+     painted OVER the menu's top, hiding its first items. */
+  .col-resizer { position: absolute; top: 0; bottom: 0; right: 0; width: 9px; cursor: col-resize; touch-action: none; }
+  .col-resizer::after { content: ""; position: absolute; top: 28%; bottom: 28%; right: 3px; width: 2px; border-radius: 1px; background: var(--border); transition: background .1s; }
+  .col-resizer:hover::after, .col-resizer:focus-visible::after, body.col-resizing .col-resizer.active::after { background: var(--accent); }
+  .col-resizer:focus-visible { outline: 2px solid var(--accent); outline-offset: -2px; border-radius: 2px; }
+  body.col-resizing { cursor: col-resize; user-select: none; }
+  td.internet { white-space: nowrap; }
   td.notes { max-width: 160px; font-size: 13.5px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
   td[data-state="running"] { color: var(--green); font-weight: 600; }
   .infobox { font-family: ui-monospace, Menlo, Monaco, monospace; font-size: 12.5px; line-height: 1.4; white-space: pre-wrap; overflow-wrap: anywhere; word-break: break-word; max-height: 72px; overflow-y: auto; overflow-x: hidden; color: var(--muted); }
@@ -590,6 +645,13 @@
   .readiness-pill.readiness-bad { color: var(--red); border-color: rgba(244, 63, 94, 0.35); background: rgba(244, 63, 94, 0.08); }
   .row-actions { display: flex; gap: 4px; flex-wrap: nowrap; justify-content: flex-end; align-items: center; }
   .row-actions button { padding: 4px 10px; font-size: 12.5px; font-weight: 500; border-radius: 5px; height: 28px; white-space: nowrap; }
+  /* Play / pause / stop: blue, orange, red; greyed out when they can't act. */
+  .row-actions button.vm-ctl { width: 30px; padding: 0; display: inline-flex; align-items: center; justify-content: center; border-radius: 6px; border: 1px solid transparent; box-shadow: none; }
+  .row-actions button.vm-ctl.play { background: var(--accent); color: #fff; }
+  .row-actions button.vm-ctl.pause { background: rgba(245, 158, 11, 0.14); color: var(--amber); border-color: rgba(245, 158, 11, 0.45); }
+  .row-actions button.vm-ctl.stop { background: rgba(244, 63, 94, 0.12); color: var(--red); border-color: rgba(244, 63, 94, 0.45); }
+  .row-actions button.vm-ctl:hover:not(:disabled) { filter: brightness(1.12); }
+  .row-actions button.vm-ctl:disabled { background: var(--panel2); color: var(--muted); border-color: var(--border); opacity: .6; filter: none; }
   .row-actions button.vnc { background: transparent; border: 1px solid rgba(59, 130, 246, 0.4); color: var(--accent); }
   .row-actions button.vnc:hover:not(:disabled) { background: rgba(59, 130, 246, 0.12); border-color: var(--accent); }
   .row-menu { position: relative; }
@@ -598,9 +660,10 @@
     display: none; position: fixed; /* fixed, not absolute: JS-positioned so it can flip above
       the button and is never clipped by the scrollable table wrapper */
     background: var(--panel); border: 1px solid var(--border); border-radius: 7px;
-    box-shadow: 0 6px 16px rgba(0, 0, 0, 0.18); z-index: 30; min-width: 165px; overflow: hidden; padding: 4px;
+    box-shadow: 0 6px 16px rgba(0, 0, 0, 0.18); z-index: 30; min-width: 165px; padding: 4px;
+    max-height: calc(100vh - 16px); overflow-y: auto; /* a window shorter than the menu scrolls it */
   }
-  .row-menu.open .row-menu-list { display: flex; flex-direction: column; gap: 1px; }
+  .row-menu.open .row-menu-list, .row-menu-list.portal-open { display: flex; flex-direction: column; gap: 1px; }
   .row-menu-list button {
     border: none; border-radius: 5px; background: transparent; text-align: left; justify-content: flex-start;
     padding: 7px 10px; height: auto; box-shadow: none; color: var(--text); width: 100%;
@@ -721,10 +784,14 @@
   .panel.collapsible.collapsed > div:has(> h2) { margin-bottom: 0 !important; }
 
   /* VM details (inspector-style key/value list) */
-  #vmInfoModalBody { display: flex; flex-direction: column; gap: 20px; max-height: 70vh; overflow-y: auto; }
-  .kv-title { font-size: 12px; text-transform: uppercase; letter-spacing: .05em; color: var(--muted); font-weight: 600; margin-bottom: 6px; }
+  /* VM details: each section a card; the body keeps room for its scrollbar so
+     values never touch the right edge. */
+  #vmInfoModalBody { display: flex; flex-direction: column; gap: 14px; max-height: 70vh; overflow-y: auto; padding-right: 12px; scrollbar-gutter: stable; }
+  .kv-section { border: 1px solid var(--border); border-radius: 10px; background: var(--panel2); padding: 10px 14px 6px; }
+  .kv-title { font-size: 12px; text-transform: uppercase; letter-spacing: .05em; color: var(--muted); font-weight: 600; margin-bottom: 4px; }
   .kv-list { display: flex; flex-direction: column; }
-  .kv-row { display: flex; justify-content: space-between; align-items: baseline; gap: 16px; padding: 4px 0; }
+  .kv-row { display: flex; justify-content: space-between; align-items: baseline; gap: 16px; padding: 7px 0; border-bottom: 1px solid var(--border); }
+  .kv-row:last-child { border-bottom: 0; }
   .kv-val { color: var(--muted); text-align: right; overflow-wrap: anywhere; }
   .kv-row.kv-block { flex-direction: column; align-items: stretch; gap: 4px; }
   .kv-row.kv-block .kv-val { text-align: left; }
@@ -743,11 +810,50 @@
   .modal-content, .modal-scroll, #vmInfoModalBody, #terminalConsole { overscroll-behavior: contain; }
   button.help-tip {
     all: unset; box-sizing: border-box; display: inline-flex; align-items: center; justify-content: center;
+    flex: none; /* inside a flex label (toggles) it must not shrink into an oval */
     width: 16px; height: 16px; margin-left: 6px; border: 1px solid var(--muted); border-radius: 50%;
     font-size: 11px; font-weight: 600; line-height: 1; color: var(--muted); cursor: pointer; vertical-align: middle;
   }
   button.help-tip:hover, button.help-tip[aria-expanded="true"] { color: var(--text); border-color: var(--text); }
   button.help-tip:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+  /* Settings: switches sit together in their own group, apart from the text
+     fields, in even columns. A master switch (it turns the fields below it on)
+     comes first. */
+  .toggle-group { display: grid; grid-template-columns: repeat(auto-fill, minmax(260px, 1fr)); gap: 12px 24px; margin-top: 16px; padding-top: 14px; border-top: 1px solid var(--border); }
+  .toggle-group-master { margin: 0 0 14px; padding: 0 0 14px; border-top: 0; border-bottom: 1px solid var(--border); }
+  .toggle-item { display: flex; flex-direction: column; gap: 4px; min-width: 0; }
+  .jamf-how { margin-left: 10px; }
+  .toggle-group-only { margin-top: 0; padding-top: 0; border-top: 0; }
+  /* A switch and the fields it turns on, kept together; the fields grey out while
+     the switch is off (syncDependentFields). */
+  .dep-group { margin-top: 16px; padding-top: 14px; border-top: 1px solid var(--border); }
+  .dep-group .toggle-group-master { padding-bottom: 10px; margin-bottom: 10px; border-bottom: 0; }
+  .field.field-off label, .field.field-off .muted, .toggle-item.field-off label { opacity: .5; }
+  /* Rarely changed fields, folded away. */
+  details.advanced { margin-top: 16px; border-top: 1px solid var(--border); padding-top: 12px; }
+  details.advanced > summary { cursor: pointer; font-size: 13px; font-weight: 600; color: var(--muted); list-style: none; display: inline-flex; align-items: center; gap: 6px; }
+  details.advanced > summary::-webkit-details-marker { display: none; }
+  details.advanced > summary::before { content: "▸"; font-size: 11px; transition: transform .15s; }
+  details.advanced[open] > summary::before { transform: rotate(90deg); }
+  details.advanced > summary:hover { color: var(--text); }
+  details.advanced > summary:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; border-radius: 4px; }
+  details.advanced[open] > .grid { margin-top: 12px; }
+  /* The save bar follows the page while there is something to save. */
+  .save-bar-note { display: none; font-size: 13px; font-weight: 600; color: var(--amber); }
+  .save-bar.dirty { position: sticky; bottom: 0; z-index: 20; background: var(--panel); border: 1px solid var(--border); border-radius: 10px; padding: 10px 14px; box-shadow: 0 -4px 14px rgba(0, 0, 0, 0.12); }
+  .save-bar.dirty .save-bar-note { display: inline; }
+  /* Prepare VM for Jamf: numbered steps in their own cards, so step 2 is not
+     read as a footnote of step 1. */
+  .sub-card { border: 1px solid var(--border); border-radius: 10px; padding: 14px 16px 16px; margin-top: 16px; background: var(--panel2); }
+  .jamf-step { border: 1px solid var(--border); border-radius: 10px; padding: 14px 16px 16px; margin-top: 16px; background: var(--panel2); }
+  .jamf-step-optional { background: transparent; border-style: dashed; }
+  .jamf-step-head { display: flex; align-items: center; gap: 10px; margin-bottom: 12px; }
+  .sub-card .jamf-step-head h3, .jamf-step-head h3 { margin: 0; font-size: 14px; font-weight: 600; color: var(--text); display: inline-flex; align-items: center; }
+  .jamf-step-optional .jamf-step-head h3 { color: var(--muted); }
+  .jamf-step-num { flex: none; width: 24px; height: 24px; border-radius: 50%; background: var(--accent); color: #fff; font-size: 13px; font-weight: 700; display: inline-flex; align-items: center; justify-content: center; }
+  /* A warning, not a plain hint: an amber triangle instead of the ? circle. */
+  button.help-tip.warn-tip { border: none; border-radius: 3px; color: var(--amber); }
+  button.help-tip.warn-tip:hover, button.help-tip.warn-tip[aria-expanded="true"] { color: var(--amber); filter: brightness(1.15); }
   .popover {
     position: fixed; z-index: 3000; width: 340px; max-width: calc(100vw - 16px); padding: 12px 14px;
     background: var(--panel); color: var(--text); border: 1px solid var(--border); border-radius: 8px; font-size: 13px;
@@ -755,6 +861,11 @@
     box-shadow: 0 10px 24px rgba(0, 0, 0, 0.3);
   }
   .popover h4 { margin: 0 0 8px; font-size: 13px; }
+  .popover.popover-wide { width: 620px; }
+  .connect-step { display: flex; align-items: center; gap: 8px; margin-top: 12px; }
+  .connect-label { font-size: 13px; font-weight: 600; }
+  #agentConnect .popover-code { margin-top: 6px; }
+  .popover-code { margin: 10px 0 0; padding: 8px 10px; background: var(--code-bg); border: 1px solid var(--border); border-radius: 6px; font-family: ui-monospace, Menlo, Monaco, monospace; font-size: 11.5px; line-height: 1.45; white-space: pre; overflow-x: auto; color: var(--text); user-select: text; }
   .popover dl { margin: 0; }
   .popover dt { font-family: ui-monospace, Menlo, Monaco, monospace; font-weight: 600; margin-top: 8px; }
   .popover dd { margin: 0; color: var(--muted); }
@@ -859,11 +970,14 @@
           <input type="text" id="vmSearch" placeholder="Search VMs…" style="width:200px" autocomplete="off">
         </div>
       </div>
-      <div class="table-wrap">
-        <table>
-          <thead id="localVmHead"><tr><th data-sort="name">Name</th><th data-sort="state">State</th><th data-sort="ip">IP</th><th data-sort="access">Access</th><th data-sort="info">Info</th><th data-sort="mdm">MDM</th><th data-sort="snapshots">Snapshots</th><th data-sort="lastRun">Last run</th><th data-sort="remaining">Timer</th><th>Actions</th></tr></thead>
-          <tbody id="localVmRows"><tr><td colspan="10" class="muted">loading…</td></tr></tbody>
+      <div class="table-shell" id="vmShell">
+      <div class="table-wrap" id="vmScroll">
+        <table class="vm-table" id="localVmTable">
+          <colgroup id="vmCols"><col data-col="name"><col data-col="state"><col data-col="ip"><col data-col="access"><col data-col="internet"><col data-col="info"><col data-col="mdm"><col data-col="remaining"><col data-col="lastRun"><col data-col="snapshots"><col data-col="actions"></colgroup>
+          <thead id="localVmHead"><tr><th class="pin-l" data-sort="name">Name</th><th data-sort="state">State</th><th data-sort="ip">IP</th><th data-sort="access">Access</th><th data-sort="internet">Internet</th><th data-sort="info">Info</th><th data-sort="mdm">MDM</th><th data-sort="remaining">Timer</th><th data-sort="lastRun">Last run</th><th data-sort="snapshots">Snapshots</th><th class="pin-r">Actions</th></tr></thead>
+          <tbody id="localVmRows"><tr><td colspan="11" class="muted">loading…</td></tr></tbody>
         </table>
+      </div>
       </div>
     </div>
 
@@ -965,7 +1079,7 @@
           <label for="ipswSource">macOS version <span id="ipswDownloadedNote" style="color: var(--green); font-weight: 600; margin-left: 8px;"></span></label>
           <div class="ipsw-row">
             <select id="ipswSource"><option value="">Loading…</option></select>
-            <label class="ipsw-beta"><input type="checkbox" id="ipswShowBeta"> Include betas</label>
+            <label class="radio ipsw-beta"><span class="toggle"><input type="checkbox" id="ipswShowBeta"><span class="slider"></span></span> Include betas</label>
           </div>
           <label for="fromIpsw" style="margin-top: 8px;">IPSW path or URL</label>
           <div class="ipsw-row">
@@ -984,10 +1098,10 @@
         <div class="field"><label>Disk size (GB)<button type="button" class="help-tip" data-help="For IPSW: initial size. For clone: grow only (blank = keep)" aria-label="About Disk size (GB)" aria-expanded="false">?</button></label><input type="number" id="createDisk" min="0" value="80"></div>
         <div class="field"><label>Display (WxH)</label><input type="text" id="createDisplay" value="1440x900"></div>
         <div class="field" id="createAutoEnrollField">
-          <label for="createAutoEnrollProfile">Auto enroll at first boot<button type="button" class="help-tip" data-help-src="autoEnrollHelp" aria-label="About auto enroll" aria-expanded="false">?</button></label>
+          <label for="createAutoEnrollProfile">Auto enroll at first boot<button type="button" class="help-tip warn-tip" data-help-src="autoEnrollHelp" aria-label="Warning: auto enroll is experimental" aria-expanded="false"><svg viewBox="0 0 16 16" width="16" height="16" aria-hidden="true"><path d="M8 1.5 15 14H1z" fill="currentColor"/><path d="M8 6v3.6" stroke="var(--panel)" stroke-width="1.6" stroke-linecap="round"/><circle cx="8" cy="11.7" r="0.9" fill="var(--panel)"/></svg></button></label>
           <select id="createAutoEnrollProfile" data-enroll-profiles><option value="">None</option></select>
         </div>
-        <div class="field" id="createHostnameField"><label>Hostname</label><input type="text" id="createHostname" maxlength="63" placeholder="blank = keep the source's"><label class="radio" style="font-size: 13px; margin-top: 4px;"><input type="checkbox" id="createHostnameFromName"> Same as VM name</label></div>
+        <div class="field" id="createHostnameField"><label>Hostname</label><input type="text" id="createHostname" maxlength="63" placeholder="blank = keep the source's"><label class="radio" style="font-size: 13px; margin-top: 4px;"><span class="toggle"><input type="checkbox" id="createHostnameFromName"><span class="slider"></span></span> Same as VM name</label></div>
       </div>
       <div class="field" id="ociField" style="display:none">
         <label style="font-size: 13px; font-weight: 600;">Base image</label>
@@ -998,23 +1112,30 @@
         </div>
         <input type="text" id="ociImageInputInline" class="mono" placeholder="ghcr.io/cirruslabs/macos-sequoia-base:latest">
         <label class="radio" style="display: flex; align-items: center; gap: 6px; margin-top: 10px; font-size: 13px;">
-          <input type="checkbox" id="ociInsecureChkInline"> Allow untrusted / HTTP registry (--insecure)
+          <span class="toggle"><input type="checkbox" id="ociInsecureChkInline"><span class="slider"></span></span> Allow untrusted or HTTP registry
         </label>
       </div>
       <div class="checks" id="createChecks">
-        <label><input type="checkbox" id="createRandMac" checked> Random MAC</label>
-        <label><input type="checkbox" id="createRandSerial" checked> Random serial</label>
+        <label class="radio"><span class="toggle"><input type="checkbox" id="createRandMac" checked><span class="slider"></span></span> Random MAC</label>
+        <label class="radio"><span class="toggle"><input type="checkbox" id="createRandSerial" checked><span class="slider"></span></span> Random serial</label>
+        <label class="radio"><span class="toggle"><input type="checkbox" id="createStartSuspendable"><span class="slider"></span></span> Start suspendable<button type="button" class="help-tip" data-help="Lets you suspend the new VM and resume it in seconds, and take snapshots that keep its memory. Turns off its audio and entropy devices. You can change it later in Edit VM." aria-label="About Start suspendable" aria-expanded="false">?</button></label>
       </div>
-      <div id="provisioningCreateSection" style="display:none;">
-        <h3 style="margin: 18px 0 10px 0; font-size: 13px; text-transform: uppercase; letter-spacing: 0.05em; color: var(--muted);">Guest provisioning (macOS 27+)</h3>
+      <div id="provisioningCreateSection" class="sub-card" style="display:none;">
+        <div class="jamf-step-head"><h3>Guest provisioning (macOS 27+)</h3></div>
         <div id="provisioningHint" class="banner bad" style="display:none;"><span class="dot bad"></span><span>Requires host macOS 27+ and a tart build with --provisioning-opts support.</span></div>
-        <div id="provisioningFields" class="grid">
-          <div class="field"><label>&nbsp;</label><label class="radio"><span class="toggle"><input type="checkbox" id="provisioningEnabled"><span class="slider"></span></span> Provision this VM automatically</label></div>
-          <div class="field"><label for="provisioningFullName">Full name</label><input type="text" id="provisioningFullName" autocomplete="off"></div>
-          <div class="field"><label for="provisioningUsername">Username</label><input type="text" id="provisioningUsername" autocomplete="off"></div>
-          <div class="field"><label for="provisioningPassword">Password</label><input type="password" id="provisioningPassword" autocomplete="new-password"></div>
-          <div class="field"><label>&nbsp;</label><label class="radio"><span class="toggle"><input type="checkbox" id="provisioningAutoLogin"><span class="slider"></span></span> Log in automatically</label></div>
-          <div class="field"><label>&nbsp;</label><label class="radio"><span class="toggle"><input type="checkbox" id="provisioningRemoteLogin"><span class="slider"></span></span> Enable remote login (SSH)</label></div>
+        <div id="provisioningFields">
+        <div class="toggle-group toggle-group-master">
+          <div class="toggle-item"><label class="radio"><span class="toggle"><input type="checkbox" id="provisioningEnabled"><span class="slider"></span></span> Provision this VM automatically</label></div>
+        </div>
+        <div class="grid">
+          <div class="field" data-depends-on="provisioningEnabled"><label for="provisioningFullName">Full name</label><input type="text" id="provisioningFullName" autocomplete="off"></div>
+          <div class="field" data-depends-on="provisioningEnabled"><label for="provisioningUsername">Username</label><input type="text" id="provisioningUsername" autocomplete="off"></div>
+          <div class="field" data-depends-on="provisioningEnabled"><label for="provisioningPassword">Password</label><input type="password" id="provisioningPassword" autocomplete="new-password"></div>
+        </div>
+        <div class="toggle-group">
+          <div class="toggle-item" data-depends-on="provisioningEnabled"><label class="radio"><span class="toggle"><input type="checkbox" id="provisioningAutoLogin"><span class="slider"></span></span> Log in automatically</label></div>
+          <div class="toggle-item" data-depends-on="provisioningEnabled"><label class="radio"><span class="toggle"><input type="checkbox" id="provisioningRemoteLogin"><span class="slider"></span></span> Enable remote login (SSH)</label></div>
+        </div>
         </div>
       </div>
       <div class="actions">
@@ -1028,11 +1149,13 @@
 
     <div class="panel" id="panel-prep-jamf">
       <h2>Prepare VM for Jamf</h2>
-      <p class="muted">Generate and deploy Jamf enrollment profiles on VMs.</p>
+      <p class="muted">Auto enroll needs both steps: add your Jamf servers, then run the script once on the base VM. Clones get their own profile at first boot.</p>
 
-      <div style="margin-top: 14px; margin-bottom: 8px; display: flex; justify-content: space-between; align-items: center;">
-        <h3 style="margin: 0; font-size: 13px; text-transform: uppercase; letter-spacing: 0.05em; color: var(--muted);">Jamf Server Profiles</h3>
-        <button class="ghost" id="addJamfProfileBtn" style="font-size: 12px; padding: 4px 10px;">+ Add Jamf Server</button>
+      <section class="jamf-step" id="jamfStep1" aria-labelledby="jamfStep1Title">
+      <div class="jamf-step-head">
+        <span class="jamf-step-num" aria-hidden="true">1</span>
+        <h3 id="jamfStep1Title">Jamf Server Profiles</h3>
+        <button class="ghost" id="addJamfProfileBtn" style="font-size: 12px; padding: 4px 10px; margin-left: auto;">+ Add Jamf Server</button>
       </div>
 
       <div class="table-wrap" style="margin-bottom: 14px;">
@@ -1040,13 +1163,14 @@
           <thead>
             <tr>
               <th>Server Name</th>
-              <th>Jamf Pro Base URL</th>
-              <th>Invitation</th>
+              <th>Type</th>
+              <th>Base URL</th>
+              <th>Credentials</th>
               <th style="text-align: right;">Actions</th>
             </tr>
           </thead>
           <tbody id="jamfProfileRows">
-            <tr><td colspan="4" class="muted">No Jamf server profiles added yet. Click <b>+ Add Jamf Server</b> to create one.</td></tr>
+            <tr><td colspan="5" class="muted">No Jamf server profiles added yet. Click <b>+ Add Jamf Server</b> to create one.</td></tr>
           </tbody>
         </table>
       </div>
@@ -1055,10 +1179,26 @@
       <div id="jamfProfileEditor" style="display: none; background: var(--panel2); border: 1px solid var(--border); padding: 14px; margin-bottom: 16px; border-radius: 8px;">
         <h3 id="jamfEditorTitle" style="margin: 0 0 10px 0; font-size: 14px;">Add Jamf Server Profile</h3>
         <input type="hidden" id="jamfProfileId">
+        <input type="hidden" id="jamfProfileKind" value="pro">
+        <div style="display: flex; align-items: center; margin-bottom: 12px;">
+          <div class="segmented-control" role="group" aria-label="Jamf server type">
+            <button type="button" class="subtab-btn active" id="jamfKindProBtn" aria-pressed="true" onclick="setJamfEditorKind('pro')">Jamf Pro</button>
+            <button type="button" class="subtab-btn" id="jamfKindSchoolBtn" aria-pressed="false" onclick="setJamfEditorKind('school')">Jamf School</button>
+          </div>
+          <button type="button" class="ghost help-btn jamf-how" id="jamfHowProBtn" data-help-src="jamfInvitationHelp" data-help-wide="1" aria-expanded="false">How to get an enrollment invitation ID</button>
+          <button type="button" class="ghost help-btn jamf-how" id="jamfHowSchoolBtn" data-help-src="jamfSchoolHelp" style="display: none;" aria-expanded="false">How to find enrollment information</button>
+          <button type="button" class="help-tip" id="jamfKindNote" style="display: none;" data-help="Changing the type discards the credentials saved for the old type. Enter the new ones below." aria-label="About changing the server type" aria-expanded="false">?</button>
+        </div>
         <div class="grid">
           <div class="field"><label>Server Name</label><input type="text" id="jamfProfileName" placeholder="e.g. Production, Sandbox, Staging"></div>
-          <div class="field"><label>Jamf Pro base URL</label><input type="url" id="jamfBaseUrl" placeholder="https://tenant.jamfcloud.com"></div>
-          <div class="field" style="grid-column: span 2;"><label>Invitation ID<button type="button" class="help-tip" data-help="Enter the value after invitation=, not the full URL" aria-label="About Invitation ID" aria-expanded="false">?</button></label><input type="password" id="jamfInvitationCode" autocomplete="new-password" placeholder="Enter invitation value"></div>
+          <div class="field"><label>Base URL</label><input type="url" id="jamfBaseUrl" placeholder="https://tenant.jamfcloud.com"></div>
+          <div class="field" id="jamfProFields" style="grid-column: span 2;"><label>Invitation ID</label><input type="password" id="jamfInvitationCode" autocomplete="new-password" placeholder="Enter invitation value"></div>
+          <div class="field" id="jamfSchoolFields" style="grid-column: span 2; display: none;">
+            <div class="grid">
+              <div class="field"><label>Network ID</label><input type="password" id="jamfNetwork" autocomplete="new-password" placeholder="Enter network ID"></div>
+              <div class="field"><label>Location ID</label><input type="password" id="jamfLocation" autocomplete="new-password" placeholder="Enter location ID"></div>
+            </div>
+          </div>
         </div>
         <div class="actions" style="margin-top: 10px;">
           <button id="saveJamfProfileBtn">Save Profile</button>
@@ -1067,7 +1207,35 @@
         </div>
       </div>
 
-      <h3 style="margin: 18px 0 10px 0; font-size: 13px; text-transform: uppercase; letter-spacing: 0.05em; color: var(--muted);">Deploy MDM Enrollment Profile</h3>
+
+      </section>
+
+      <section class="jamf-step" id="jamfStep2" aria-labelledby="jamfStep2Title">
+      <div class="jamf-step-head">
+        <span class="jamf-step-num" aria-hidden="true">2</span>
+        <h3 id="jamfStep2Title">Enable Auto-Enrollment Capabilities on Base VM</h3>
+      </div>
+      <p class="muted" style="margin: 0 0 10px 0;">This script prepares a base VM to support the Auto Enrollment VM feature on new VMs cloned from it. Run it once on the base VM, before you clone it: without it, auto enroll fails on every clone.</p>
+      <p class="muted" style="margin: 0 0 10px 0;">Keep Screen Sharing open to the VM while this script runs as it triggers a one-time TCC permission prompt to enable "sshd-keygen-wrapper" in Privacy settings. The script completes once a confirmation popup displays on the VM.</p>
+      <div class="grid grid-compact" style="margin-bottom: 12px;">
+        <div class="field">
+          <label>Target Running VM</label>
+          <select id="prepTarget" onchange="checkEnrollReadiness()"></select>
+        </div>
+      </div>
+      <div class="ssh-row prep-steps" style="margin-top: 10px;">
+        <button type="button" class="ghost help-btn" id="prepRequirementsBtn" data-help-src="prepRequirementsHelp" aria-expanded="false">1. Prerequisites</button>
+        <button type="button" class="ghost" id="checkCompatBtn">2. Check compatibility</button>
+        <button type="button" id="prepGoldenBtn">3. Run accessibility script</button>
+      </div>
+      <div id="prepReadiness" style="display: flex; flex-wrap: wrap; align-items: center; margin-top: 10px;"></div>
+      <div id="prepGoldenStatus" class="muted" style="margin-top: 6px;"></div>
+      </section>
+
+      <section class="jamf-step jamf-step-optional" id="jamfManualCopy" aria-labelledby="jamfManualCopyTitle">
+      <div class="jamf-step-head">
+        <h3 id="jamfManualCopyTitle">Copy a Profile Manually (optional)<button type="button" class="help-tip" data-help="Not needed for auto enroll: each clone gets its own profile at first boot. Use this to enroll one running VM yourself. Don't copy a profile to a base VM you clone." aria-label="About copying a profile manually" aria-expanded="false">?</button></h3>
+      </div>
       <div class="grid grid-compact" style="margin-bottom: 12px;">
         <div class="field">
           <label>Target Running VM</label>
@@ -1083,25 +1251,7 @@
         <span class="muted mono">~/Desktop/mdm_enroll.mobileconfig</span>
       </div>
       <div id="mdmCopyStatus" class="muted" style="margin-top: 6px;"></div>
-
-      <h3 style="margin: 22px 0 10px 0; font-size: 13px; text-transform: uppercase; letter-spacing: 0.05em; color: var(--muted);">Enable Auto-Enrollment Capabilities on Base VM<button type="button" class="help-tip" id="prepRequirementsBtn" data-help-src="prepRequirementsHelp" aria-label="Requirements" aria-expanded="false">?</button></h3>
-      <p class="muted" style="margin: 0 0 10px 0;">This script prepares a base VM to support the Auto Enrollment VM feature on new VMs cloned from it.</p>
-      <p class="muted" style="margin: 0 0 10px 0;">Keep Screen Sharing open to the VM while this script runs as it triggers a one-time TCC permission prompt to enable "sshd-keygen-wrapper" in Privacy settings. The script completes once a confirmation popup displays on the VM.</p>
-      <div class="grid grid-compact" style="margin-bottom: 12px;">
-        <div class="field">
-          <label>Target Running VM</label>
-          <select id="prepTarget" onchange="checkEnrollReadiness()"></select>
-        </div>
-      </div>
-      <div class="field" style="margin-bottom: 12px;">
-        <label>Compatibility</label>
-        <div id="prepReadiness" style="display: flex; flex-wrap: wrap; align-items: center;"><span class="muted">Select a VM to check.</span></div>
-      </div>
-      <div class="ssh-row" style="margin-top: 10px;">
-        <button id="prepGoldenBtn">Run script</button>
-        <button class="ghost" id="checkCompatBtn">Check compatibility</button>
-      </div>
-      <div id="prepGoldenStatus" class="muted" style="margin-top: 6px;"></div>
+      </section>
     </div>
 
     <div class="panel" id="panel-guest-agent">
@@ -1173,12 +1323,21 @@
         <div class="field"><label>Run window (minutes)<button type="button" class="help-tip" data-help="How long each VM stays up" aria-label="About Run window (minutes)" aria-expanded="false">?</button></label><input type="number" id="windowMinutes" min="1"></div>
         <div class="field"><label>Max concurrent VMs<button type="button" class="help-tip" data-help="Host limit is 2" aria-label="About Max concurrent VMs" aria-expanded="false">?</button></label><input type="number" id="maxConcurrent" min="1" max="2"></div>
         <div class="field"><label>Selection mode<button type="button" class="help-tip" data-help="How the scheduler picks the next VM" aria-label="About Selection mode" aria-expanded="false">?</button></label><select id="schedulerMode"><option value="random">Random</option><option value="sequential">Sequential (A→Z)</option></select></div>
-        <div class="field"><label>Daily start time<button type="button" class="help-tip" data-help="Begin auto-running VMs" aria-label="About Daily start time" aria-expanded="false">?</button></label><input type="time" id="dailyStart"></div>
-        <div class="field"><label>Daily stop time<button type="button" class="help-tip" data-help="Stop running VMs" aria-label="About Daily stop time" aria-expanded="false">?</button></label><input type="time" id="dailyStop"></div>
-        <div class="field"><label>&nbsp;</label><label class="radio"><span class="toggle"><input type="checkbox" id="dailyEnabled"><span class="slider"></span></span> Limit scheduler to daily hours</label></div>
-        <div class="field"><label>&nbsp;</label><label class="radio"><span class="toggle"><input type="checkbox" id="excludeOciFromScheduler"><span class="slider"></span></span> Exclude OCI images from scheduler</label></div>
-        <div class="field"><label>&nbsp;</label><label class="radio"><span class="toggle"><input type="checkbox" id="noGraphics"><span class="slider"></span></span> Headless mode</label></div>
         <div class="field" style="grid-column: 1 / -1;"><label>Excluded VM names (one per line or comma-separated)</label><textarea id="excluded"></textarea></div>
+      </div>
+      <div class="dep-group">
+        <div class="toggle-group toggle-group-master">
+        <div class="toggle-item"><label class="radio"><span class="toggle"><input type="checkbox" id="dailyEnabled"><span class="slider"></span></span> Limit scheduler to daily hours</label></div>
+        </div>
+        <div class="grid">
+        <div class="field" data-depends-on="dailyEnabled"><label>Daily start time<button type="button" class="help-tip" data-help="Begin auto-running VMs" aria-label="About Daily start time" aria-expanded="false">?</button></label><input type="time" id="dailyStart"></div>
+        <div class="field" data-depends-on="dailyEnabled"><label>Daily stop time<button type="button" class="help-tip" data-help="Stop running VMs" aria-label="About Daily stop time" aria-expanded="false">?</button></label><input type="time" id="dailyStop"></div>
+        </div>
+      </div>
+      <div class="toggle-group">
+        <div class="toggle-item"><label class="radio"><span class="toggle"><input type="checkbox" id="excludeOciFromScheduler"><span class="slider"></span></span> Exclude OCI images from scheduler</label></div>
+        <div class="toggle-item"><label class="radio"><span class="toggle"><input type="checkbox" id="noGraphics"><span class="slider"></span></span> Headless mode</label></div>
+        <div class="toggle-item"><label class="radio"><span class="toggle"><input type="checkbox" id="schedulerSuspend"><span class="slider"></span></span> Suspend mode<button type="button" class="help-tip" data-help="The scheduler suspends its VMs instead of shutting them down. It starts them suspendable, whatever each VM's own setting says, suspends them at the end of a run window, and resumes them on the next run. Suspendable VMs have no audio or entropy device." aria-label="About Suspend mode" aria-expanded="false">?</button></label></div>
       </div>
     </div>
 
@@ -1188,12 +1347,19 @@
       <div class="grid">
         <div class="field"><label>VM storage path<button type="button" class="help-tip" data-help="Where Tart stores VMs" aria-label="About VM storage path" aria-expanded="false">?</button></label><input type="text" id="vmStoragePath"></div>
         <div class="field"><label>VM shared directory<button type="button" class="help-tip" data-help="Shared with every VM. It appears in the guest as host_resources." aria-label="About VM shared directory" aria-expanded="false">?</button></label><input type="text" id="sharedDir"></div>
-        <div class="field"><label>Tart binary path<button type="button" class="help-tip" data-help="Full path to the tart binary" aria-label="About Tart binary path" aria-expanded="false">?</button></label><input type="text" id="tartAppPath"></div>
-        <div class="field" style="grid-column: 1 / -1;"><label>Custom run arguments (appended to every <span class="mono">tart run</span>)<button type="button" class="help-tip" data-help="Quote values with spaces, e.g. --dir=&quot;~/My Shared Folder&quot;" aria-label="About Custom run arguments (appended to every tart run)" aria-expanded="false">?</button></label><input type="text" id="runArgs" placeholder='e.g. --vnc --no-audio --net-host'></div>
         <div class="field"><label>Boot timeout (s)<button type="button" class="help-tip" data-help="Wait for IP before declaring boot failure" aria-label="About Boot timeout (s)" aria-expanded="false">?</button></label><input type="number" id="bootTimeoutSec" min="10"></div>
         <div class="field"><label>Network interface<button type="button" class="help-tip" data-help="Which network to use for VM bridging." aria-label="About Network interface" aria-expanded="false">?</button></label><select id="netPriority"><option value="auto">Auto (first available)</option><option value="wifi">Prioritize Wi-Fi</option><option value="ethernet">Prioritize Ethernet</option><option value="shared">Shared (NAT) — no bridging</option></select></div>
-        <div class="field"><label>&nbsp;</label><label class="radio"><span class="toggle"><input type="checkbox" id="suspendable"><span class="slider"></span></span> Start VMs suspendable<button type="button" class="help-tip" data-help="Lets you suspend a VM and resume it in seconds, and take snapshots that keep its memory. Turns off the VM's audio and entropy devices, and applies to every start." aria-label="About Start VMs suspendable" aria-expanded="false">?</button></label></div>
-        <div class="field"><label>&nbsp;</label><label class="radio"><span class="toggle"><input type="checkbox" id="checkTartUpdates"><span class="slider"></span></span> Check for Tart updates</label></div>
+        <div class="field"><label>VM info refresh interval (s)<button type="button" class="help-tip" data-help="How often Tart Oven re-checks every running VM: Agent, SSH, Internet, MDM and Info, the same as Refresh info. 0 turns it off. Otherwise 10 to 86400." aria-label="About VM info refresh interval" aria-expanded="false">?</button></label><input type="number" id="autoCheckSeconds" min="0" max="86400" step="1"></div>
+      </div>
+      <details class="advanced">
+        <summary>Advanced</summary>
+        <div class="grid">
+        <div class="field"><label>Tart binary path<button type="button" class="help-tip" data-help="Full path to the tart binary" aria-label="About Tart binary path" aria-expanded="false">?</button></label><input type="text" id="tartAppPath"></div>
+        <div class="field" style="grid-column: 1 / -1;"><label>Custom run arguments (appended to every <span class="mono">tart run</span>)<button type="button" class="help-tip" data-help="Quote values with spaces, e.g. --dir=&quot;~/My Shared Folder&quot;" aria-label="About Custom run arguments (appended to every tart run)" aria-expanded="false">?</button></label><input type="text" id="runArgs" placeholder='e.g. --vnc --no-audio --net-host'></div>
+        </div>
+      </details>
+      <div class="toggle-group">
+        <div class="toggle-item"><label class="radio"><span class="toggle"><input type="checkbox" id="checkTartUpdates"><span class="slider"></span></span> Check for Tart updates</label></div>
       </div>
       <div class="actions">
         <button id="updateTartBtn" class="ghost">⇩ Update Tart</button>
@@ -1209,18 +1375,27 @@
         <div class="field"><label for="sshPassword">Default SSH password<button type="button" class="help-tip" data-help="Leave blank to keep the saved password" aria-label="About Default SSH password" aria-expanded="false">?</button></label><input type="password" id="sshPassword" autocomplete="new-password"></div>
         <div class="field" id="sshKeyField"><label>SSH identity file<button type="button" class="help-tip" data-help="Used only when a guest has no Tart guest agent. Must start with ~/ or /" aria-label="About SSH identity file" aria-expanded="false">?</button></label><input type="text" id="sshKey"></div>
         <div class="field"><label>SSH connect timeout (s)</label><input type="number" id="sshTimeoutSec" min="1"></div>
+      </div>
+      <details class="advanced">
+        <summary>Advanced</summary>
+        <div class="grid">
         <div class="field"><label>Status command (Refresh info)</label><input type="text" id="statusCommand"></div>
-        <div class="field"><label>&nbsp;</label><label class="radio"><span class="toggle"><input type="checkbox" id="sshFallbackEnabled"><span class="slider"></span></span><span>Allow SSH fallback for guest commands<button type="button" class="help-tip" data-help="Off = agent only. Hides the SSH setup guide and identity file." aria-label="About Allow SSH fallback for guest commands" aria-expanded="false">?</button></span></label></div>
-        <div class="field"><label>&nbsp;</label><label class="radio"><span class="toggle"><input type="checkbox" id="prioritizeSshShutdown"><span class="slider"></span></span><span>Prioritize clean shutdown<button type="button" class="help-tip" data-help="On = ask the guest to shut down for up to 30s before falling back to a fast stop. Off = fast stop only." aria-label="About Prioritize clean shutdown" aria-expanded="false">?</button></span></label></div>
+        </div>
+      </details>
+      <div class="toggle-group">
+        <div class="toggle-item"><label class="radio"><span class="toggle"><input type="checkbox" id="sshFallbackEnabled"><span class="slider"></span></span><span>Allow SSH fallback for guest commands<button type="button" class="help-tip" data-help="Off = agent only. Hides the SSH setup guide and identity file." aria-label="About Allow SSH fallback for guest commands" aria-expanded="false">?</button></span></label></div>
+        <div class="toggle-item"><label class="radio"><span class="toggle"><input type="checkbox" id="prioritizeSshShutdown"><span class="slider"></span></span><span>Prioritize clean shutdown<button type="button" class="help-tip" data-help="On = ask the guest to shut down for up to 30s before falling back to a fast stop. Off = fast stop only." aria-label="About Prioritize clean shutdown" aria-expanded="false">?</button></span></label></div>
       </div>
     </div>
 
     <div class="panel" id="panel-agent-access">
       <h2>Agentic AI access</h2>
+      <div class="toggle-group toggle-group-master">
+        <div class="toggle-item"><label class="radio"><span class="toggle"><input type="checkbox" id="agentEnabled"><span class="slider"></span></span><span>Allow AI agents to lease VMs<button type="button" class="help-tip" data-help="Agents clone the templates below and get a temporary VM that is deleted when its lease ends. They sign in with their own tokens, which cannot reach the rest of the dashboard." aria-label="About agent access" aria-expanded="false">?</button></span></label></div>
+      </div>
       <div class="grid">
-        <div class="field"><label>&nbsp;</label><label class="radio"><span class="toggle"><input type="checkbox" id="agentEnabled"><span class="slider"></span></span><span>Allow AI agents to lease VMs<button type="button" class="help-tip" data-help="Agents clone the templates below and get a temporary VM that is deleted when its lease ends. They sign in with their own tokens, which cannot reach the rest of the dashboard." aria-label="About agent access" aria-expanded="false">?</button></span></label></div>
-        <div class="field"><label for="agentMaxTtlMin">Longest lease (min)</label><input type="number" id="agentMaxTtlMin" min="1" max="1440"></div>
-        <div class="field" style="grid-column: 1 / -1;">
+        <div class="field" data-depends-on="agentEnabled"><label for="agentMaxTtlMin">Longest lease (min)</label><input type="number" id="agentMaxTtlMin" min="1" max="1440"></div>
+        <div class="field" style="grid-column: 1 / -1;" data-depends-on="agentEnabled">
           <label id="agentTemplatesLabel">Agent templates<button type="button" class="help-tip" data-help="Only these VMs can be cloned by an agent. Pick stopped VMs that have the Tart guest agent installed." aria-label="About agent templates" aria-expanded="false">?</button></label>
           <div class="multi-select" id="agentTemplates">
             <button type="button" class="multi-select-btn" id="agentTemplatesBtn" aria-haspopup="true" aria-expanded="false" aria-labelledby="agentTemplatesLabel"><span id="agentTemplatesText"></span></button>
@@ -1232,10 +1407,22 @@
       <div class="actions">
         <input type="text" id="agentTokenName" placeholder="Token name, e.g. claude" maxlength="40" autocomplete="off" style="max-width: 260px;">
         <button id="agentTokenCreateBtn" class="ghost">Create agent token</button>
+        <button type="button" id="agentConnectBtn" class="ghost hidden" aria-expanded="false" aria-controls="agentConnect">How to connect an AI client</button>
+        <button type="button" class="help-tip" data-help-src="agentAccessHelp" aria-label="What an agent can do" aria-expanded="false">?</button>
       </div>
       <div id="agentTokenReveal" class="token-reveal hidden">
         <code id="agentTokenValue" class="mono"></code>
         <button id="agentTokenCopyBtn" class="ghost">Copy</button>
+      </div>
+      <div id="agentConnect" class="sub-card hidden">
+        <div class="jamf-step-head"><h3>Connect an AI client</h3></div>
+        <p class="muted" style="margin: 0 0 10px;" id="agentConnectIntro"></p>
+        <div class="connect-step"><span class="connect-label">Claude Code (in Terminal)</span><button type="button" class="ghost tiny" data-copy="agentConnectClaude">Copy</button></div>
+        <pre class="popover-code" id="agentConnectClaude"></pre>
+        <div class="connect-step"><span class="connect-label">Claude Desktop or another MCP client: add to <code>mcpServers</code> in its config file</span><button type="button" class="ghost tiny" data-copy="agentConnectJson">Copy</button><button type="button" class="help-tip" data-help="Claude Desktop: ~/Library/Application Support/Claude/claude_desktop_config.json, then quit and reopen Claude." aria-label="Where the Claude Desktop config file is" aria-expanded="false">?</button></div>
+        <pre class="popover-code" id="agentConnectJson"></pre>
+        <div class="connect-step"><span class="connect-label">Test the token: it prints your name and templates</span><button type="button" class="ghost tiny" data-copy="agentConnectTest">Copy</button></div>
+        <pre class="popover-code" id="agentConnectTest"></pre>
       </div>
       <div id="agentTokenList"></div>
     </div>
@@ -1245,13 +1432,18 @@
       <div class="grid">
         <div class="field"><label>Server label</label><input type="text" id="serverLabel" maxlength="100" placeholder="e.g. Mac Mini #1"></div>
         <div class="field"><label>Listen (host:port)</label><input type="text" id="listen"></div>
-        <div class="field"><label>Log file path</label><input type="text" id="logPath" placeholder="~/Library/Logs/tart-oven.log"></div>
         <div class="field"><label>History retention (days)</label><input type="number" id="historyDays" min="1"></div>
-        <div class="field"><label>&nbsp;</label><label class="radio"><span class="toggle"><input type="checkbox" id="launchAtBoot"><span class="slider"></span></span> Launch at login</label><small id="launchAtBootStatus" class="muted"></small></div>
-        <div class="field"><label>&nbsp;</label><label class="radio"><span class="toggle"><input type="checkbox" id="showJamfFeatures"><span class="slider"></span></span> Display Jamf-related features</label></div>
-        <div class="field"><label>&nbsp;</label><label class="radio"><span class="toggle"><input type="checkbox" id="showAgentFeatures"><span class="slider"></span></span> Display agentic AI features</label></div>
-        <div class="field"><label>&nbsp;</label><label class="radio"><span class="toggle"><input type="checkbox" id="checkOvenUpdates"><span class="slider"></span></span> Check for Tart Oven updates</label></div>
       </div>
+      <div class="toggle-group">
+        <div class="toggle-item"><label class="radio"><span class="toggle"><input type="checkbox" id="launchAtBoot"><span class="slider"></span></span> Launch at login</label><small id="launchAtBootStatus" class="muted"></small></div>
+        <div class="toggle-item"><label class="radio"><span class="toggle"><input type="checkbox" id="checkOvenUpdates"><span class="slider"></span></span> Check for Tart Oven updates</label></div>
+      </div>
+      <details class="advanced">
+        <summary>Advanced</summary>
+        <div class="grid">
+        <div class="field"><label>Log file path</label><input type="text" id="logPath" placeholder="~/Library/Logs/tart-oven.log"></div>
+        </div>
+      </details>
       <div class="sec-sub">Access token</div>
       <div id="secWarning" class="banner warn hidden" role="status"></div>
       <div class="muted" id="authStatus">Checking…</div>
@@ -1265,10 +1457,12 @@
         <button id="authCopyBtn" class="ghost">Copy</button>
       </div>
       <div class="sec-sub">HTTPS</div>
+      <div class="toggle-group toggle-group-master">
+        <div class="toggle-item"><label class="radio"><span class="toggle"><input type="checkbox" id="tlsEnabled"><span class="slider"></span></span> Serve over HTTPS</label></div>
+      </div>
       <div class="grid">
-        <div class="field"><label>&nbsp;</label><label class="radio"><span class="toggle"><input type="checkbox" id="tlsEnabled"><span class="slider"></span></span> Serve over HTTPS</label></div>
-        <div class="field"><label for="tlsCertPath">Certificate file (PEM)</label><input type="text" id="tlsCertPath" placeholder="Empty = self-signed"></div>
-        <div class="field"><label for="tlsKeyPath">Private key file (PEM)</label><input type="text" id="tlsKeyPath" placeholder="Empty = self-signed"></div>
+        <div class="field" data-depends-on="tlsEnabled"><label for="tlsCertPath">Certificate file (PEM)</label><input type="text" id="tlsCertPath" placeholder="Empty = self-signed"></div>
+        <div class="field" data-depends-on="tlsEnabled"><label for="tlsKeyPath">Private key file (PEM)</label><input type="text" id="tlsKeyPath" placeholder="Empty = self-signed"></div>
       </div>
       <div class="muted" id="tlsInfo"></div>
       <div class="actions">
@@ -1283,8 +1477,17 @@
     </div>
 
 
-    <div class="actions" style="margin-bottom: 18px;">
+    <div class="panel" id="panel-addons">
+      <h2>Add-Ons</h2>
+      <div class="toggle-group toggle-group-only">
+        <div class="toggle-item"><label class="radio"><span class="toggle"><input type="checkbox" id="showJamfFeatures"><span class="slider"></span></span> Display Jamf-related features</label></div>
+        <div class="toggle-item"><label class="radio"><span class="toggle"><input type="checkbox" id="showAgentFeatures"><span class="slider"></span></span> Display agentic AI features</label></div>
+      </div>
+    </div>
+
+    <div class="actions save-bar" id="cfgSaveBar" style="margin-bottom: 18px;">
       <button id="saveBtn">Save configuration</button>
+      <span class="save-bar-note">Unsaved changes</span>
       <span id="cfgStatus" class="muted"></span>
     </div>
   </div>
@@ -1353,27 +1556,31 @@
       <div class="field"><label>Rename to<button type="button" class="help-tip" data-help-src="nameHelpContent" data-help-note="Leave blank to keep the current name." aria-label="Name variables" aria-expanded="false">?</button></label><input type="text" id="editVmRenameNew" placeholder="blank = keep name"></div>
     </div>
     <div class="checks" style="margin-top: 8px;">
-      <label><input type="checkbox" id="editVmRandMac"> New random MAC</label>
-      <label><input type="checkbox" id="editVmRandSerial"> New random serial</label>
+      <label class="radio"><span class="toggle"><input type="checkbox" id="editVmRandMac"><span class="slider"></span></span> New random MAC</label>
+      <label class="radio"><span class="toggle"><input type="checkbox" id="editVmRandSerial"><span class="slider"></span></span> New random serial</label>
     </div>
 
     <h3 style="font-size: 12px; text-transform: uppercase; color: var(--muted); margin: 16px 0 10px; font-weight: 600;">Hostname</h3>
     <div class="grid">
-      <div class="field"><label>Hostname</label><input type="text" id="editVmHostname" maxlength="63" placeholder="blank = leave unchanged"></div>
-      <div class="field"><label>&nbsp;</label><label class="radio"><input type="checkbox" id="editVmHostnameFromName"> Same as VM name</label></div>
+      <div class="field"><label>Hostname</label><input type="text" id="editVmHostname" maxlength="63" placeholder="blank = leave unchanged"><label class="radio" style="font-size: 13px; margin-top: 4px;"><span class="toggle"><input type="checkbox" id="editVmHostnameFromName"><span class="slider"></span></span> Same as VM name</label></div>
+    </div>
+
+    <h3 style="font-size: 12px; text-transform: uppercase; color: var(--muted); margin: 16px 0 10px; font-weight: 600;">Suspend</h3>
+    <div class="grid">
+      <div class="field"><label class="radio"><span class="toggle"><input type="checkbox" id="editVmStartSuspendable"><span class="slider"></span></span> Start suspendable<button type="button" class="help-tip" data-help="Lets you suspend this VM and resume it in seconds, and take snapshots that keep its memory. Turns off the VM's audio and entropy devices. Takes effect the next time the VM starts." aria-label="About Start suspendable" aria-expanded="false">?</button></label></div>
     </div>
 
     <h3 style="font-size: 12px; text-transform: uppercase; color: var(--muted); margin: 16px 0 10px; font-weight: 600;">SSH Settings</h3>
     <div class="grid">
-      <div class="field"><label>Custom SSH user</label><input type="text" id="editVmSshUser" placeholder="blank = use default"><label class="radio hidden" id="editVmClearSshUserField" style="font-size: 13px; margin-top: 4px;"><input type="checkbox" id="editVmClearSshUser"> Remove this VM's user and use the default</label></div>
-      <div class="field"><label>Custom SSH password</label><input type="password" id="editVmSshPassword" autocomplete="new-password" placeholder="blank = use default"><label class="radio hidden" id="editVmClearSshPasswordField" style="font-size: 13px; margin-top: 4px;"><input type="checkbox" id="editVmClearSshPassword"> Remove this VM's password and use the default</label></div>
+      <div class="field"><label>Custom SSH user</label><input type="text" id="editVmSshUser" placeholder="blank = use default"><label class="radio hidden" id="editVmClearSshUserField" style="font-size: 13px; margin-top: 4px;"><span class="toggle"><input type="checkbox" id="editVmClearSshUser"><span class="slider"></span></span> Remove this VM's user and use the default</label></div>
+      <div class="field"><label>Custom SSH password</label><input type="password" id="editVmSshPassword" autocomplete="new-password" placeholder="blank = use default"><label class="radio hidden" id="editVmClearSshPasswordField" style="font-size: 13px; margin-top: 4px;"><span class="toggle"><input type="checkbox" id="editVmClearSshPassword"><span class="slider"></span></span> Remove this VM's password and use the default</label></div>
     </div>
 
     <div id="editVmEnrollmentSection">
       <h3 style="font-size: 12px; text-transform: uppercase; color: var(--muted); margin: 16px 0 10px; font-weight: 600;">Enrollment</h3>
       <div class="grid">
         <div class="field">
-          <label for="editVmAutoEnrollProfile">Auto enroll at next boot<button type="button" class="help-tip" data-help-src="autoEnrollHelp" aria-label="About auto enroll" aria-expanded="false">?</button></label>
+          <label for="editVmAutoEnrollProfile">Auto enroll at next boot<button type="button" class="help-tip warn-tip" data-help-src="autoEnrollHelp" aria-label="Warning: auto enroll is experimental" aria-expanded="false"><svg viewBox="0 0 16 16" width="16" height="16" aria-hidden="true"><path d="M8 1.5 15 14H1z" fill="currentColor"/><path d="M8 6v3.6" stroke="var(--panel)" stroke-width="1.6" stroke-linecap="round"/><circle cx="8" cy="11.7" r="0.9" fill="var(--panel)"/></svg></button></label>
           <select id="editVmAutoEnrollProfile" data-enroll-profiles><option value="">None</option></select>
         </div>
       </div>
@@ -1508,7 +1715,7 @@
     </div>
     <div class="field" style="margin-bottom: 14px;">
       <label class="radio" style="display: flex; align-items: center; gap: 6px; cursor: pointer; font-size: 13px;">
-        <input type="checkbox" id="ociInsecureChk"> Allow untrusted / HTTP registry (--insecure)
+        <span class="toggle"><input type="checkbox" id="ociInsecureChk"><span class="slider"></span></span> Allow untrusted or HTTP registry
       </label>
     </div>
     <div class="modal-actions" style="margin-top: 20px;">
@@ -2253,7 +2460,29 @@ function configFormKey() {
   delete c.paused;
   return JSON.stringify(c);
 }
-function markConfigClean() { configSnapshot = configFormKey(); }
+function markConfigClean() { configSnapshot = configFormKey(); syncSaveBar(); }
+// The save bar follows the page (sticky, with "Unsaved changes") only while the
+// form differs from what was loaded or last saved.
+function syncSaveBar() {
+  const bar = document.getElementById("cfgSaveBar");
+  if (bar) bar.classList.toggle("dirty", isConfigDirty());
+}
+// A field marked data-depends-on="<switch id>" is greyed out and disabled while
+// that switch is off: its value is kept and saved, it just can't be edited.
+function syncDependentFields() {
+  document.querySelectorAll("[data-depends-on]").forEach(field => {
+    const sw = document.getElementById(field.dataset.dependsOn);
+    const on = !!(sw && sw.checked && !sw.disabled); // a switch that is itself unavailable counts as off
+    field.classList.toggle("field-off", !on);
+    field.querySelectorAll("input, select, textarea, button:not(.help-tip)").forEach(el => { el.disabled = !on; });
+  });
+}
+document.addEventListener("input", e => { if (e.target.closest && e.target.closest("#tab-config")) syncSaveBar(); });
+document.addEventListener("change", e => {
+  if (!e.target.closest) return;
+  syncDependentFields(); // switches with dependent fields live in several tabs (Guest provisioning too)
+  if (e.target.closest("#tab-config")) syncSaveBar();
+});
 function isConfigDirty() { return configLoaded && configSnapshot !== null && configFormKey() !== configSnapshot; }
 function fillConfig(c) {
   const set = (id, v) => { const el = document.getElementById(id); if (el) el.value = (v == null ? "" : v); };
@@ -2268,7 +2497,8 @@ function fillConfig(c) {
   chk("dailyEnabled", c.dailyEnabled);
   chk("excludeOciFromScheduler", c.excludeOciFromScheduler !== false);
   chk("noGraphics", c.noGraphics);
-  chk("suspendable", c.suspendable);
+  chk("schedulerSuspend", c.schedulerSuspend);
+  set("autoCheckSeconds", c.autoCheckSeconds == null ? 120 : c.autoCheckSeconds);
   set("vmStoragePath", c.vmStoragePath);
   set("sharedDir", c.sharedDir);
   set("tartAppPath", c.tartAppPath || "/Applications/tart.app/Contents/MacOS/tart");
@@ -2298,11 +2528,21 @@ function fillConfig(c) {
   set("agentMaxTtlMin", c.agentMaxTtlMin || 480);
   renderJamfProfiles();
   configLoaded = true;
+  syncDependentFields();
   markConfigClean();
 }
 function setSavedSecretPlaceholder(id, isSaved) {
   const el = document.getElementById(id);
   if (el) el.placeholder = isSaved ? "•••••••• (saved)" : "";
+}
+// The auto-check field as a number of seconds. An empty or non-numeric field
+// keeps the saved value instead of quietly turning auto-check off; 0 must be
+// typed on purpose.
+function readAutoCheckSeconds(text, saved) {
+  const v = parseInt(String(text).trim(), 10);
+  if (!Number.isFinite(v)) return Number.isFinite(saved) ? saved : 120;
+  if (v <= 0) return 0;
+  return Math.min(86400, Math.max(10, v));
 }
 function readConfig() {
   const num = (id) => { const el = document.getElementById(id); return el ? (parseInt(el.value, 10) || 0) : 0; };
@@ -2318,7 +2558,8 @@ function readConfig() {
     dailyEnabled: document.getElementById("dailyEnabled").checked,
     excludeOciFromScheduler: document.getElementById("excludeOciFromScheduler").checked,
     noGraphics: chk("noGraphics"),
-    suspendable: chk("suspendable"),
+    schedulerSuspend: chk("schedulerSuspend"),
+    autoCheckSeconds: readAutoCheckSeconds(document.getElementById("autoCheckSeconds").value, latest && latest.config ? latest.config.autoCheckSeconds : 120),
     dailyStart: str("dailyStart"), dailyStop: str("dailyStop"),
     excluded,
     paused: latest ? latest.config.paused : false,
@@ -2372,11 +2613,33 @@ function getJamfProfiles() {
     return [{
       id: "default",
       name: "Default Server",
+      kind: "pro",
       baseUrl: latest.config.jamfBaseUrl,
       invitationCodeSet: !!latest.config.jamfInvitationCodeSet
     }];
   }
   return [];
+}
+
+// A profile written before School support, or by an older client, has no kind: it is Pro.
+function jamfKind(p) {
+  return p && p.kind === "school" ? "school" : "pro";
+}
+function jamfKindLabel(kind) {
+  return kind === "school" ? "School" : "Pro";
+}
+// What the Credentials column shows. The secrets are write-only, so this is
+// only ever "saved" or "not set", driven by the *Set flags.
+function jamfCredentialStatus(p) {
+  const saved = '<span style="color:var(--green)">•••••• (saved)</span>';
+  const unset = '<span class="muted">not set</span>';
+  if (jamfKind(p) === "school") {
+    return 'Network ' + (p.networkSet ? saved : unset) + ' · Location ' + (p.locationSet ? saved : unset);
+  }
+  return p.invitationCodeSet ? '<span style="color:var(--green)">•••••••• (saved)</span>' : unset;
+}
+function jamfProfileLabel(p) {
+  return (p.name || "Unnamed Server") + " · " + jamfKindLabel(jamfKind(p)) + " (" + (p.baseUrl || "") + ")";
 }
 
 function renderJamfProfiles() {
@@ -2386,14 +2649,14 @@ function renderJamfProfiles() {
   if (!tb || !sel) return;
 
   if (!profiles.length) {
-    tb.innerHTML = '<tr><td colspan="4" class="muted">No Jamf server profiles configured yet. Click <b>+ Add Jamf Server</b> to create one.</td></tr>';
+    tb.innerHTML = '<tr><td colspan="5" class="muted">No Jamf server profiles configured yet. Click <b>+ Add Jamf Server</b> to create one.</td></tr>';
   } else {
     tb.innerHTML = profiles.map(p => {
-      const invStatus = p.invitationCodeSet ? '<span style="color:var(--green)">•••••••• (saved)</span>' : '<span class="muted">not set</span>';
       return '<tr>' +
         '<td><b>' + esc(p.name || "Unnamed Server") + '</b></td>' +
+        '<td>' + jamfKindLabel(jamfKind(p)) + '</td>' +
         '<td class="mono">' + esc(p.baseUrl || "") + '</td>' +
-        '<td>' + invStatus + '</td>' +
+        '<td>' + jamfCredentialStatus(p) + '</td>' +
         '<td style="text-align: right;">' +
           '<button class="ghost" style="padding: 2px 8px; font-size: 11px; margin-right: 4px;" onclick="openEditJamfProfile(\'' + esc(p.id) + '\')">Edit</button>' +
           '<button class="ghost danger" style="padding: 2px 8px; font-size: 11px;" onclick="deleteJamfProfile(\'' + esc(p.id) + '\')">Delete</button>' +
@@ -2406,12 +2669,42 @@ function renderJamfProfiles() {
   if (!profiles.length) {
     sel.innerHTML = '<option value="">No server profiles configured</option>';
   } else {
-    sel.innerHTML = profiles.map(p => '<option value="' + esc(p.id) + '">' + esc(p.name) + ' (' + esc(p.baseUrl) + ')</option>').join("");
+    sel.innerHTML = profiles.map(p => '<option value="' + esc(p.id) + '">' + esc(jamfProfileLabel(p)) + '</option>').join("");
     if (prevVal && profiles.some(p => p.id === prevVal)) {
       sel.value = prevVal;
     }
   }
 
+}
+
+// Shows the credential fields for one kind of server. A saved secret is only
+// advertised as "(saved)" while the editor is still on the kind it was saved for:
+// the server discards the other kind's credentials when the kind changes.
+function setJamfEditorKind(kind) {
+  kind = kind === "school" ? "school" : "pro";
+  const prev = getJamfProfiles().find(x => x.id === document.getElementById("jamfProfileId").value);
+  const same = !!prev && jamfKind(prev) === kind;
+  const keep = (isSet, prompt) => same && isSet ? "•••••• (saved)" : prompt;
+  document.getElementById("jamfProfileKind").value = kind;
+  for (const [id, active] of [["jamfKindProBtn", kind === "pro"], ["jamfKindSchoolBtn", kind === "school"]]) {
+    const btn = document.getElementById(id);
+    btn.classList.toggle("active", active);
+    btn.setAttribute("aria-pressed", active ? "true" : "false");
+  }
+  document.getElementById("jamfProFields").style.display = kind === "pro" ? "" : "none";
+  document.getElementById("jamfSchoolFields").style.display = kind === "school" ? "" : "none";
+  // The how-to button belongs to the chosen type; a popover open on the other one closes.
+  for (const [id, show] of [["jamfHowProBtn", kind === "pro"], ["jamfHowSchoolBtn", kind === "school"]]) {
+    const how = document.getElementById(id);
+    how.style.display = show ? "" : "none";
+    if (!show && helpOwner === how) closeHelp();
+  }
+  const kindNote = document.getElementById("jamfKindNote");
+  kindNote.style.display = prev && !same ? "" : "none";
+  if (kindNote.style.display === "none" && helpOwner === kindNote) closeHelp(); // never leave a popover on a hidden button
+  document.getElementById("jamfInvitationCode").placeholder = same && prev.invitationCodeSet ? "•••••••• (saved)" : "Enter invitation value";
+  document.getElementById("jamfNetwork").placeholder = keep(prev && prev.networkSet, "Enter network ID");
+  document.getElementById("jamfLocation").placeholder = keep(prev && prev.locationSet, "Enter location ID");
 }
 
 function openAddJamfProfile() {
@@ -2421,7 +2714,9 @@ function openAddJamfProfile() {
   document.getElementById("jamfProfileName").value = "";
   document.getElementById("jamfBaseUrl").value = "";
   document.getElementById("jamfInvitationCode").value = "";
-  document.getElementById("jamfInvitationCode").placeholder = "Enter invitation value";
+  document.getElementById("jamfNetwork").value = "";
+  document.getElementById("jamfLocation").value = "";
+  setJamfEditorKind("pro");
   document.getElementById("jamfSaveStatus").textContent = "";
   document.getElementById("jamfProfileName").focus();
 }
@@ -2436,7 +2731,9 @@ function openEditJamfProfile(id) {
   document.getElementById("jamfProfileName").value = p.name || "";
   document.getElementById("jamfBaseUrl").value = p.baseUrl || "";
   document.getElementById("jamfInvitationCode").value = "";
-  document.getElementById("jamfInvitationCode").placeholder = p.invitationCodeSet ? "•••••••• (saved)" : "Enter invitation value";
+  document.getElementById("jamfNetwork").value = "";
+  document.getElementById("jamfLocation").value = "";
+  setJamfEditorKind(jamfKind(p));
   document.getElementById("jamfSaveStatus").textContent = "";
   document.getElementById("jamfProfileName").focus();
 }
@@ -2447,14 +2744,26 @@ function closeJamfProfileEditor() {
   document.getElementById("jamfProfileName").value = "";
   document.getElementById("jamfBaseUrl").value = "";
   document.getElementById("jamfInvitationCode").value = "";
+  document.getElementById("jamfNetwork").value = "";
+  document.getElementById("jamfLocation").value = "";
+  setJamfEditorKind("pro");
   document.getElementById("jamfSaveStatus").textContent = "";
+}
+
+// What a profile row is sent back as. Secrets are never echoed: the server keeps
+// what it has stored for any secret left out.
+function jamfProfileBase(p) {
+  return { id: p.id, kind: jamfKind(p), name: p.name, baseUrl: p.baseUrl };
 }
 
 async function saveJamfProfile() {
   const id = document.getElementById("jamfProfileId").value;
+  const kind = document.getElementById("jamfProfileKind").value === "school" ? "school" : "pro";
   const name = document.getElementById("jamfProfileName").value.trim();
   const baseUrl = document.getElementById("jamfBaseUrl").value.trim();
-  const invitationCode = document.getElementById("jamfInvitationCode").value.trim();
+  const secrets = kind === "school"
+    ? { network: document.getElementById("jamfNetwork").value.trim(), location: document.getElementById("jamfLocation").value.trim() }
+    : { invitationCode: document.getElementById("jamfInvitationCode").value.trim() };
   const statusEl = document.getElementById("jamfSaveStatus");
 
   if (!name) {
@@ -2462,36 +2771,41 @@ async function saveJamfProfile() {
     return;
   }
   if (!baseUrl) {
-    statusEl.textContent = "Jamf Pro base URL is required";
+    statusEl.textContent = "Base URL is required";
     return;
   }
+  if (kind === "school") {
+    // Pro tolerates a missing invitation (the copy step reports it); a School
+    // profile cannot do anything without both IDs, so insist on them here.
+    // "Already saved" only counts while the kind is unchanged.
+    const prev = getJamfProfiles().find(p => p.id === id);
+    const saved = prev && jamfKind(prev) === "school" ? prev : {};
+    if (!secrets.network && !saved.networkSet) {
+      statusEl.textContent = "Network ID is required";
+      return;
+    }
+    if (!secrets.location && !saved.locationSet) {
+      statusEl.textContent = "Location ID is required";
+      return;
+    }
+  }
 
+  const profiles = getJamfProfiles().map(jamfProfileBase);
+  let target = id ? profiles.find(p => p.id === id) : null;
+  if (id && !target) {
+    statusEl.textContent = "This profile no longer exists";
+    return;
+  }
   statusEl.textContent = "saving…";
-  const profiles = getJamfProfiles().map(p => ({
-    id: p.id,
-    name: p.name,
-    baseUrl: p.baseUrl
-  }));
-
-  if (id) {
-    const idx = profiles.findIndex(p => p.id === id);
-    if (idx >= 0) {
-      profiles[idx].name = name;
-      profiles[idx].baseUrl = baseUrl;
-      if (invitationCode) {
-        profiles[idx].invitationCode = invitationCode;
-      }
-    }
-  } else {
-    const newProfile = {
-      id: "jamf-" + Date.now(),
-      name,
-      baseUrl
-    };
-    if (invitationCode) {
-      newProfile.invitationCode = invitationCode;
-    }
-    profiles.push(newProfile);
+  if (!target) {
+    target = { id: "jamf-" + Date.now() };
+    profiles.push(target);
+  }
+  target.kind = kind;
+  target.name = name;
+  target.baseUrl = baseUrl;
+  for (const [field, value] of Object.entries(secrets)) {
+    if (value) target[field] = value;
   }
 
   try {
@@ -2520,11 +2834,7 @@ async function deleteJamfProfile(id) {
   if (!confirm("Are you sure you want to delete Jamf profile \"" + (target.name || target.baseUrl) + "\"?")) {
     return;
   }
-  const updated = profiles.filter(p => p.id !== id).map(p => ({
-    id: p.id,
-    name: p.name,
-    baseUrl: p.baseUrl
-  }));
+  const updated = profiles.filter(p => p.id !== id).map(jamfProfileBase);
   try {
     const res = await api("/api/config", {
       method: "POST",
@@ -2596,10 +2906,21 @@ function fmtDuration(startISO, stopISO) {
   return (h ? h + "h " : "") + m + "m";
 }
 function esc(s) { return (s == null ? "" : String(s)).replace(/[&<>"]/g, c => ({ "&":"&amp;","<":"&lt;",">":"&gt;","\"":"&quot;" }[c])); }
+// jsArg makes a value safe inside a single-quoted JavaScript string in an HTML
+// attribute, such as onclick="act('run','NAME')". esc() alone is not enough: the
+// browser decodes the attribute before running it, so a ' in a VM name (allowed,
+// and VMs made outside Tart Oven are never checked) would end the string and
+// break the button, or run whatever followed.
+function jsArg(s) {
+  return esc(String(s == null ? "" : s).replace(/\\/g, "\\\\").replace(/'/g, "\\'").replace(/\r?\n/g, " "));
+}
 
-// SSH connectivity bubble for a VM.
-// channelBadge renders one line of the Access column: a status dot + label for
-// either the guest agent or SSH.
+// channelBadge renders one status line: a dot plus OK / KO. The Access column
+// uses it for the guest agent and SSH, the Internet column for internet access,
+// so all three share one look and one set of colours. opts: ssh (SSH wording and
+// the SSH-fallback switch), hideLabel (the column header already names the
+// channel), failTip (why it is KO), unknownUntilChecked (a running VM that has
+// not been probed yet is grey, not "checking…", for probes that may never run).
 function channelBadge(label, ok, checkedAt, vm, opts) {
   opts = opts || {};
   const isSSH = opts.ssh;
@@ -2616,6 +2937,9 @@ function channelBadge(label, ok, checkedAt, vm, opts) {
   } else if (transient) {
     dot = "amber"; status = "";
     tooltip = vm.state + "…";
+  } else if (running && !checked && opts.unknownUntilChecked) {
+    dot = "grey"; status = "—";
+    tooltip = label + " not checked yet";
   } else if (running && !checked) {
     dot = "amber pulse"; status = "checking…";
     tooltip = "checking " + label + "…";
@@ -2624,14 +2948,14 @@ function channelBadge(label, ok, checkedAt, vm, opts) {
     status = ok ? "OK" : "KO";
     tooltip = label + " " + (ok ? "OK" : "failed") + " — checked " + fmtAgo(checkedAt);
     if (!ok) {
-      tooltip += isSSH
+      tooltip += opts.failTip ? ": " + opts.failTip : (isSSH
         ? " — see the SSH setup guide in VM Management"
-        : " — Tart guest agent not responding; use ⋯ → Install Agent";
+        : " — Tart guest agent not responding; use ⋯ → Install Agent");
     }
   } else if (!running && checked) {
     dot = ok ? "green" : "red";
     status = ok ? "OK" : "KO";
-    tooltip = "last known while running (checked " + fmtDateTime(checkedAt) + ")";
+    tooltip = "last known while running (checked " + fmtDateTime(checkedAt) + ")" + (!ok && opts.failTip ? ": " + opts.failTip : "");
   } else {
     dot = "grey"; status = "—";
     tooltip = "never checked";
@@ -2642,7 +2966,7 @@ function channelBadge(label, ok, checkedAt, vm, opts) {
   const stale = !running && !transient && checked && !sshOff;
   return '<div class="access-line' + (stale ? ' last-known' : '') + '" title="' + esc(tooltip) + '">' +
     '<span class="' + dotClass + '"></span>' +
-    '<span class="access-label">' + label + '</span> ' +
+    (opts.hideLabel ? '' : '<span class="access-label">' + label + '</span> ') +
     '<span class="' + labelClass + '">' + status + '</span>' +
     '</div>';
 }
@@ -2660,6 +2984,15 @@ function accessCell(vm) {
 function infoCell(vm) {
   if (!vm.info) return '<span class="muted">—</span>';
   return '<div class="infobox" title="fetched ' + esc(fmtDateTime(vm.infoAt)) + '">' + esc(vm.info) + '</div>';
+}
+
+// Internet access for a guest, drawn like the Access column (dot + OK / KO). A
+// guest that has not been probed yet is grey rather than red, so it is never
+// reported as offline before anyone asked. A stopped VM keeps its last result,
+// faded.
+function internetCell(vm) {
+  return channelBadge("Internet", vm.internetOk, vm.internetCheckedAt, vm,
+    { hideLabel: true, unknownUntilChecked: true, failTip: vm.internetDetail || "no internet access" });
 }
 
 // Trims the MDM check-in endpoint down to the console URL an operator would
@@ -2820,7 +3153,19 @@ function agentInstallButton(name, notRunning, agentAvailable) {
 // renderTable). closeRowMenus is the ONLY thing that clears it — a re-render
 // calls positionRowMenu directly, not closeRowMenus, so it never does.
 let openRowMenuName = null;
+// While open, the menu list lives in <body>: inside the table it sits in a sticky
+// cell of a scrolling box, and some browsers (Safari) crop a fixed-position menu
+// there at the bottom of the table. clearPortaledMenus puts it back, or drops it
+// when its row has been re-rendered meanwhile.
+function clearPortaledMenus() {
+  document.querySelectorAll("body > .row-menu-list").forEach(list => {
+    list.classList.remove("portal-open");
+    if (list._home && list._home.isConnected) list._home.appendChild(list);
+    else list.remove();
+  });
+}
 function closeRowMenus() {
+  clearPortaledMenus();
   document.querySelectorAll(".row-menu.open").forEach(el => el.classList.remove("open"));
   openRowMenuName = null;
 }
@@ -2831,21 +3176,61 @@ function toggleRowMenu(evt, name) {
   if (wasOpenForThis) return;
   openRowMenuName = name;
   positionRowMenu(name);
+  // Opened from the keyboard (a click with detail 0): move into the menu. The list
+  // lives in <body> while open, so Tab from the button would otherwise skip it.
+  if (evt.detail === 0) {
+    const first = document.querySelector("body > .row-menu-list.portal-open button:not(:disabled)");
+    if (first) first.focus();
+  }
+}
+// Where the menu list goes: below the button if it fits, else above, else wherever
+// there is most room, always inside the window (the list then scrolls itself).
+function rowMenuTop(btnTop, btnBottom, menuHeight, viewHeight) {
+  const gap = 4, margin = 8;
+  const below = viewHeight - btnBottom - gap - margin;
+  const above = btnTop - gap - margin;
+  if (menuHeight <= below) return btnBottom + gap;
+  if (menuHeight <= above) return btnTop - menuHeight - gap;
+  const preferred = below >= above ? btnBottom + gap : btnTop - menuHeight - gap;
+  return Math.max(margin, Math.min(preferred, viewHeight - menuHeight - margin));
 }
 function positionRowMenu(name) {
   const wrap = document.getElementById("rowmenu-" + name);
   if (!wrap) { openRowMenuName = null; return; } // row no longer in the (filtered) table
+  clearPortaledMenus();
   wrap.classList.add("open");
   const btn = wrap.querySelector(".row-menu-btn");
   const list = wrap.querySelector(".row-menu-list");
+  if (!list) return;
+  list._home = wrap;
+  list.classList.add("portal-open");
+  document.body.appendChild(list);
+  list.setAttribute("role", "menu");
+  list.querySelectorAll("button").forEach(b => b.setAttribute("role", "menuitem"));
+  btn.setAttribute("aria-haspopup", "menu");
   const rect = btn.getBoundingClientRect();
-  const gap = 4;
-  const menuHeight = list.offsetHeight;
-  const spaceBelow = window.innerHeight - rect.bottom;
-  const openUpward = spaceBelow < menuHeight + gap && rect.top > menuHeight + gap;
-  list.style.top = (openUpward ? rect.top - menuHeight - gap : rect.bottom + gap) + "px";
+  const menuHeight = list.offsetHeight; // already capped to the window by CSS
+  list.style.top = rowMenuTop(rect.top, rect.bottom, menuHeight, window.innerHeight) + "px";
   list.style.right = (window.innerWidth - rect.right) + "px";
 }
+// Keyboard use of the open menu: arrows move between items, Escape and Tab close it
+// and give focus back to the button that opened it.
+document.addEventListener("keydown", e => {
+  const list = document.querySelector("body > .row-menu-list.portal-open");
+  if (!list) return;
+  const active = document.activeElement;
+  const homeBtn = list._home && list._home.querySelector(".row-menu-btn");
+  if (active && active !== document.body && active !== homeBtn && !list.contains(active)) return; // typing elsewhere
+  const close = () => { closeRowMenus(); if (homeBtn && homeBtn.isConnected) homeBtn.focus(); };
+  if (e.key === "Escape" || e.key === "Tab") { e.preventDefault(); close(); return; }
+  if (e.key !== "ArrowDown" && e.key !== "ArrowUp") return;
+  e.preventDefault();
+  const items = [...list.querySelectorAll("button:not(:disabled)")];
+  if (!items.length) return;
+  const i = items.indexOf(active);
+  const next = e.key === "ArrowDown" ? (i + 1) % items.length : (i <= 0 ? items.length - 1 : i - 1);
+  items[next].focus();
+});
 document.addEventListener("click", closeRowMenus);
 window.addEventListener("resize", closeRowMenus);
 
@@ -2859,7 +3244,7 @@ let snapshotsModalSig = "";
 
 function snapshotsCell(vm) {
   const n = (vm.snapshots || []).length;
-  return '<button class="snap-count' + (n ? "" : " zero") + '" onclick="openSnapshotsModal(\'' + esc(vm.name) + '\')" title="' +
+  return '<button class="snap-count' + (n ? "" : " zero") + '" onclick="openSnapshotsModal(\'' + jsArg(vm.name) + '\')" title="' +
     (n ? "Open the snapshots of " : "Create a snapshot of ") + esc(vm.name) + '">' + n + '</button>';
 }
 
@@ -2906,23 +3291,24 @@ function renderSnapshotsModal() {
   document.getElementById("snapshotsModalTitle").textContent = "VM Snapshots — " + vm.name;
   const rows = snaps.map(sn => {
     const n = esc(sn.name);
+    const q = jsArg(sn.name);
     const live = isLive(sn.state);
     const blocker = live ? "" : snapshotRunBlocker(vm, sn);
     const busy = sn.busy ? " disabled" : "";
     const restoreOff = sn.busy || live || isLive(vm.state) || (vm.snapshots || []).some(x => isLive(x.state));
     const run = live
-      ? '<button class="danger" onclick="act(\'stop\',\'' + n + '\')"' + busy + '>Stop</button>'
-      : '<button onclick="act(\'run\',\'' + n + '\')"' + (sn.busy || blocker ? " disabled" : "") + (blocker ? ' title="' + esc(blocker) + '"' : "") + '>' + (sn.state === "suspended" ? "Resume" : "Run") + '</button>';
+      ? '<button class="danger" onclick="act(\'stop\',\'' + q + '\')"' + busy + '>Stop</button>'
+      : '<button onclick="act(\'run\',\'' + q + '\')"' + (sn.busy || blocker ? " disabled" : "") + (blocker ? ' title="' + esc(blocker) + '"' : "") + '>' + (sn.state === "suspended" ? "Resume" : "Run") + '</button>';
     return '<tr>' +
       '<td class="mono">' + n + (sn.memory ? ' <span class="tag" title="Saved with the VM\'s memory: Run resumes exactly where it was">memory</span>' : '') + '</td>' +
       '<td title="' + esc(fmtDateTime(sn.createdAt)) + '">' + esc(fmtAgo(sn.createdAt)) + '</td>' +
       '<td><input type="text" class="snap-comment" maxlength="500" value="' + esc(sn.comment || "") + '" placeholder="Add a comment" ' +
-        'onchange="saveSnapshotComment(\'' + n + '\', this.value)" onkeydown="if(event.key===\'Enter\')this.blur()"></td>' +
+        'onchange="saveSnapshotComment(\'' + q + '\', this.value)" onkeydown="if(event.key===\'Enter\')this.blur()"></td>' +
       '<td><span class="state s-' + esc(sn.state || "stopped") + '"><span class="dot"></span>' + esc(sn.state || "stopped") + '</span></td>' +
       '<td class="acts"><div class="row-actions">' + run +
-        '<button class="ghost" onclick="restoreSnapshot(\'' + n + '\')"' + (restoreOff ? " disabled" : "") + ' title="' +
+        '<button class="ghost" onclick="restoreSnapshot(\'' + q + '\')"' + (restoreOff ? " disabled" : "") + ' title="' +
           (restoreOff ? "Stop " + esc(vm.name) + " and its snapshots first" : "Replace " + esc(vm.name) + " with this snapshot") + '">Restore</button>' +
-        '<button class="danger ghost" onclick="deleteSnapshot(\'' + n + '\')"' + (live || sn.busy ? " disabled" : "") + '>Delete</button>' +
+        '<button class="danger ghost" onclick="deleteSnapshot(\'' + q + '\')"' + (live || sn.busy ? " disabled" : "") + '>Delete</button>' +
       '</div></td></tr>';
   });
   const creating = pending.map(t => '<tr><td class="mono">' + esc(t.target) + '</td><td colspan="4"><span class="progress-spinner"><span class="spinner-dot"></span><span>Creating…</span></span></td></tr>');
@@ -3076,6 +3462,8 @@ function applyProvisioningAvailability(supported) {
   if (!fields) return;
   fields.style.opacity = supported ? "" : "0.5";
   fields.querySelectorAll("input").forEach((input) => { input.disabled = !supported; });
+  // On a supported host the fields still wait for "Provision this VM automatically".
+  syncDependentFields();
 }
 
 function renderHeaderStats(sample) {
@@ -3875,6 +4263,7 @@ const SORT_GETTERS = {
     ip: vm => vm.ip ? vm.ip.split(".").reduce((n, o) => n * 256 + (parseInt(o, 10) || 0), 0) : null,
     access: vm => (vm.agentOk && isSet(vm.agentCheckedAt) ? 2 : 0) + (vm.sshOk && isSet(vm.sshCheckedAt) ? 1 : 0),
     info: vm => vm.info ? vm.info.toLowerCase() : null,
+    internet: vm => !isSet(vm.internetCheckedAt) ? null : (vm.internetOk ? 1 : 0),
     mdm: vm => !isSet(vm.mdmCheckedAt) ? null : (vm.mdmEnrolled ? 1 : 0),
     snapshots: vm => (vm.snapshots || []).length,
     lastRun: vm => timeOf(vm.lastRun),
@@ -3948,6 +4337,219 @@ function initSortHeaders() {
 }
 initSortHeaders();
 
+// ---- VM table columns: widths, resizing and scroll hints ----
+// Name (first) and Actions (last) stay in place; the columns between them scroll
+// sideways and can be resized. Widths are remembered in this browser.
+const VM_COLS_KEY = "tartOvenVmCols";
+const VM_COL_DEFAULTS = { name: 200, state: 132, ip: 150, access: 110, internet: 120, info: 180, mdm: 150, snapshots: 140, lastRun: 140, remaining: 120, actions: 300 };
+// The column that takes the spare width on a wide screen, and the narrowest the
+// fitted Actions column may get.
+const VM_COL_SPARE = "info";
+const VM_COL_ACTIONS_MIN = 120;
+const VM_COL_FIXED = { name: true, actions: true };
+const VM_COL_MIN = 64;
+const VM_COL_MAX = 800;
+let vmColWidths = Object.assign({}, VM_COL_DEFAULTS);
+
+// Saved widths merged over the defaults: anything unusable falls back to the
+// default, resizable columns are kept within the limits, pinned ones never change.
+function normalizeColWidths(saved, defaults) {
+  const out = {};
+  for (const key of Object.keys(defaults)) {
+    const v = saved ? Number(saved[key]) : NaN;
+    out[key] = (!VM_COL_FIXED[key] && Number.isFinite(v) && v > 0)
+      ? Math.min(VM_COL_MAX, Math.max(VM_COL_MIN, Math.round(v)))
+      : defaults[key];
+  }
+  return out;
+}
+
+// Whether there is more table to scroll to on each side.
+function scrollHints(scrollLeft, clientWidth, scrollWidth) {
+  return { left: scrollLeft > 1, right: scrollLeft + clientWidth < scrollWidth - 1 };
+}
+
+// Pinning Name and Actions only makes sense while there is room left between
+// them to scroll the other columns; otherwise Actions would cover Name.
+function canPin(viewWidth, nameWidth, actionsWidth) {
+  return viewWidth >= nameWidth + actionsWidth + VM_COL_MIN * 2;
+}
+
+function saveVmColWidths() {
+  const changed = {};
+  // Pinned columns are never saved: Actions is measured, Name is fixed.
+  for (const key of Object.keys(VM_COL_DEFAULTS)) if (!VM_COL_FIXED[key] && vmColWidths[key] !== VM_COL_DEFAULTS[key]) changed[key] = vmColWidths[key];
+  try { localStorage.setItem(VM_COLS_KEY, JSON.stringify(changed)); } catch (_) {}
+}
+
+function applyVmColWidths() {
+  let total = 0;
+  document.querySelectorAll("#vmCols col").forEach(col => {
+    const w = vmColWidths[col.dataset.col];
+    // Info has no set width: on a wide screen it takes the spare width (its own
+    // width is then a minimum), so the other columns keep exactly the width they
+    // were dragged to and Actions stays as narrow as its buttons.
+    col.style.width = col.dataset.col === VM_COL_SPARE ? "" : w + "px";
+    total += w;
+  });
+  document.querySelectorAll("#localVmHead .col-resizer").forEach(grip => {
+    grip.setAttribute("aria-valuenow", String(vmColWidths[grip.dataset.col]));
+  });
+  const table = document.getElementById("localVmTable");
+  if (table) table.style.width = total + "px";
+  updateVmScrollHints();
+}
+
+// actionsColumnWidth is the width the Actions column needs: its widest row of
+// buttons plus the cell's own padding and border, never below a floor (the
+// header, and an empty table). Measured, because the buttons read Run or
+// Resume and fonts differ between browsers.
+function actionsColumnWidth(buttonRowWidths, cellChrome) {
+  const widest = buttonRowWidths.reduce((a, b) => Math.max(a, b), 0);
+  return Math.max(VM_COL_ACTIONS_MIN, Math.ceil(widest + cellChrome));
+}
+
+// fitActionsColumn sizes the Actions column to the buttons just rendered.
+function fitActionsColumn() {
+  // Measured only while the table is on screen: on another tab every width is 0,
+  // which would shrink the column to its floor.
+  const table = document.getElementById("localVmTable");
+  if (!table || !table.offsetParent) return;
+  const rows = document.querySelectorAll("#localVmRows .row-actions");
+  if (!rows.length) return;
+  const cell = rows[0].closest("td");
+  const style = cell ? getComputedStyle(cell) : null;
+  const chrome = style ? parseFloat(style.paddingLeft) + parseFloat(style.paddingRight) + parseFloat(style.borderLeftWidth) + parseFloat(style.borderRightWidth) : 29;
+  // The row is a full-width flex box, so its own width is the cell's; what the
+  // buttons need is the span from the first one to the last.
+  const span = r => {
+    const first = r.firstElementChild, last = r.lastElementChild;
+    return first && last ? last.getBoundingClientRect().right - first.getBoundingClientRect().left : 0;
+  };
+  const width = actionsColumnWidth(Array.from(rows, span), chrome);
+  if (width === vmColWidths.actions) return;
+  vmColWidths.actions = width;
+  applyVmColWidths();
+}
+
+function setVmColWidth(key, width) {
+  if (VM_COL_FIXED[key] || !(key in VM_COL_DEFAULTS)) return;
+  vmColWidths[key] = normalizeColWidths({ [key]: width }, VM_COL_DEFAULTS)[key];
+  applyVmColWidths();
+}
+
+function updateVmScrollHints() {
+  const shell = document.getElementById("vmShell");
+  const wrap = document.getElementById("vmScroll");
+  if (!shell || !wrap) return;
+  shell.classList.toggle("no-pin", !canPin(wrap.clientWidth, vmColWidths.name, vmColWidths.actions));
+  const hints = scrollHints(wrap.scrollLeft, wrap.clientWidth, wrap.scrollWidth);
+  shell.classList.toggle("can-left", hints.left);
+  shell.classList.toggle("can-right", hints.right);
+  // The gradients start where the pinned columns end.
+  const heads = document.querySelectorAll("#localVmHead th");
+  if (heads.length > 1) {
+    shell.style.setProperty("--pin-l", heads[0].offsetWidth + "px");
+    shell.style.setProperty("--pin-r", heads[heads.length - 1].offsetWidth + "px");
+  }
+}
+
+function initVmColumns() {
+  let saved = null;
+  try { saved = JSON.parse(localStorage.getItem(VM_COLS_KEY) || "null"); } catch (_) {}
+  vmColWidths = normalizeColWidths(saved, VM_COL_DEFAULTS);
+  const heads = document.querySelectorAll("#localVmHead th");
+  const cols = document.querySelectorAll("#vmCols col");
+  heads.forEach((th, i) => {
+    const key = cols[i] && cols[i].dataset.col;
+    if (!key || VM_COL_FIXED[key]) return;
+    const labelEl = th.querySelector(".sort-label");
+    const grip = document.createElement("span");
+    grip.className = "col-resizer";
+    grip.tabIndex = 0;
+    grip.setAttribute("role", "separator");
+    grip.setAttribute("aria-orientation", "vertical");
+    grip.dataset.col = key;
+    grip.setAttribute("aria-valuemin", String(VM_COL_MIN));
+    grip.setAttribute("aria-valuemax", String(VM_COL_MAX));
+    grip.setAttribute("aria-label", "Resize the " + (labelEl ? labelEl.textContent : key) + " column (arrow keys, Home to reset)");
+    grip.title = "Drag to resize. Double-click to reset.";
+    grip.addEventListener("click", e => { e.stopPropagation(); closeRowMenus(); });
+    grip.addEventListener("dblclick", () => { setVmColWidth(key, VM_COL_DEFAULTS[key]); saveVmColWidths(); });
+    grip.addEventListener("pointerdown", e => {
+      if (e.button !== 0) return; // a right-click opens the context menu, not a drag
+      e.preventDefault();
+      const startX = e.clientX;
+      const startW = vmColWidths[key];
+      grip.setPointerCapture(e.pointerId);
+      grip.classList.add("active");
+      document.body.classList.add("col-resizing");
+      const move = ev => setVmColWidth(key, startW + ev.clientX - startX);
+      // lostpointercapture follows pointerup and pointercancel, and also fires
+      // when the browser drops the capture without either.
+      const done = () => {
+        grip.removeEventListener("pointermove", move);
+        grip.removeEventListener("lostpointercapture", done);
+        grip.classList.remove("active");
+        document.body.classList.remove("col-resizing");
+        saveVmColWidths();
+      };
+      grip.addEventListener("pointermove", move);
+      grip.addEventListener("lostpointercapture", done);
+    });
+    grip.addEventListener("keydown", e => {
+      if (e.key === "Home") {
+        e.preventDefault();
+        setVmColWidth(key, VM_COL_DEFAULTS[key]);
+      } else if (e.key === "ArrowLeft" || e.key === "ArrowRight") {
+        e.preventDefault();
+        setVmColWidth(key, vmColWidths[key] + (e.key === "ArrowRight" ? 1 : -1) * (e.shiftKey ? 40 : 10));
+      } else {
+        return;
+      }
+      saveVmColWidths();
+    });
+    th.appendChild(grip);
+  });
+  const wrap = document.getElementById("vmScroll");
+  if (wrap) {
+    wrap.addEventListener("scroll", updateVmScrollHints, { passive: true });
+    // Also re-fits Actions when the table comes back on screen (tab switch).
+    if (window.ResizeObserver) new ResizeObserver(() => { fitActionsColumn(); updateVmScrollHints(); }).observe(wrap);
+  }
+  window.addEventListener("resize", updateVmScrollHints);
+  applyVmColWidths();
+}
+initVmColumns();
+
+// The VM's play / pause / stop buttons. Play starts a stopped VM or resumes a
+// suspended one. Pause suspends a running VM, which works only when the VM was
+// started suspendable (otherwise its saved state could never be restored), so
+// it is greyed out with the reason as its tooltip. Stop shuts the VM down; on a
+// suspended VM it discards the saved memory, so the VM fully quits.
+const VM_ICON_PLAY = '<svg viewBox="0 0 16 16" width="14" height="14" aria-hidden="true"><path d="M4.5 2.8v10.4a.6.6 0 0 0 .9.5l8.2-5.2a.6.6 0 0 0 0-1L5.4 2.3a.6.6 0 0 0-.9.5z" fill="currentColor"/></svg>';
+const VM_ICON_PAUSE = '<svg viewBox="0 0 16 16" width="14" height="14" aria-hidden="true"><rect x="3.5" y="2.5" width="3.2" height="11" rx="0.8" fill="currentColor"/><rect x="9.3" y="2.5" width="3.2" height="11" rx="0.8" fill="currentColor"/></svg>';
+const VM_ICON_STOP = '<svg viewBox="0 0 16 16" width="14" height="14" aria-hidden="true"><rect x="3" y="3" width="10" height="10" rx="1.6" fill="currentColor"/></svg>';
+function vmControlButtons(vm, n, busy) {
+  const q = jsArg(vm.name);
+  const state = vm.state;
+  const name = esc(vm.name);
+  const playDisabled = busy || state === "running" || state === "starting" || state === "stopping";
+  const playTip = state === "suspended" ? "Resume " + vm.name + " where it left off" : "Start " + vm.name;
+  let pauseTip = "Suspend " + vm.name + ": save its memory and stop it. Play resumes it in seconds.";
+  let pauseOK = !busy && state === "running" && !!vm.suspendable;
+  if (state === "running" && !vm.suspendable) pauseTip = "Can't suspend: " + vm.name + " was not started suspendable. Turn on Start suspendable in Edit VM, then stop and start it.";
+  else if (state === "suspended") pauseTip = vm.name + " is suspended. Play resumes it, Stop quits it fully.";
+  else if (state !== "running") pauseTip = vm.startSuspendable ? "Start " + vm.name + " to suspend it" : "Can't suspend: Start suspendable is off for " + vm.name + " (Edit VM)";
+  const stopTip = state === "suspended" ? "Quit " + vm.name + " fully: discards its saved memory" : "Shut down " + vm.name;
+  return '<button class="vm-ctl play" onclick="act(\'run\',\'' + q + '\')"' + (playDisabled ? " disabled" : "") +
+      ' title="' + esc(playTip) + '" aria-label="' + (state === "suspended" ? "Resume " : "Start ") + name + '">' + VM_ICON_PLAY + '</button>' +
+    '<button class="vm-ctl pause" onclick="suspendVM(\'' + q + '\')"' + (pauseOK ? "" : " disabled") +
+      ' title="' + esc(pauseTip) + '" aria-label="Suspend ' + name + '">' + VM_ICON_PAUSE + '</button>' +
+    '<button class="vm-ctl stop" onclick="act(\'stop\',\'' + q + '\')"' + (busy ? " disabled" : "") +
+      ' title="' + esc(stopTip) + '" aria-label="Stop ' + name + '">' + VM_ICON_STOP + '</button>';
+}
+
 function renderTable(vms) {
   const tbody = document.getElementById("localVmRows");
   const runningOnly = isRunningOnly();
@@ -3975,17 +4577,21 @@ function renderTable(vms) {
   filtered = sortRows("local", filtered);
   if (!filtered.length) {
     const msg = query ? "No VMs match your search." : (runningOnly ? "No running VMs." : "No VMs found at this storage path.");
-    tbody.innerHTML = '<tr><td colspan="10" class="muted">' + msg + '</td></tr>';
+    tbody.innerHTML = '<tr><td colspan="11" class="muted">' + msg + '</td></tr>';
+    const emptyWrap = document.getElementById("vmScroll");
+    if (emptyWrap) emptyWrap.scrollLeft = 0; // the message is not a pinned cell
+    updateVmScrollHints();
     return;
   }
   tbody.innerHTML = filtered.map(vm => {
     const n = esc(vm.name);
+    const q = jsArg(vm.name);
     const tagList = [];
     if (vm.template) tagList.push('<span class="tag">TEMPLATE</span>');
     if (vm.excluded) tagList.push('<span class="tag">excluded</span>');
     if ((vm.snapshots || []).some(sn => sn.state === "running" || sn.state === "starting")) tagList.push('<span class="tag warn" title="A snapshot of this VM is running; it shares this VM\'s MAC address, so this VM can\'t start until it stops.">snapshot running</span>');
     if (vm.lease) tagList.push('<span class="tag" title="' + esc("Agent VM, owner " + vm.lease.owner) + '">agent</span>');
-    if (vm.bootFailed) tagList.push('<button class="tag warn tag-clear" title="Clear boot failure status" onclick="clearBootFailure(\'' + n + '\')">boot failure ✕</button>');
+    if (vm.bootFailed) tagList.push('<button class="tag warn tag-clear" title="Clear boot failure status" onclick="clearBootFailure(\'' + q + '\')">boot failure ✕</button>');
     const userTags = tagsHtml(vm);
     const allTags = tagList.join("") + userTags;
     const tags = allTags ? '<div class="tags">' + allTags + '</div>' : "";
@@ -3994,40 +4600,37 @@ function renderTable(vms) {
     const rem = (vm.state === "running" && (vm.lease || !latest.config.paused)) ? fmtRemaining(stopAt) : "—";
     const ip = vm.ip ? '<span class="ip">' + esc(vm.ip) + '</span>' : '<span class="muted">—</span>';
     const notRunning = vm.state !== "running" ? " disabled" : "";
-    const stopDisabled = busy;
     const noScreen = (vm.state === "running" && vm.ip) ? "" : " disabled";
     const effUser = guestUserFor(vm).name;
     const rowClass = vm.state === "running" ? ' class="row-running"' : '';
     return '<tr' + rowClass + '>' +
-      '<td class="name"><b>' + n + '</b>' + tags + '</td>' +
-      '<td><span class="state s-' + vm.state + '"><span class="dot"></span>' + vm.state + '</span></td>' +
-      '<td>' + ip + '</td>' +
+      '<td class="name pin-l"><b>' + n + '</b>' + tags + '</td>' +
+      '<td class="nowrap"><span class="state s-' + vm.state + '"><span class="dot"></span>' + vm.state + '</span></td>' +
+      '<td class="nowrap">' + ip + '</td>' +
       '<td>' + accessCell(vm) + '</td>' +
+      '<td class="internet">' + internetCell(vm) + '</td>' +
       '<td class="info">' + infoCell(vm) + '</td>' +
       '<td class="mdm">' + mdmCell(vm) + '</td>' +
+      '<td class="mono nowrap" data-stop="' + (stopAt || "") + '" data-state="' + vm.state + '">' + rem + '</td>' +
+      '<td class="muted nowrap" title="' + esc(fmtDateTime(vm.lastRun)) + '">' + fmtAgo(vm.lastRun) + '</td>' +
       '<td class="snap-cell">' + snapshotsCell(vm) + '</td>' +
-      '<td class="muted" title="' + esc(fmtDateTime(vm.lastRun)) + '">' + fmtAgo(vm.lastRun) + '</td>' +
-      '<td class="mono" data-stop="' + (stopAt || "") + '" data-state="' + vm.state + '">' + rem + '</td>' +
-      '<td class="acts"><div class="row-actions">' +
-        '<button onclick="act(\'run\',\'' + n + '\')"' + busy + '>' + (vm.state === "suspended" ? "Resume" : "Run") + '</button>' +
-        '<button class="danger" onclick="act(\'stop\',\'' + n + '\')"' + stopDisabled + (vm.state === "suspended" ? ' title="Discards the saved memory"' : '') + '>Stop</button>' +
-        '<button class="ghost" onclick="openTerminal(\'' + n + '\')" title="Run a command in this VM" aria-label="Terminal for ' + esc(vm.name) + '" style="font-family:ui-monospace,monospace;padding:6px 10px">&gt;_</button>' +
+      '<td class="acts pin-r"><div class="row-actions">' +
+        vmControlButtons(vm, n, !!vm.busy) +
+        '<button class="ghost" onclick="openTerminal(\'' + q + '\')" title="Run a command in this VM" aria-label="Terminal for ' + esc(vm.name) + '" style="font-family:ui-monospace,monospace;padding:6px 10px">&gt;_</button>' +
         '<div class="row-menu" id="rowmenu-' + n + '">' +
-          '<button class="ghost row-menu-btn" onclick="toggleRowMenu(event,\'' + n + '\')" title="More actions">⋯</button>' +
+          '<button class="ghost row-menu-btn" onclick="toggleRowMenu(event,\'' + q + '\')" title="More actions">⋯</button>' +
           '<div class="row-menu-list">' +
-            '<button onclick="closeRowMenus();openRunArgsModal(\'' + n + '\')"' + (busy || vm.state !== "stopped" ? ' disabled' : '') + ' title="Start VM with chosen tart run arguments">Run with arguments</button>' +
-            '<button onclick="closeRowMenus();restartVM(\'' + n + '\')"' + (busy || vm.state !== "running" ? ' disabled' : '') + ' title="Restart this VM">Restart VM</button>' +
-            '<button onclick="closeRowMenus();suspendVM(\'' + n + '\')"' + (busy || vm.state !== "running" || !vm.suspendable ? ' disabled' : '') + ' title="' +
-              (vm.state === "running" && !vm.suspendable ? "Not started suspendable. Stop it and start it with Suspendable on (Run with arguments, or Configuration)." : "Save this VM's memory and stop it; Resume brings it back in seconds") + '">Suspend VM</button>' +
-            '<button onclick="closeRowMenus();getInfo(\'' + n + '\')"' + notRunning + ' title="Re-check the IP, Agent and SSH status and MDM enrollment, and collect the VM info again">Refresh info</button>' +
-            agentInstallButton(n, notRunning, guestAgentInfo.available) +
-            '<button onclick="closeRowMenus();openVNC(\'' + esc(vm.ip) + '\',\'' + esc(effUser) + '\')"' + noScreen + '>Start Screen Sharing</button>' +
-            '<button onclick="closeRowMenus();openSnapshotsModal(\'' + n + '\')" title="Create, run, restore and delete snapshots of this VM">VM Snapshots</button>' +
-            '<button onclick="closeRowMenus();openEditModal(\'' + n + '\')" title="Edit VM settings, tags, and notes">Edit VM</button>' +
-            '<button class="danger" onclick="closeRowMenus();deleteVMFromRow(\'' + n + '\')" title="Permanently delete this VM">Delete VM</button>' +
+            '<button onclick="closeRowMenus();openRunArgsModal(\'' + q + '\')"' + (busy || vm.state !== "stopped" ? ' disabled' : '') + ' title="Start VM with chosen tart run arguments">Run with arguments</button>' +
+            '<button onclick="closeRowMenus();restartVM(\'' + q + '\')"' + (busy || vm.state !== "running" ? ' disabled' : '') + ' title="Restart this VM">Restart VM</button>' +
+            '<button onclick="closeRowMenus();getInfo(\'' + q + '\')"' + notRunning + ' title="Re-check the IP, Agent and SSH status, internet access and MDM enrollment, and collect the VM info again">Refresh info</button>' +
+            agentInstallButton(q, notRunning, guestAgentInfo.available) +
+            '<button onclick="closeRowMenus();openVNC(\'' + jsArg(vm.ip) + '\',\'' + jsArg(effUser) + '\')"' + noScreen + '>Start Screen Sharing</button>' +
+            '<button onclick="closeRowMenus();openSnapshotsModal(\'' + q + '\')" title="Create, run, restore and delete snapshots of this VM">VM Snapshots</button>' +
+            '<button onclick="closeRowMenus();openEditModal(\'' + q + '\')" title="Edit VM settings, tags, and notes">Edit VM</button>' +
+            '<button class="danger" onclick="closeRowMenus();deleteVMFromRow(\'' + q + '\')" title="Permanently delete this VM">Delete VM</button>' +
           '</div>' +
         '</div>' +
-        '<button class="ghost" onclick="openVmInfoModal(\'' + n + '\')" title="VM details for ' + esc(n) + '" aria-label="VM details for ' + esc(n) + '" style="padding: 4px 8px; font-size: 14px; margin-left: 4px;">ⓘ</button>' +
+        '<button class="ghost" onclick="openVmInfoModal(\'' + q + '\')" title="VM details for ' + esc(n) + '" aria-label="VM details for ' + esc(n) + '" style="padding: 4px 8px; font-size: 14px; margin-left: 4px;">ⓘ</button>' +
       '</div></td></tr>';
   }).join("");
   // The row HTML above is fully regenerated on every SSE push, which would
@@ -4035,6 +4638,8 @@ function renderTable(vms) {
   // (every server broadcast, not a real dismissal) — reapply it if it's still
   // valid for the newly-rendered rows.
   if (openRowMenuName) positionRowMenu(openRowMenuName);
+  fitActionsColumn();
+  updateVmScrollHints();
 }
 
 // keep "time remaining" ticking between server pushes (but not when the
@@ -4199,6 +4804,7 @@ async function openEditModal(vmName) {
   document.getElementById("editVmHostname").value = vm.hostname || "";
   document.getElementById("editVmHostnameFromName").checked = !!vm.hostnameFromName;
   syncHostnameField("editVmHostname", "editVmHostnameFromName");
+  document.getElementById("editVmStartSuspendable").checked = !!vm.startSuspendable;
   document.getElementById("editVmModalInfo").textContent = "loading…";
   try {
     const res = await api("/api/vm/get?name=" + encodeURIComponent(vmName));
@@ -4276,6 +4882,7 @@ async function saveEditVmModal() {
   const clearSshPassword = document.getElementById("editVmClearSshPassword").checked;
   const clearSshUser = document.getElementById("editVmClearSshUser").checked;
   const payload = { name: finalName, notes, tags, sshUser, sshPassword, clearSshPassword, clearSshUser, hostnameFromName,
+    startSuspendable: document.getElementById("editVmStartSuspendable").checked,
     hostname: hostnameFromName ? "" : document.getElementById("editVmHostname").value.trim() };
   if (jamfEnabled) {
     const choice = document.getElementById("editVmAutoEnrollProfile").value;
@@ -4298,12 +4905,16 @@ async function saveEditVmModal() {
 // Options come from the Jamf server profiles in VM Management. They're rebuilt
 // only when the list changes, so the SSE refresh doesn't reset a choice in progress.
 function syncEnrollProfileSelects(profiles) {
-  const signature = JSON.stringify((profiles || []).map(p => [p.id, p.name, p.baseUrl]));
+  const signature = JSON.stringify((profiles || []).map(p => [p.id, p.name, p.baseUrl, jamfKind(p)]));
   for (const sel of document.querySelectorAll("select[data-enroll-profiles]")) {
     if (sel.dataset.signature === signature) continue;
     const keep = sel.value;
+    // Both kinds can be chosen. The kind is in the label because it changes what a run
+    // does: Pro generates a profile locally, School downloads one and so mints a fresh
+    // credential in the tenant every time.
     sel.innerHTML = '<option value="">None</option>' + (profiles || []).map(p =>
-      '<option value="' + esc(p.id) + '">' + esc(p.name || p.baseUrl) + "</option>").join("");
+      '<option value="' + esc(p.id) + '">' + esc(p.name || p.baseUrl) + " · " + jamfKindLabel(jamfKind(p)) + "</option>"
+    ).join("");
     sel.dataset.signature = signature;
     sel.value = Array.from(sel.options).some(o => o.value === keep) ? keep : "";
   }
@@ -4332,12 +4943,29 @@ function closeHelp() {
   helpOwner.setAttribute("aria-expanded", "false");
   helpOwner = null;
 }
+// Copies the code block of the open help popover (the Jamf invitation recipe).
+function copyPopoverCode() {
+  const code = document.querySelector("#helpPopover .popover-code");
+  if (!code) return;
+  const text = code.textContent;
+  const fallback = () => {
+    const range = document.createRange();
+    range.selectNodeContents(code);
+    const sel = window.getSelection();
+    sel.removeAllRanges();
+    sel.addRange(range);
+    toast("Copy", "Selected. Press ⌘C to copy it.", "info");
+  };
+  if (!navigator.clipboard) { fallback(); return; }
+  navigator.clipboard.writeText(text).then(() => toast("Copy", "Command copied.", "ok"), fallback);
+}
 function openHelp(btn) {
   closeHelp();
   const pop = document.getElementById("helpPopover");
   const src = btn.dataset.helpSrc && document.getElementById(btn.dataset.helpSrc);
   if (src) pop.innerHTML = src.innerHTML;
   else pop.textContent = btn.dataset.help || "";
+  pop.classList.toggle("popover-wide", !!btn.dataset.helpWide);
   if (btn.dataset.helpNote) {
     const note = document.createElement("p");
     note.textContent = btn.dataset.helpNote;
@@ -4353,7 +4981,8 @@ function openHelp(btn) {
   helpOwner = btn;
 }
 document.addEventListener("click", (e) => {
-  const tip = e.target.closest(".help-tip");
+  // A ? tip, or a full button that opens the same kind of popover (.help-btn).
+  const tip = e.target.closest(".help-tip, .help-btn");
   if (tip) {
     e.preventDefault(); // a ? inside a toggle's label must not flip the toggle
     if (tip === helpOwner) closeHelp(); else openHelp(tip);
@@ -4434,6 +5063,7 @@ function renderVmInfoModalBody() {
   if (vm.lease) overview.push(row("Lease expires", when(vm.lease.expiresAt)));
   if (vm.source) overview.push(row("Source", esc(vm.source)));
   overview.push(row("IP", esc(vm.ip || "—")));
+  overview.push(row("Start suspendable", vm.startSuspendable ? "On" : "Off"));
   if (vm.bootFailed) overview.push(row("Boot failure", "Yes" + (vm.lastError ? " — " + esc(vm.lastError) : "")));
   if (running) overview.push(row("Window", vm.headless ? "Headless" : "Normal"));
   if (running && vm.runOverride) {
@@ -4472,6 +5102,10 @@ function renderVmInfoModalBody() {
     const url = consoleURL(vm.mdmServer);
     mdm = vm.mdmEnrolled ? "Enrolled" + (url ? " · " + esc(url) : "") : "Not enrolled";
   }
+  let internet = "Not checked yet";
+  if (set(vm.internetCheckedAt)) {
+    internet = vm.internetOk ? "Online" : "Offline" + (vm.internetDetail ? " · " + esc(vm.internetDetail) : "");
+  }
   const info = vm.info
     ? '<pre class="kv-pre">' + esc(vm.info) + '</pre>' + (set(vm.infoAt) ? '<div class="muted kv-note">fetched ' + esc(fmtDateTime(vm.infoAt)) + '</div>' : "")
     : '<span class="kv-val">—</span>';
@@ -4479,7 +5113,7 @@ function renderVmInfoModalBody() {
   document.getElementById("vmInfoModalBody").innerHTML =
     section("Overview", overview) +
     section("Hardware", hardware) +
-    section("Guest", [row("SSH", ssh), row("Guest agent", agent)].concat(agentStarts ? [row("Agent starts", agentStarts)] : [], [row("SSH user", sshUser), row("MDM", mdm), block("Last Info output", info)])) +
+    section("Guest", [row("SSH", ssh), row("Guest agent", agent)].concat(agentStarts ? [row("Agent starts", agentStarts)] : [], [row("SSH user", sshUser), row("Internet", internet), row("MDM", mdm), block("Last Info output", info)])) +
     section("Notes &amp; tags", [
       row("Tags", tagsHtml(vm) || "—"),
       block("Notes", vm.notes ? '<pre class="kv-pre">' + esc(vm.notes) + '</pre>' : '<span class="kv-val">—</span>'),
@@ -4904,9 +5538,10 @@ q("#unsavedModal .modal-backdrop").onclick = closeUnsavedModal;
 document.addEventListener("keydown", e => {
   if (e.key === "Escape" && !document.getElementById("unsavedModal").classList.contains("hidden")) closeUnsavedModal();
 });
-window.addEventListener("beforeunload", e => {
+function warnBeforeUnload(e) {
   if (isConfigDirty()) { e.preventDefault(); e.returnValue = ""; }
-});
+}
+window.addEventListener("beforeunload", warnBeforeUnload);
 
 // ---- IPSW source picker (Create from IPSW) ----
 // A dropdown of installable macOS versions from AppleDB (through the server),
@@ -5210,6 +5845,26 @@ function updateMdmCopyButton(vms) {
   copyBtn.disabled = mdmCopyInFlight || !hasRunningVM;
 }
 
+// A School profile is downloaded from the server (up to 30s) before it is copied.
+// The server finishes the delivery even if this page goes away.
+function mdmCopyProgressText(profile) {
+  return jamfKind(profile) === "school"
+    ? "Connecting and copying profile… (downloading from Jamf School can take up to a minute)"
+    : "Connecting and copying profile…";
+}
+// What the banner says depends on how the profile was obtained: a Pro profile is
+// generated here from the invitation code, a School one is downloaded from the
+// server (and mints a fresh credential there each time). The server does not
+// report the profile's name, so it comes from the selection. payloadUUID is only
+// reported for Pro; a downloaded School profile is opaque, so the key is absent.
+function mdmCopySummary(data, profile) {
+  const label = profile && profile.name ? " (" + profile.name + ")" : "";
+  const made = jamfKind(profile) === "school"
+    ? "Downloaded a new profile from Jamf School" + label + " and copied it"
+    : "Generated a Jamf Pro profile" + label + " and copied it";
+  return made + " to " + data.name + " at " + data.path + (data.payloadUUID ? " · UUID " + data.payloadUUID : "");
+}
+
 async function copyMdmProfile() {
   const name = document.getElementById("mdmTarget").value;
   const profileId = document.getElementById("mdmProfileSelect").value;
@@ -5221,7 +5876,7 @@ async function copyMdmProfile() {
 
   mdmCopyInFlight = true;
   updateMdmCopyButton();
-  status.textContent = "Connecting and copying profile…";
+  status.textContent = mdmCopyProgressText(getJamfProfiles().find(p => p.id === profileId));
   try {
     const res = await api("/api/vm/mdm-profile", {
       method: "POST", headers: { "Content-Type": "application/json" },
@@ -5229,7 +5884,7 @@ async function copyMdmProfile() {
     });
     const data = await res.json();
     if (!res.ok || !data.ok) throw new Error((data.stage ? data.stage + ": " : "") + (data.error || "copy failed"));
-    status.textContent = "Copied " + (data.profileName ? data.profileName + " profile" : "profile") + " to " + data.name + " at " + data.path + " · UUID " + data.payloadUUID;
+    status.textContent = mdmCopySummary(data, getJamfProfiles().find(p => p.id === profileId));
   } catch (err) {
     status.textContent = "Copy failed — " + err.message;
   } finally {
@@ -5275,17 +5930,19 @@ const READINESS_LABELS = {
   enabled: "Enabled", disabled: "Disabled",
   granted: "Granted", not_granted: "Not granted",
   present: "Present", absent: "Not present",
+  english: "English", other: "Not English",
   unknown: "Unknown"
 };
-function readinessPill(label, state, goodVal, badVal) {
+// detail, when given, follows the state in brackets (the guest's language code).
+function readinessPill(label, state, goodVal, badVal, detail) {
   const cls = state === goodVal ? "readiness-ok" : (state === badVal ? "readiness-bad" : "");
-  const text = READINESS_LABELS[state] || state;
+  const text = (READINESS_LABELS[state] || state) + (detail ? " (" + esc(detail) + ")" : "");
   return '<span class="readiness-pill ' + cls + '">' + label + ': ' + text + '</span>';
 }
 async function checkEnrollReadiness() {
   const name = document.getElementById("prepTarget").value;
   const box = document.getElementById("prepReadiness");
-  if (!name) { box.innerHTML = '<span class="muted">Select a VM to check.</span>'; return; }
+  if (!name) { box.innerHTML = ""; return; }
   box.innerHTML = '<span class="muted">Checking…</span>';
   try {
     const res = await api("/api/vm/enroll-readiness?name=" + encodeURIComponent(name));
@@ -5293,7 +5950,8 @@ async function checkEnrollReadiness() {
     const d = await res.json();
     box.innerHTML =
       readinessPill("Autologin", d.autologin, "enabled", "disabled") +
-      readinessPill("Accessibility", d.accessibility, "granted", "not_granted");
+      readinessPill("Accessibility", d.accessibility, "granted", "not_granted") +
+      readinessPill("Language", d.language, "english", "other", d.languageCode);
   } catch (err) {
     box.innerHTML = '<span class="muted">Check failed — ' + err.message + '</span>';
   }
@@ -5351,6 +6009,7 @@ el("createBtn").onclick = async () => {
     display: str("createDisplay"),
     randomMac: document.getElementById("createRandMac").checked,
     randomSerial: document.getElementById("createRandSerial").checked,
+    startSuspendable: document.getElementById("createStartSuspendable").checked,
     autoEnrollProfile: mode === "clone" && autoEnrollVisible ? document.getElementById("createAutoEnrollProfile").value : "",
     hostnameFromName: mode === "clone" && document.getElementById("createHostnameFromName").checked,
     hostname: mode === "clone" && !document.getElementById("createHostnameFromName").checked ? str("createHostname") : "",
@@ -5620,21 +6279,91 @@ el("agentTemplatesList").addEventListener("change", () => {
 document.addEventListener("click", (ev) => { if (!ev.target.closest("#agentTemplates")) closeAgentTemplates(); });
 document.addEventListener("keydown", (ev) => { if (ev.key === "Escape") closeAgentTemplates(); });
 
+// The connect button shows while at least one agent token exists; with none, the
+// instructions have nothing to connect and close.
+function syncAgentConnectButton(tokenCount) {
+  const btn = document.getElementById("agentConnectBtn");
+  if (!btn) return;
+  btn.classList.toggle("hidden", tokenCount < 1);
+  if (tokenCount < 1) setAgentConnectOpen(false);
+}
 async function loadAgentTokens(authEnabled) {
   const list = document.getElementById("agentTokenList");
   if (!list) return;
   document.getElementById("agentTokenName").disabled = !authEnabled;
   document.getElementById("agentTokenCreateBtn").disabled = !authEnabled;
   document.getElementById("agentTokensInfo").textContent = authEnabled ? "" : "Generate an access token first. Agent tokens only limit access when a login is required.";
-  if (!authEnabled) { list.innerHTML = ""; return; }
+  if (!authEnabled) { list.innerHTML = ""; syncAgentConnectButton(0); return; }
   try {
     const res = await api("/api/auth/agent-tokens");
     const data = await res.json();
+    syncAgentConnectButton((data.tokens || []).length);
     list.innerHTML = (data.tokens || []).map(t =>
       '<div class="agent-token"><span class="grow"><b>' + esc(t.name) + '</b> <span class="muted">created ' + esc(fmtDateTime(t.createdAt)) + '</span></span>' +
       '<button class="ghost" data-revoke="' + esc(t.id) + '" data-name="' + esc(t.name) + '">Revoke</button></div>').join("");
   } catch (e) { /* needs sign-in */ }
 }
+// agentConnectSnippets builds the commands that connect an MCP client to this
+// server with an agent token. The MCP server is the installed binary run as a
+// subprocess (cmd/tart-oven/mcp.go): it reads TART_OVEN_TOKEN, and TART_OVEN_URL
+// only when the client is on another Mac (it finds the local server by itself);
+// TART_OVEN_INSECURE=1 accepts a self-signed certificate on a custom URL. The
+// absolute path matters: GUI clients start servers with a minimal PATH.
+function agentConnectSnippets(token, origin, local, selfSigned) {
+  const env = { TART_OVEN_TOKEN: token };
+  if (!local) env.TART_OVEN_URL = origin;
+  if (!local && selfSigned) env.TART_OVEN_INSECURE = "1";
+  const flags = Object.keys(env).map(k => "-e " + k + "=" + env[k]).join(" ");
+  const claude = "claude mcp add tart-oven --scope user " + flags + " -- /usr/local/bin/tart-oven mcp";
+  // args stays on one line: JSON.stringify(.., null, 2) would spread ["mcp"] over four.
+  const envLines = Object.keys(env).map(k => "        " + JSON.stringify(k) + ": " + JSON.stringify(env[k]));
+  const json = '{\n  "mcpServers": {\n    "tart-oven": {\n      "command": "/usr/local/bin/tart-oven",\n      "args": ["mcp"],\n      "env": {\n' +
+    envLines.join(",\n") + '\n      }\n    }\n  }\n}';
+  const test = "curl -s" + (selfSigned ? " -k" : "") + " -H \"Authorization: Bearer " + token + "\" " + origin + "/api/agent/info";
+  return { claude, json, test };
+}
+// The connect instructions are available whenever an agent token exists. A token
+// is shown only once, when created: right then the commands carry it; later they
+// carry a placeholder to replace (or create another token).
+const AGENT_TOKEN_PLACEHOLDER = "<agent token>";
+function agentConnectIntroText(hasToken) {
+  return hasToken
+    ? "The token is shown once: copy a command now. The client starts Tart Oven's MCP server itself and keeps the token in its own settings."
+    : "Replace " + AGENT_TOKEN_PLACEHOLDER + " with an agent token. A token is shown only when you create it: if you no longer have it, revoke it and create another. The client starts Tart Oven's MCP server itself and keeps the token in its own settings.";
+}
+function setAgentConnectOpen(open) {
+  document.getElementById("agentConnect").classList.toggle("hidden", !open);
+  document.getElementById("agentConnectBtn").setAttribute("aria-expanded", open ? "true" : "false");
+}
+// Which token the instructions use: the one on screen right now (just created), if any.
+function currentAgentTokenOnScreen() {
+  const reveal = document.getElementById("agentTokenReveal");
+  return reveal && !reveal.classList.contains("hidden") ? document.getElementById("agentTokenValue").textContent : "";
+}
+function toggleAgentConnect() {
+  const open = document.getElementById("agentConnect").classList.contains("hidden");
+  if (open) showAgentConnect(currentAgentTokenOnScreen()); else setAgentConnectOpen(false);
+}
+function showAgentConnect(token) {
+  const host = location.hostname;
+  const local = host === "127.0.0.1" || host === "localhost" || host === "::1" || host === "[::1]";
+  const cfg = (latest && latest.config) || {};
+  const selfSigned = location.protocol === "https:" && !cfg.tlsCertPath;
+  const sn = agentConnectSnippets(token || AGENT_TOKEN_PLACEHOLDER, location.origin, local, selfSigned);
+  document.getElementById("agentConnectIntro").textContent = agentConnectIntroText(!!token);
+  document.getElementById("agentConnectClaude").textContent = sn.claude;
+  document.getElementById("agentConnectJson").textContent = sn.json;
+  document.getElementById("agentConnectTest").textContent = sn.test;
+  setAgentConnectOpen(true);
+}
+el("agentConnectBtn").onclick = toggleAgentConnect;
+document.getElementById("agentConnect").addEventListener("click", async ev => {
+  const b = ev.target.closest("button[data-copy]");
+  if (!b) return;
+  const text = document.getElementById(b.dataset.copy).textContent;
+  try { await navigator.clipboard.writeText(text); toast("Copy", "Copied to the clipboard.", "ok"); }
+  catch (e) { toast("Copy", "Copy failed; select the text and copy it manually.", "bad"); }
+});
 el("agentTokenCreateBtn").onclick = async () => {
   const name = document.getElementById("agentTokenName").value.trim();
   if (!name) { toast("Agent token", "Enter a name for the token.", "bad"); return; }
@@ -5643,6 +6372,7 @@ el("agentTokenCreateBtn").onclick = async () => {
   const { token } = await res.json();
   document.getElementById("agentTokenValue").textContent = token;
   document.getElementById("agentTokenReveal").classList.remove("hidden");
+  showAgentConnect(token);
   document.getElementById("agentTokenName").value = "";
   loadAgentTokens(true);
 };
@@ -5658,6 +6388,7 @@ el("agentTokenList").addEventListener("click", async (ev) => {
   const res = await api("/api/auth/agent-tokens/" + encodeURIComponent(b.dataset.revoke), { method: "DELETE" });
   if (!res.ok) { toast("Agent token", await res.text(), "bad"); return; }
   document.getElementById("agentTokenReveal").classList.add("hidden");
+  if (!document.getElementById("agentConnect").classList.contains("hidden")) showAgentConnect(""); // drop the revealed token from the commands
   loadAgentTokens(true);
 });
 async function generateToken() {
@@ -5682,6 +6413,7 @@ el("authRevokeBtn").onclick = async () => {
   if (res.ok) {
     document.getElementById("authTokenReveal").classList.add("hidden");
     document.getElementById("agentTokenReveal").classList.add("hidden");
+    setAgentConnectOpen(false);
     loadSecurity();
   }
 };
@@ -5695,6 +6427,10 @@ el("tlsSelfSignedBtn").onclick = async () => {
   document.getElementById("tlsEnabled").checked = true;
   document.getElementById("tlsCertPath").value = "";
   document.getElementById("tlsKeyPath").value = "";
+  // Set in code, so no change event: bring the dependent fields and the save bar
+  // up to date by hand, or the form would look saved while it is not.
+  syncDependentFields();
+  syncSaveBar();
   toast("HTTPS", "Self-signed certificate created. Save, then restart Tart Oven to apply it.", "ok");
   loadSecurity();
 };
@@ -6331,14 +7067,67 @@ connect();
     <li>Ensure FileVault is OFF</li>
     <li>Enable autologin for the main user</li>
     <li>Install Tart guest agent (or enable key-based SSH access)</li>
+    <li>Set the VM's language to English (any region, such as US or UK). Auto enroll finds buttons by their English names.</li>
   </ol>
+</template>
+<template id="agentAccessHelp">
+  <h4>What an agent can do</h4>
+  <ul>
+    <li>Clone the selected templates, run shell commands in its clones, extend and destroy them.</li>
+    <li>Exchange files through its own shared folder. It cannot see your other VMs, the dashboard, the logs, or other agents' VMs and files.</li>
+    <li>At most 2 VMs run on this Mac at once, shared with you. A VM is deleted when its lease ends.</li>
+  </ul>
+  <p>Commands run as the template's SSH user. Save the configuration after turning agent access on. Full guide: Helper Guide, AI agents.</p>
+</template>
+<template id="jamfSchoolHelp">
+  <h4>Finding the network and location IDs</h4>
+  <ol>
+    <li>In Jamf School, go to <b>Devices</b> then <b>Enroll Devices</b>.</li>
+    <li>Find the <b>Network ID</b> and the <b>Location ID</b> for the location you want to enroll into. They are also the values after <code>network=</code> and <code>location=</code> in the enrollment URL.</li>
+    <li>Paste them into the two fields below, together with your Jamf School address (<code>https://yourschool.jamfcloud.com</code>).</li>
+  </ol>
+  <p>Each location has its own IDs: add one Jamf server profile per location you enroll into.</p>
+</template>
+<template id="jamfInvitationHelp">
+  <h4>Getting an enrollment invitation ID</h4>
+  <p>It is the value after <code>invitation=</code> in an enrollment URL, not the whole URL. Jamf Pro only offers to create one by email, which needs SMTP set up. The Jamf Pro Classic API does not. In Terminal on any Mac, with an account or API role allowed to create computer invitations (Jamf Cloud only: the address must end in <code>.jamfcloud.com</code>):</p>
+  <pre class="popover-code" id="jamfInvitationCmd">(
+printf 'Jamf Pro URL prefix (the part before .jamfcloud.com): '; read -r PREFIX
+printf 'Username: '; read -r JUSER
+printf 'Password: '; read -rs JPASS; echo
+URL="https://${PREFIX}.jamfcloud.com"
+
+TOKEN=$(curl -s -u "$JUSER:$JPASS" -X POST "$URL/api/v1/auth/token" | plutil -extract token raw - 2&gt;/dev/null)
+unset JPASS
+[ -z "$TOKEN" ] &amp;&amp; { echo "Login failed: check the prefix, username and password."; exit 1; }
+
+RESPONSE=$(curl -s -X POST "$URL/JSSResource/computerinvitations/id/0" \
+  -H "Authorization: Bearer $TOKEN" \
+  -H "Content-Type: application/xml" \
+  -d '&lt;computer_invitation&gt;
+        &lt;invitation_type&gt;USER_INITIATED_URL&lt;/invitation_type&gt;
+        &lt;expiration_date&gt;Unlimited&lt;/expiration_date&gt;
+        &lt;ssh_username&gt;&lt;/ssh_username&gt;
+        &lt;ssh_password&gt;&lt;/ssh_password&gt;
+      &lt;/computer_invitation&gt;')
+
+INVITATION=$(echo "$RESPONSE" | xmllint --xpath 'string(//invitation)' - 2&gt;/dev/null)
+if [ -n "$INVITATION" ]; then
+  echo "Invitation ID: $INVITATION"
+  echo "Enrollment URL: $URL/enroll?invitation=$INVITATION"
+else
+  echo "No invitation returned. Raw response:"; echo "$RESPONSE"
+fi
+)</pre>
+  <p><button type="button" class="ghost tiny" onclick="copyPopoverCode()">Copy</button> It asks for the Jamf Pro URL prefix, your username and your password (not shown). It prints the invitation ID, and the enrollment URL it belongs to. The invitation never expires and can be used for any number of Macs.</p>
 </template>
 <template id="autoEnrollHelp">
   <h4>Experimental feature</h4>
   <p>Auto enroll drives System Settings by clicking its buttons, so a macOS update that changes that screen can break it.</p>
   <ul>
-    <li>The VM must be set to English. The script finds buttons by their English names.</li>
-    <li>The VM must be cloned from a base VM that already ran <b>Enable Auto-Enrollment Capabilities on Base VM</b> (VM Management → Prepare VM for Jamf), or be that VM itself.</li>
+    <li>The VM must be set to English (any region). The script finds buttons by their English names.</li>
+    <li>The VM must be cloned from a base VM that already ran step 2, <b>Enable Auto-Enrollment Capabilities on Base VM</b> (VM Management → Prepare VM for Jamf), or be that VM itself. This is the step most often missed.</li>
+    <li>The base VM needs no profile: each VM gets its own from the server you choose here.</li>
   </ul>
 </template>
 <div id="helpPopover" class="popover hidden" role="dialog" aria-label="Help"></div>

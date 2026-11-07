@@ -89,13 +89,13 @@ func TestSchedulerEligibilityHonoursOCIExclusion(t *testing.T) {
 	local := &VM{Name: "local-base", Source: "local", State: "stopped"}
 	oci := &VM{Name: "ghcr.io/example/base:latest", Source: "OCI", State: "stopped"}
 
-	if !eligibleForScheduler(local, true, nil, false) {
+	if !eligibleForScheduler(local, true, nil, false, false) {
 		t.Fatal("local stopped VM should remain eligible")
 	}
-	if eligibleForScheduler(oci, true, nil, false) {
+	if eligibleForScheduler(oci, true, nil, false, false) {
 		t.Fatal("OCI image should be excluded when the setting is enabled")
 	}
-	if !eligibleForScheduler(oci, false, nil, false) {
+	if !eligibleForScheduler(oci, false, nil, false, false) {
 		t.Fatal("OCI image should be eligible when the setting is explicitly disabled")
 	}
 	if !isOCI(" oCi ") {
@@ -103,7 +103,7 @@ func TestSchedulerEligibilityHonoursOCIExclusion(t *testing.T) {
 	}
 	for _, source := range []string{"", "   ", "registry-cache", "local"} {
 		legacy := &VM{Name: "legacy", Source: source, State: "stopped"}
-		if !eligibleForScheduler(legacy, true, nil, false) {
+		if !eligibleForScheduler(legacy, true, nil, false, false) {
 			t.Errorf("source %q should remain local-compatible", source)
 		}
 	}

@@ -231,6 +231,230 @@ func TestHandleConfigJamfProfiles(t *testing.T) {
 	}
 }
 
+func TestNormalizeJamfKind(t *testing.T) {
+	tests := []struct{ input, want string }{
+		{"pro", JamfKindPro},
+		{"school", JamfKindSchool},
+		{" School ", JamfKindSchool},
+		{"PRO", JamfKindPro},
+		{"", ""},
+		{"   ", ""},
+		{"jamf-school", ""},
+		{"cloud", ""},
+	}
+	for _, tt := range tests {
+		if got := normalizeJamfKind(tt.input); got != tt.want {
+			t.Errorf("normalizeJamfKind(%q) = %q, want %q", tt.input, got, tt.want)
+		}
+	}
+}
+
+func TestLoadDefaultsJamfProfileKindToPro(t *testing.T) {
+	m := newTestManager(t)
+	body := `{"config":{"listen":"127.0.0.1:9000","jamfProfiles":[
+		{"id":"p1","name":"Legacy","baseUrl":"https://legacy.jamfcloud.com","invitationCode":"inv-1"},
+		{"id":"p2","kind":"school","name":"School","baseUrl":"https://school.jamfcloud.com","network":"net-1","location":"loc-1"},
+		{"id":"p3","kind":"nonsense","name":"Odd","baseUrl":"https://odd.jamfcloud.com"}
+	]},"vms":{},"history":[]}`
+	if err := os.WriteFile(m.statePath, []byte(body), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	m.load()
+
+	if len(m.cfg.JamfProfiles) != 3 {
+		t.Fatalf("len(JamfProfiles) = %d, want 3", len(m.cfg.JamfProfiles))
+	}
+	want := []string{JamfKindPro, JamfKindSchool, JamfKindPro}
+	for i, w := range want {
+		if got := m.cfg.JamfProfiles[i].Kind; got != w {
+			t.Errorf("JamfProfiles[%d].Kind = %q, want %q", i, got, w)
+		}
+	}
+	if m.cfg.JamfProfiles[1].Network != "net-1" || m.cfg.JamfProfiles[1].Location != "loc-1" {
+		t.Errorf("School network/location not loaded: %#v", m.cfg.JamfProfiles[1])
+	}
+}
+
+func TestNewConfigViewMasksSchoolProfileSecrets(t *testing.T) {
+	view := newConfigView(Config{JamfProfiles: []JamfProfile{
+		{ID: "p1", Kind: JamfKindSchool, Name: "School", BaseURL: "https://school.jamfcloud.com",
+			Network: "secret-network", Location: "secret-location"},
+		{ID: "p2", Name: "Legacy", BaseURL: "https://legacy.jamfcloud.com", InvitationCode: "secret-invite"},
+	}})
+	data, err := json.Marshal(view)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, secret := range []string{"secret-network", "secret-location", "secret-invite"} {
+		if strings.Contains(string(data), secret) {
+			t.Fatalf("client view leaked %q: %s", secret, data)
+		}
+	}
+	school := view.JamfProfiles[0]
+	if school.Kind != JamfKindSchool || !school.NetworkSet || !school.LocationSet || school.InvitationCodeSet {
+		t.Errorf("school profile view = %#v", school)
+	}
+	// A profile stored before School support existed reports as Pro.
+	legacy := view.JamfProfiles[1]
+	if legacy.Kind != JamfKindPro || !legacy.InvitationCodeSet || legacy.NetworkSet || legacy.LocationSet {
+		t.Errorf("legacy profile view = %#v", legacy)
+	}
+}
+
+func TestHandleConfigJamfSchoolProfileSecrets(t *testing.T) {
+	m := newTestManager(t)
+	body := `{"jamfProfiles":[
+		{"id":"p1","kind":"school","name":"School","baseUrl":"https://school.jamfcloud.com","network":" net-1 ","location":" loc-1 "}
+	]}`
+	req := httptest.NewRequest(http.MethodPost, "/api/config", strings.NewReader(body))
+	res := httptest.NewRecorder()
+	m.handleConfig(res, req)
+
+	if res.Code != http.StatusOK {
+		t.Fatalf("status = %d, want %d: %s", res.Code, http.StatusOK, res.Body.String())
+	}
+	if len(m.cfg.JamfProfiles) != 1 {
+		t.Fatalf("len(JamfProfiles) = %d, want 1", len(m.cfg.JamfProfiles))
+	}
+	if got := m.cfg.JamfProfiles[0]; got.Kind != JamfKindSchool || got.Network != "net-1" || got.Location != "loc-1" {
+		t.Fatalf("saved school profile = %#v", got)
+	}
+
+	// Blank network/location means "keep the stored values", matching the
+	// invitation-code behaviour; a renamed profile must not lose its secrets.
+	bodyUpdate := `{"jamfProfiles":[
+		{"id":"p1","kind":"school","name":"School Renamed","baseUrl":"https://school.jamfcloud.com","network":"","location":""}
+	]}`
+	req2 := httptest.NewRequest(http.MethodPost, "/api/config", strings.NewReader(bodyUpdate))
+	res2 := httptest.NewRecorder()
+	m.handleConfig(res2, req2)
+
+	if res2.Code != http.StatusOK {
+		t.Fatalf("status = %d, want %d: %s", res2.Code, http.StatusOK, res2.Body.String())
+	}
+	got := m.cfg.JamfProfiles[0]
+	if got.Name != "School Renamed" {
+		t.Errorf("Name = %q, want School Renamed", got.Name)
+	}
+	if got.Network != "net-1" || got.Location != "loc-1" {
+		t.Errorf("blank values overwrote stored secrets: %#v", got)
+	}
+
+	// Only one of the two can be replaced at a time.
+	bodyPartial := `{"jamfProfiles":[
+		{"id":"p1","kind":"school","name":"School Renamed","baseUrl":"https://school.jamfcloud.com","network":"net-2","location":""}
+	]}`
+	req3 := httptest.NewRequest(http.MethodPost, "/api/config", strings.NewReader(bodyPartial))
+	m.handleConfig(httptest.NewRecorder(), req3)
+	if got := m.cfg.JamfProfiles[0]; got.Network != "net-2" || got.Location != "loc-1" {
+		t.Errorf("partial update = %#v, want network net-2 and location loc-1", got)
+	}
+}
+
+func TestHandleConfigJamfProfileKindDefaultsAndIsSticky(t *testing.T) {
+	m := newTestManager(t)
+	m.cfg.JamfProfiles = []JamfProfile{
+		{ID: "p1", Kind: JamfKindSchool, Name: "School", BaseURL: "https://school.jamfcloud.com", Network: "net-1", Location: "loc-1"},
+	}
+
+	// An older dashboard knows nothing about kinds and omits the field entirely.
+	// That must not demote the stored School profile to Pro, and a brand new
+	// profile with no kind is Pro.
+	body := `{"jamfProfiles":[
+		{"id":"p1","name":"School","baseUrl":"https://school.jamfcloud.com"},
+		{"id":"p2","name":"Plain","baseUrl":"https://plain.jamfcloud.com","invitationCode":"inv-2"}
+	]}`
+	req := httptest.NewRequest(http.MethodPost, "/api/config", strings.NewReader(body))
+	res := httptest.NewRecorder()
+	m.handleConfig(res, req)
+
+	if res.Code != http.StatusOK {
+		t.Fatalf("status = %d, want %d: %s", res.Code, http.StatusOK, res.Body.String())
+	}
+	if got := m.cfg.JamfProfiles[0].Kind; got != JamfKindSchool {
+		t.Errorf("stored kind was overwritten: %q, want %q", got, JamfKindSchool)
+	}
+	if got := m.cfg.JamfProfiles[1].Kind; got != JamfKindPro {
+		t.Errorf("new profile kind = %q, want %q", got, JamfKindPro)
+	}
+
+	// An explicit kind does switch it, and an unrecognised one falls back to the
+	// stored kind rather than being persisted as-is.
+	bodySwitch := `{"jamfProfiles":[
+		{"id":"p1","kind":"pro","name":"School","baseUrl":"https://school.jamfcloud.com","invitationCode":"inv-1"},
+		{"id":"p2","kind":"wat","name":"Plain","baseUrl":"https://plain.jamfcloud.com"}
+	]}`
+	req2 := httptest.NewRequest(http.MethodPost, "/api/config", strings.NewReader(bodySwitch))
+	m.handleConfig(httptest.NewRecorder(), req2)
+	if got := m.cfg.JamfProfiles[0].Kind; got != JamfKindPro {
+		t.Errorf("explicit kind = %q, want %q", got, JamfKindPro)
+	}
+	if got := m.cfg.JamfProfiles[1].Kind; got != JamfKindPro {
+		t.Errorf("unrecognised kind = %q, want %q", got, JamfKindPro)
+	}
+}
+
+func TestHandleConfigJamfKindSwitchWipesTheOtherKindsSecrets(t *testing.T) {
+	m := newTestManager(t)
+	m.cfg.JamfProfiles = []JamfProfile{
+		{ID: "p1", Kind: JamfKindSchool, Name: "School", BaseURL: "https://school.jamfcloud.com",
+			Network: "net-1", Location: "loc-1"},
+		{ID: "p2", Kind: JamfKindPro, Name: "Pro", BaseURL: "https://pro.jamfcloud.com",
+			InvitationCode: "inv-2"},
+	}
+
+	// School -> Pro drops network/location; Pro -> School drops the invitation code.
+	body := `{"jamfProfiles":[
+		{"id":"p1","kind":"pro","name":"School","baseUrl":"https://school.jamfcloud.com","invitationCode":"inv-1"},
+		{"id":"p2","kind":"school","name":"Pro","baseUrl":"https://pro.jamfcloud.com","network":"net-2","location":"loc-2"}
+	]}`
+	req := httptest.NewRequest(http.MethodPost, "/api/config", strings.NewReader(body))
+	res := httptest.NewRecorder()
+	m.handleConfig(res, req)
+
+	if res.Code != http.StatusOK {
+		t.Fatalf("status = %d, want %d: %s", res.Code, http.StatusOK, res.Body.String())
+	}
+	nowPro := m.cfg.JamfProfiles[0]
+	if nowPro.Network != "" || nowPro.Location != "" {
+		t.Errorf("switch to pro kept school secrets: %#v", nowPro)
+	}
+	if nowPro.InvitationCode != "inv-1" {
+		t.Errorf("InvitationCode = %q, want inv-1", nowPro.InvitationCode)
+	}
+	nowSchool := m.cfg.JamfProfiles[1]
+	if nowSchool.InvitationCode != "" {
+		t.Errorf("switch to school kept the invitation code: %#v", nowSchool)
+	}
+	if nowSchool.Network != "net-2" || nowSchool.Location != "loc-2" {
+		t.Errorf("school secrets = %q/%q, want net-2/loc-2", nowSchool.Network, nowSchool.Location)
+	}
+
+	// Switching back does NOT resurrect the wiped secret: it is gone, and blank
+	// now means "keep the nothing that is stored".
+	bodyBack := `{"jamfProfiles":[
+		{"id":"p1","kind":"school","name":"School","baseUrl":"https://school.jamfcloud.com","network":"","location":""},
+		{"id":"p2","kind":"pro","name":"Pro","baseUrl":"https://pro.jamfcloud.com","invitationCode":""}
+	]}`
+	req2 := httptest.NewRequest(http.MethodPost, "/api/config", strings.NewReader(bodyBack))
+	m.handleConfig(httptest.NewRecorder(), req2)
+
+	if got := m.cfg.JamfProfiles[0]; got.Network != "" || got.Location != "" {
+		t.Errorf("wiped school secrets came back: %#v", got)
+	}
+	if got := m.cfg.JamfProfiles[1]; got.InvitationCode != "" {
+		t.Errorf("wiped invitation code came back: %q", got.InvitationCode)
+	}
+	// The view must report them as unset so the UI prompts for them again.
+	view := newConfigView(m.cfg)
+	if view.JamfProfiles[0].NetworkSet || view.JamfProfiles[0].LocationSet {
+		t.Errorf("school profile still reports secrets set: %#v", view.JamfProfiles[0])
+	}
+	if view.JamfProfiles[1].InvitationCodeSet {
+		t.Errorf("pro profile still reports an invitation code set: %#v", view.JamfProfiles[1])
+	}
+}
+
 func TestSSHKeyPathRejectsBlankAndRelative(t *testing.T) {
 	for _, bad := range []string{"", "   ", "tart-oven", "./keys/id", "keys/id"} {
 		if validSSHKeyPath(bad) {

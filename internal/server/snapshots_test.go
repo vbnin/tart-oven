@@ -241,7 +241,7 @@ func TestDoRunRefusesWhileFamilyRuns(t *testing.T) {
 
 func TestSchedulerNeverPicksSnapshots(t *testing.T) {
 	vm := &VM{Name: "web-Snapshot-1", State: "stopped", SnapshotOf: "web"}
-	if eligibleForScheduler(vm, false, map[string]bool{}, false) {
+	if eligibleForScheduler(vm, false, map[string]bool{}, false, false) {
 		t.Fatal("scheduler would run a snapshot")
 	}
 }
@@ -432,5 +432,35 @@ func TestSnapshotCommentCanBeEdited(t *testing.T) {
 	}
 	if err := m.setSnapshotComment("nope", "x"); err == nil {
 		t.Fatal("comment on an unknown snapshot was accepted")
+	}
+}
+
+// reconcile reads `tart list`, then applies it. A list read just before a rename
+// does not have the new name yet; the record that the rename moved to that name
+// must survive, or its notes, tags and snapshots are lost.
+func TestReconcileKeepsARecordWhoseNameIsReservedByAnOperation(t *testing.T) {
+	m := newSnapshotTestManager(t)
+	addVM(t, m, "web", "aa:aa:aa:aa:aa:aa", "d") // the only VM tart lists
+	m.mu.Lock()
+	m.vms["api"] = &VM{Name: "api", Notes: "keep me", Tags: []string{"demo"}}
+	m.reservedNames = map[string]struct{}{"api": {}}
+	m.mu.Unlock()
+
+	m.reconcile()
+
+	m.mu.Lock()
+	kept := m.vms["api"]
+	m.mu.Unlock()
+	if kept == nil || kept.Notes != "keep me" {
+		t.Fatalf("the reserved record was dropped: %+v", kept)
+	}
+
+	// Once nothing holds the name, a VM tart doesn't list is dropped as before.
+	m.releaseVMName("api")
+	m.reconcile()
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	if m.vms["api"] != nil {
+		t.Fatal("a VM that no longer exists was kept")
 	}
 }

@@ -175,7 +175,7 @@ func (c *cli) agentToken(dir string, args []string) error {
 			return err
 		}
 		fmt.Printf("New agent token %q (shown once, store it safely):\n\n  %s\n\n", args[1], tok)
-		fmt.Println("It can only use /api/agent/*. Enable the agent API in Configuration > Server Settings.")
+		fmt.Println("It can only use /api/agent/*. Turn on Configuration > Add-Ons > Display agentic AI features, then Allow AI agents to lease VMs in Agentic AI access, and save.")
 	case "list":
 		tokens, err := auth.LoadAgentTokens(dir)
 		if err != nil {

@@ -206,6 +206,46 @@ test("mdmCell distinguishes enrolled, unenrolled and never-probed VMs", () => {
   }
 });
 
+test("internetCell looks like the SSH check: dot plus OK / KO, same colours", () => {
+  const internetCell = evaluateFunctions(["channelBadge", "internetCell"], "internetCell", {
+    esc: (v) => String(v), latest: { config: {} },
+    fmtAgo: () => "just now", fmtDateTime: () => "then",
+  });
+  const channelBadge = evaluateFunction("channelBadge", { esc: (v) => String(v), latest: { config: {} }, fmtAgo: () => "just now", fmtDateTime: () => "then" });
+  const at = "2026-10-27T12:00:00Z";
+
+  const online = internetCell({ state: "running", internetCheckedAt: at, internetOk: true });
+  assert.match(online, /ssh-dot green/);
+  assert.match(online, /ssh-status-label ok">OK</);
+  assert.ok(!/last-known/.test(online), "a running VM's result is current, not faded");
+  assert.ok(!/access-label/.test(online), "the column header already says Internet");
+
+  const offline = internetCell({ state: "running", internetCheckedAt: at, internetOk: false, internetDetail: "no connection (curl exit 6)" });
+  assert.match(offline, /ssh-dot red/);
+  assert.match(offline, /ssh-status-label bad">KO</);
+  assert.match(offline, /no connection \(curl exit 6\)/, "the tooltip carries the reason");
+
+  // Same markup and classes as the SSH badge for the same state.
+  const ssh = channelBadge("SSH", true, at, { state: "running" }, { ssh: true });
+  assert.match(ssh, /ssh-dot green/);
+  assert.match(ssh, /ssh-status-label ok">OK</);
+
+  const stopped = internetCell({ state: "stopped", internetCheckedAt: at, internetOk: true });
+  assert.match(stopped, /last-known/, "a stopped VM keeps its last known result, faded");
+  assert.match(stopped, />OK</);
+
+  // Transient states are amber, like the other channels.
+  assert.match(internetCell({ state: "starting" }), /ssh-dot amber/);
+
+  // Never probed must be grey, not red: a fresh VM has not been asked yet. A running
+  // VM stays grey too (no pulsing "checking…"): a failed probe leaves it unchecked.
+  for (const vm of [{}, { state: "running" }, { state: "running", internetCheckedAt: "0001-01-01T00:00:00Z" }, { state: "stopped", internetCheckedAt: "0001-01-01T00:00:00Z" }]) {
+    const unknown = internetCell(vm);
+    assert.match(unknown, /ssh-dot grey/);
+    assert.ok(!/ssh-dot red|amber/.test(unknown), "unknown must not render as offline or checking");
+  }
+});
+
 test("renderOCIImages hides cached images for running-only and renders clone-only rows", () => {
   const panel = { classList: { toggle(name, enabled) { panel.hidden = name === "hidden" && enabled; } } };
   const buttons = [];
@@ -769,7 +809,7 @@ test("showTab asks before leaving Configuration with unsaved changes", () => {
 
 test("isConfigDirty compares the form with its last loaded or saved state", () => {
   let form = { listen: "a", intervalMinutes: 5, paused: false, sshPassword: "" };
-  const context = vm.createContext({ readConfig: () => Object.assign({}, form), configLoaded: true });
+  const context = vm.createContext({ readConfig: () => Object.assign({}, form), configLoaded: true, syncSaveBar: () => {} });
   vm.runInContext(["configFormKey", "markConfigClean", "isConfigDirty"].map(extractFunction).join("\n") +
     "; let configSnapshot = null; globalThis.api = { markConfigClean, isConfigDirty };", context);
   const { markConfigClean, isConfigDirty } = context.api;
@@ -1431,11 +1471,16 @@ test("renderTable toggles emptyDashboardHero visibility based on local VM count"
       accessCell: () => "",
       infoCell: () => "",
       mdmCell: () => "",
+      internetCell: () => "",
       agentInstallButton: () => "",
       isRunningOnly: () => false,
       guestAgentInfo: { available: false },
       openRowMenuName: "",
       positionRowMenu: () => {},
+      updateVmScrollHints: () => {},
+      fitActionsColumn: () => {},
+      vmControlButtons: () => "",
+      jsArg: (s) => s,
       sortRows: (_table, rows) => rows,
       latest: { config: {} },
     }
@@ -1869,7 +1914,7 @@ test("a snapshot can't start while its original or another snapshot of it runs",
 });
 
 test("the Snapshots column shows the count and opens the snapshots window", () => {
-  const snapshotsCell = evaluateFunction("snapshotsCell", { esc: s => s });
+  const snapshotsCell = evaluateFunction("snapshotsCell", { esc: s => s, jsArg: s => s });
   const some = snapshotsCell({ name: "web", snapshots: [{}, {}, {}] });
   assert.match(some, /openSnapshotsModal\('web'\)/);
   assert.match(some, />3<\/button>/);
@@ -1916,4 +1961,657 @@ test("finished-task banners are not repeated for tasks already finished at page 
   assert.match(toasts[0][1], /vm2 finished successfully/);
   context.notify([done, Object.assign({}, running, { status: "success" })]);
   assert.equal(toasts.length, 1, "each task is announced once");
+});
+
+// ---- VM table: pinned columns, resizable widths, scroll hints ----
+const colDefaults = { name: 200, state: 112, ip: 120, actions: 300 };
+// Objects built inside the vm context have another Object prototype, which strict deepEqual rejects.
+const plain = (value) => JSON.parse(JSON.stringify(value));
+const colGlobals = () => ({ VM_COL_FIXED: { name: true, actions: true }, VM_COL_MIN: 64, VM_COL_MAX: 800 });
+
+test("normalizeColWidths keeps saved widths within limits and never moves the pinned columns", () => {
+  const normalizeIn = evaluateFunction("normalizeColWidths", colGlobals());
+  const normalize = (...args) => plain(normalizeIn(...args));
+  assert.deepEqual(normalize(null, colDefaults), colDefaults, "nothing saved: the defaults");
+  assert.deepEqual(normalize({ state: 150, ip: 90 }, colDefaults), { name: 200, state: 150, ip: 90, actions: 300 });
+  const clamped = normalize({ state: 5, ip: 99999 }, colDefaults);
+  assert.equal(clamped.state, 64, "never narrower than the minimum");
+  assert.equal(clamped.ip, 800, "never wider than the maximum");
+  const pinned = normalize({ name: 50, actions: 900 }, colDefaults);
+  assert.equal(pinned.name, 200, "Name stays fixed");
+  assert.equal(pinned.actions, 300, "Actions stays fixed");
+  // Hand-edited or corrupt storage falls back to the defaults, column by column.
+  assert.deepEqual(normalize({ state: "wide", ip: -3, bogus: 10 }, colDefaults), colDefaults);
+  assert.equal(normalize({ ip: "130" }, colDefaults).ip, 130, "a numeric string is accepted");
+});
+
+test("scrollHints shows a gradient only on the side that has more columns", () => {
+  const hintsIn = evaluateFunction("scrollHints", {});
+  const hints = (...args) => plain(hintsIn(...args));
+  assert.deepEqual(hints(0, 800, 1500), { left: false, right: true }, "at the start");
+  assert.deepEqual(hints(300, 800, 1500), { left: true, right: true }, "in the middle");
+  assert.deepEqual(hints(700, 800, 1500), { left: true, right: false }, "at the end");
+  assert.deepEqual(hints(0, 800, 800), { left: false, right: false }, "everything fits");
+  assert.deepEqual(hints(0, 800, 800.4), { left: false, right: false }, "sub-pixel rounding is not a hint");
+});
+
+test("setVmColWidth resizes a column, rewrites the table width and ignores the pinned columns", () => {
+  const cols = ["name", "state", "ip", "actions"].map(key => ({ dataset: { col: key }, style: {} }));
+  // "ip" stands in for the column that takes the spare width (Info in the app).
+  const table = { style: {} };
+  const context = Object.assign(colGlobals(), {
+    VM_COL_DEFAULTS: colDefaults,
+    vmColWidths: Object.assign({}, colDefaults),
+    document: {
+      querySelectorAll: sel => sel.includes("col-resizer") ? [] : cols,
+      getElementById: id => id === "localVmTable" ? table : null,
+    },
+    updateVmScrollHints: () => {},
+    VM_COL_SPARE: "ip",
+  });
+  const vmContext = vm.createContext(context);
+  vm.runInContext(["normalizeColWidths", "applyVmColWidths", "setVmColWidth"].map(extractFunction).join("\n"), vmContext);
+
+  vm.runInContext('setVmColWidth("state", 180)', vmContext);
+  assert.equal(cols[1].style.width, "180px");
+  assert.equal(cols[3].style.width, "300px", "Actions has its own (fitted) width, so it no longer soaks up the spare width");
+  assert.equal(cols[2].style.width, "", "the spare-width column has no set width");
+  assert.equal(table.style.width, (200 + 180 + 120 + 300) + "px", "the table is as wide as its columns");
+
+  vm.runInContext('setVmColWidth("state", 10)', vmContext);
+  assert.equal(cols[1].style.width, "64px", "clamped to the minimum");
+
+  vm.runInContext('setVmColWidth("name", 500); setVmColWidth("actions", 50);', vmContext);
+  assert.equal(cols[0].style.width, "200px", "Name is not resizable");
+  assert.equal(table.style.width, (200 + 64 + 120 + 300) + "px", "Actions keeps its width");
+});
+
+test("canPin unpins Name and Actions when there is no room left between them", () => {
+  const canPin = evaluateFunction("canPin", { VM_COL_MIN: 64 });
+  assert.equal(canPin(1200, 200, 300), true);
+  assert.equal(canPin(628, 200, 300), true, "just enough room for two narrow columns");
+  assert.equal(canPin(627, 200, 300), false);
+  assert.equal(canPin(400, 200, 300), false, "Actions would cover Name");
+});
+
+test("readAutoCheckSeconds keeps the saved value for an empty field and clamps numbers", () => {
+  const read = evaluateFunction("readAutoCheckSeconds", {});
+  assert.equal(read("", 120), 120, "an emptied field must not turn auto-check off");
+  assert.equal(read("  ", 120), 120);
+  assert.equal(read("abc", 120), 120);
+  assert.equal(read("", undefined), 120, "nothing saved yet: the default");
+  assert.equal(read("0", 120), 0, "0 typed on purpose turns it off");
+  assert.equal(read("45", 120), 45);
+  assert.equal(read("3", 120), 10, "below the minimum is raised to it, as the server does");
+  assert.equal(read("-5", 120), 0);
+  assert.equal(read("999999", 120), 86400);
+});
+
+test("internetCell draws through channelBadge, labelled Internet, with the failure reason", () => {
+  const calls = [];
+  const internetCell = evaluateFunction("internetCell", { channelBadge: (...args) => { calls.push(args); return "BADGE"; } });
+  const vm = { state: "running", internetOk: false, internetCheckedAt: "2026-10-27T12:00:00Z", internetDetail: "no connection (curl exit 6)" };
+  assert.equal(internetCell(vm), "BADGE");
+  const [label, ok, checkedAt, passedVm, opts] = calls[0];
+  assert.equal(label, "Internet");
+  assert.equal(ok, false);
+  assert.equal(checkedAt, vm.internetCheckedAt);
+  assert.equal(passedVm, vm);
+  assert.equal(opts.hideLabel, true, "the column header already says Internet");
+  assert.equal(opts.unknownUntilChecked, true, "never probed stays grey");
+  assert.equal(opts.failTip, "no connection (curl exit 6)");
+  internetCell({ state: "running" });
+  assert.equal(calls[1][4].failTip, "no internet access", "a default reason when the probe gave none");
+});
+
+// ---- Jamf server profiles: Pro / School ----
+
+function jamfElements(ids) {
+  const els = {};
+  for (const id of ids) els[id] = { id, value: "", placeholder: "", textContent: "", innerHTML: "", style: {}, classList: createMockClassList(), attrs: {}, setAttribute(k, v) { this.attrs[k] = v; }, focus() {} };
+  return els;
+}
+
+const JAMF_EDITOR_IDS = [
+  "jamfProfileEditor", "jamfEditorTitle", "jamfProfileId", "jamfProfileKind", "jamfProfileName", "jamfBaseUrl",
+  "jamfInvitationCode", "jamfNetwork", "jamfLocation", "jamfSaveStatus", "jamfKindNote",
+  "jamfKindProBtn", "jamfKindSchoolBtn", "jamfProFields", "jamfSchoolFields", "jamfHowProBtn", "jamfHowSchoolBtn",
+];
+
+function jamfEditorFixture(profiles, extraGlobals) {
+  const els = jamfElements(JAMF_EDITOR_IDS);
+  const posts = [];
+  const latest = { config: { jamfProfiles: profiles } };
+  const globals = Object.assign({
+    document: { getElementById: id => els[id] },
+    latest,
+    api: async (path, opts) => { posts.push({ path, body: JSON.parse(opts.body) }); return { ok: true, text: async () => "" }; },
+    setTimeout: () => {},
+    closeJamfProfileEditor: () => {},
+    helpOwner: null,
+    closeHelp: () => {},
+    esc: s => String(s == null ? "" : s),
+  }, extraGlobals);
+  const ctx = vm.createContext(globals);
+  const names = ["getJamfProfiles", "jamfKind", "jamfProfileBase", "setJamfEditorKind", "openAddJamfProfile", "openEditJamfProfile", "saveJamfProfile", "deleteJamfProfile"];
+  vm.runInContext(names.map(extractFunction).join("\n") + "; globalThis.fn = { " + names.join(", ") + " };", ctx);
+  ctx.fn.__setProfiles = list => { latest.config.jamfProfiles = list; };
+  return { els, posts, fn: ctx.fn, ctx };
+}
+
+test("jamfKind treats a missing or unknown kind as Pro", () => {
+  const jamfKind = evaluateFunction("jamfKind", {});
+  assert.equal(jamfKind({ kind: "school" }), "school");
+  assert.equal(jamfKind({ kind: "pro" }), "pro");
+  assert.equal(jamfKind({}), "pro");
+  assert.equal(jamfKind({ kind: "bogus" }), "pro");
+  assert.equal(jamfKind(null), "pro");
+});
+
+test("setJamfEditorKind swaps Invitation for Network and Location", () => {
+  const { els, fn } = jamfEditorFixture([]);
+  fn.setJamfEditorKind("school");
+  assert.equal(els.jamfProfileKind.value, "school");
+  assert.equal(els.jamfProFields.style.display, "none");
+  assert.notEqual(els.jamfSchoolFields.style.display, "none");
+  assert.equal(els.jamfKindSchoolBtn.classList.contains("active"), true);
+  assert.equal(els.jamfKindProBtn.classList.contains("active"), false);
+  assert.equal(els.jamfKindSchoolBtn.attrs["aria-pressed"], "true");
+  fn.setJamfEditorKind("pro");
+  assert.notEqual(els.jamfProFields.style.display, "none");
+  assert.equal(els.jamfSchoolFields.style.display, "none");
+  assert.equal(els.jamfKindProBtn.classList.contains("active"), true);
+  assert.equal(els.jamfKindSchoolBtn.attrs["aria-pressed"], "false");
+});
+
+test("openAddJamfProfile starts as a Pro profile with all credential fields empty", () => {
+  const { els, fn } = jamfEditorFixture([]);
+  els.jamfNetwork.value = "stale"; els.jamfLocation.value = "stale";
+  fn.openAddJamfProfile();
+  assert.equal(els.jamfProfileKind.value, "pro");
+  assert.equal(els.jamfNetwork.value, "");
+  assert.equal(els.jamfLocation.value, "");
+  assert.equal(els.jamfNetwork.placeholder, "Enter network ID");
+});
+
+test("openEditJamfProfile shows saved School credentials masked and never as values", () => {
+  const school = { id: "s1", kind: "school", name: "Sch", baseUrl: "https://s.example.com", networkSet: true, locationSet: false };
+  const { els, fn } = jamfEditorFixture([school]);
+  fn.openEditJamfProfile("s1");
+  assert.equal(els.jamfProfileKind.value, "school");
+  assert.equal(els.jamfSchoolFields.style.display !== "none", true);
+  assert.equal(els.jamfNetwork.value, "");
+  assert.equal(els.jamfNetwork.placeholder, "•••••• (saved)");
+  assert.equal(els.jamfLocation.value, "");
+  assert.equal(els.jamfLocation.placeholder, "Enter location ID");
+});
+
+test("openEditJamfProfile on a legacy profile without a kind opens as Pro", () => {
+  const { els, fn } = jamfEditorFixture([{ id: "p1", name: "Old", baseUrl: "https://p.example.com", invitationCodeSet: true }]);
+  fn.openEditJamfProfile("p1");
+  assert.equal(els.jamfProfileKind.value, "pro");
+  assert.equal(els.jamfInvitationCode.placeholder, "•••••••• (saved)");
+});
+
+test("saveJamfProfile posts a new School profile with its network and location", async () => {
+  const { els, posts, fn } = jamfEditorFixture([]);
+  fn.openAddJamfProfile();
+  fn.setJamfEditorKind("school");
+  els.jamfProfileName.value = "School"; els.jamfBaseUrl.value = " https://s.example.com ";
+  els.jamfNetwork.value = " 12 "; els.jamfLocation.value = " 34 ";
+  els.jamfInvitationCode.value = "leftover-pro-code";
+  await fn.saveJamfProfile();
+  assert.equal(posts.length, 1);
+  const sent = posts[0].body.jamfProfiles[0];
+  assert.equal(sent.kind, "school");
+  assert.equal(sent.network, "12");
+  assert.equal(sent.location, "34");
+  assert.equal("invitationCode" in sent, false, "a School profile must not carry the Pro invitation code");
+});
+
+test("saveJamfProfile posts a Pro profile without Network or Location", async () => {
+  const { els, posts, fn } = jamfEditorFixture([]);
+  fn.openAddJamfProfile();
+  els.jamfProfileName.value = "Pro"; els.jamfBaseUrl.value = "https://p.example.com";
+  els.jamfInvitationCode.value = "abc"; els.jamfNetwork.value = "leftover"; els.jamfLocation.value = "leftover";
+  await fn.saveJamfProfile();
+  const sent = posts[0].body.jamfProfiles[0];
+  assert.equal(sent.kind, "pro");
+  assert.equal(sent.invitationCode, "abc");
+  assert.equal("network" in sent, false);
+  assert.equal("location" in sent, false);
+});
+
+test("saveJamfProfile requires School credentials that are neither typed nor already saved", async () => {
+  const { els, posts, fn } = jamfEditorFixture([]);
+  fn.openAddJamfProfile();
+  fn.setJamfEditorKind("school");
+  els.jamfProfileName.value = "School"; els.jamfBaseUrl.value = "https://s.example.com";
+  els.jamfNetwork.value = "12";
+  await fn.saveJamfProfile();
+  assert.equal(posts.length, 0);
+  assert.match(els.jamfSaveStatus.textContent, /location/i);
+});
+
+test("saveJamfProfile keeps saved School credentials when editing without retyping them", async () => {
+  const school = { id: "s1", kind: "school", name: "Sch", baseUrl: "https://s.example.com", networkSet: true, locationSet: true };
+  const { els, posts, fn } = jamfEditorFixture([school]);
+  fn.openEditJamfProfile("s1");
+  els.jamfProfileName.value = "Renamed";
+  await fn.saveJamfProfile();
+  const sent = posts[0].body.jamfProfiles[0];
+  assert.equal(sent.name, "Renamed");
+  assert.equal(sent.kind, "school");
+  assert.equal("network" in sent, false, "blank means keep what is stored");
+  assert.equal("location" in sent, false);
+});
+
+test("saveJamfProfile requires School credentials again after switching an existing Pro profile to School", async () => {
+  const pro = { id: "p1", kind: "pro", name: "P", baseUrl: "https://p.example.com", invitationCodeSet: true };
+  const { els, posts, fn } = jamfEditorFixture([pro]);
+  fn.openEditJamfProfile("p1");
+  fn.setJamfEditorKind("school");
+  await fn.saveJamfProfile();
+  assert.equal(posts.length, 0, "the server discards the Pro code on a kind change, so nothing is 'already saved'");
+  assert.match(els.jamfSaveStatus.textContent, /network/i);
+});
+
+test("saving or deleting a profile re-sends every other profile's kind", async () => {
+  const profiles = [
+    { id: "s1", kind: "school", name: "Sch", baseUrl: "https://s.example.com", networkSet: true, locationSet: true },
+    { id: "p1", kind: "pro", name: "Pro", baseUrl: "https://p.example.com", invitationCodeSet: true },
+  ];
+  const a = jamfEditorFixture(profiles, { confirm: () => true });
+  await a.fn.deleteJamfProfile("p1");
+  assert.deepEqual(a.posts[0].body.jamfProfiles.map(p => [p.id, p.kind]), [["s1", "school"]]);
+  const b = jamfEditorFixture(profiles);
+  b.fn.openEditJamfProfile("p1");
+  await b.fn.saveJamfProfile();
+  assert.deepEqual(b.posts[0].body.jamfProfiles.map(p => [p.id, p.kind]), [["s1", "school"], ["p1", "pro"]]);
+});
+
+test("renderJamfProfiles shows a Type column and masks credentials by kind", () => {
+  const rows = { innerHTML: "" };
+  const sel = { innerHTML: "", value: "" };
+  const profiles = [
+    { id: "p1", kind: "pro", name: "Pro Srv", baseUrl: "https://p.example.com", invitationCodeSet: true },
+    { id: "s1", kind: "school", name: "School Srv", baseUrl: "https://s.example.com", networkSet: true, locationSet: false },
+    { id: "s2", kind: "school", name: "Empty School", baseUrl: "https://e.example.com", networkSet: false, locationSet: false },
+  ];
+  const names = ["renderJamfProfiles", "getJamfProfiles", "jamfKind", "jamfKindLabel", "jamfCredentialStatus", "jamfProfileLabel"];
+  const ctx = vm.createContext({
+    esc: s => String(s == null ? "" : s),
+    latest: { config: { jamfProfiles: profiles } },
+    document: { getElementById: id => ({ jamfProfileRows: rows, mdmProfileSelect: sel })[id] },
+  });
+  vm.runInContext(names.map(extractFunction).join("\n") + "; globalThis.render = renderJamfProfiles;", ctx);
+  ctx.render();
+  const trs = rows.innerHTML.split("<tr>").slice(1);
+  assert.equal(trs.length, 3);
+  assert.match(trs[0], /<td>Pro<\/td>/);
+  assert.match(trs[1], /<td>School<\/td>/);
+  assert.match(trs[0], /•••••••• \(saved\)/);
+  assert.match(trs[1], /Network[^<]*<[^>]*>•••••• \(saved\)/);
+  assert.match(trs[1], /Location[^<]*<[^>]*>not set/);
+  assert.match(trs[2], /Network[^<]*<[^>]*>not set/);
+  assert.match(sel.innerHTML, /School Srv · School \(https:\/\/s\.example\.com\)/);
+  assert.match(sel.innerHTML, /Pro Srv · Pro \(https:\/\/p\.example\.com\)/);
+});
+
+test("syncEnrollProfileSelects labels each profile's kind and lets a School server be chosen for auto-enroll", () => {
+  const sel = { dataset: {}, value: "", options: [], innerHTML: "" };
+  Object.defineProperty(sel, "innerHTML", { set(v) { this._html = v; this.options = Array.from(v.matchAll(/<option value="([^"]*)"/g)).map(m => ({ value: m[1] })); }, get() { return this._html || ""; } });
+  const sync = evaluateFunctions(["syncEnrollProfileSelects", "jamfKind", "jamfKindLabel"], "syncEnrollProfileSelects", {
+    esc: s => String(s == null ? "" : s),
+    document: { querySelectorAll: () => [sel] },
+  });
+  const profiles = [
+    { id: "p1", kind: "pro", name: "Pro Srv", baseUrl: "https://p.example.com" },
+    { id: "s1", kind: "school", name: "School Srv", baseUrl: "https://s.example.com" },
+  ];
+  sync(profiles);
+  assert.match(sel.innerHTML, /<option value="p1">Pro Srv · Pro<\/option>/);
+  assert.match(sel.innerHTML, /<option value="s1">School Srv · School<\/option>/);
+  assert.doesNotMatch(sel.innerHTML, /disabled|not supported/, "no option may be disabled or marked unsupported");
+  const before = sel.dataset.signature;
+  sync(profiles.map(p => Object.assign({}, p, { kind: p.kind === "pro" ? "school" : "pro" })));
+  assert.notEqual(sel.dataset.signature, before, "a kind change must rebuild the options");
+});
+
+test("the copy summary says what was done for each kind, and omits a UUID that was never reported", () => {
+  const mdmCopySummary = evaluateFunctions(["mdmCopySummary", "jamfKind"], "mdmCopySummary", {});
+  const where = { ok: true, name: "vm1", path: "~/Desktop/mdm_enroll.mobileconfig" };
+  const school = mdmCopySummary(where, { kind: "school", name: "Sandbox" });
+  assert.equal(school, "Downloaded a new profile from Jamf School (Sandbox) and copied it to vm1 at ~/Desktop/mdm_enroll.mobileconfig");
+  assert.doesNotMatch(school, /UUID|undefined/);
+  assert.equal(mdmCopySummary(Object.assign({ payloadUUID: "ABC-123" }, where), { kind: "pro", name: "Prod" }),
+    "Generated a Jamf Pro profile (Prod) and copied it to vm1 at ~/Desktop/mdm_enroll.mobileconfig · UUID ABC-123");
+  assert.equal(mdmCopySummary(where, { kind: "pro" }),
+    "Generated a Jamf Pro profile and copied it to vm1 at ~/Desktop/mdm_enroll.mobileconfig");
+  assert.equal(mdmCopySummary(where, undefined),
+    "Generated a Jamf Pro profile and copied it to vm1 at ~/Desktop/mdm_enroll.mobileconfig", "an unknown profile is treated as Pro, like a legacy one");
+});
+
+test("the copy progress text tells School users the download can take a while, without asking them to stay", () => {
+  const progress = evaluateFunctions(["mdmCopyProgressText", "jamfKind"], "mdmCopyProgressText", {});
+  assert.equal(progress({ kind: "pro" }), "Connecting and copying profile…");
+  assert.match(progress({ kind: "school" }), /up to a minute/i);
+  assert.ok(!/keep this page open|—/.test(progress({ kind: "school" })), "the server finishes the copy without the page, and no em dashes");
+  assert.equal(progress(undefined), "Connecting and copying profile…");
+});
+
+test("leaving the page asks only about unsaved config: a profile copy finishes on the server without it", () => {
+  const make = (dirty, inFlight) => {
+    const e = { prevented: false, returnValue: undefined, preventDefault() { this.prevented = true; } };
+    evaluateFunction("warnBeforeUnload", { isConfigDirty: () => dirty, mdmCopyInFlight: inFlight })(e);
+    return e;
+  };
+  assert.equal(make(false, false).prevented, false);
+  assert.equal(make(true, false).prevented, true);
+  assert.equal(make(false, true).prevented, false, "the server delivers a Jamf School profile even if the page is gone");
+});
+
+test("saveJamfProfile does not resurrect a profile that was deleted while its editor was open", async () => {
+  const { els, posts, fn } = jamfEditorFixture([{ id: "p1", kind: "pro", name: "P", baseUrl: "https://p.example.com" }]);
+  fn.openEditJamfProfile("p1");
+  fn.__setProfiles([]); // another tab deleted it
+  await fn.saveJamfProfile();
+  assert.equal(posts.length, 0);
+  assert.match(els.jamfSaveStatus.textContent, /no longer exists/i);
+});
+
+test("switching kind in the editor notes the discarded credentials and drops the saved markers", () => {
+  const pro = { id: "p1", kind: "pro", name: "P", baseUrl: "https://p.example.com", invitationCodeSet: true };
+  const { els, fn } = jamfEditorFixture([pro]);
+  fn.openEditJamfProfile("p1");
+  assert.equal(els.jamfKindNote.style.display, "none");
+  assert.equal(els.jamfInvitationCode.placeholder, "•••••••• (saved)");
+  fn.setJamfEditorKind("school");
+  assert.equal(els.jamfKindNote.style.display, "");
+  fn.setJamfEditorKind("pro");
+  assert.equal(els.jamfKindNote.style.display, "none");
+  fn.openAddJamfProfile();
+  assert.equal(els.jamfKindNote.style.display, "none", "a new profile has nothing to discard");
+});
+
+test("hiding the kind note closes its open help popover", () => {
+  let closed = 0;
+  const pro = { id: "p1", kind: "pro", name: "P", baseUrl: "https://p.example.com", invitationCodeSet: true };
+  const { els, fn, ctx } = jamfEditorFixture([pro], { closeHelp: () => { closed++; } });
+  fn.openEditJamfProfile("p1");
+  fn.setJamfEditorKind("school");
+  ctx.helpOwner = els.jamfKindNote; // the user opened the tip
+  fn.setJamfEditorKind("pro");      // switching back hides it
+  assert.equal(els.jamfKindNote.style.display, "none");
+  assert.equal(closed, 1, "a popover must not stay pinned to a hidden button");
+  ctx.helpOwner = els.jamfProfileName; // some other tip is open
+  fn.setJamfEditorKind("school");
+  fn.setJamfEditorKind("pro");
+  assert.equal(closed, 1, "an unrelated popover is left alone");
+});
+
+test("closeJamfProfileEditor clears the School secrets and returns to Pro", () => {
+  const els = jamfElements(JAMF_EDITOR_IDS);
+  els.jamfNetwork.value = "n"; els.jamfLocation.value = "l"; els.jamfProfileKind.value = "school";
+  const names = ["closeJamfProfileEditor", "setJamfEditorKind", "getJamfProfiles", "jamfKind"];
+  const ctx = vm.createContext({ document: { getElementById: id => els[id] }, latest: { config: { jamfProfiles: [] } }, helpOwner: null, closeHelp: () => {} });
+  vm.runInContext(names.map(extractFunction).join("\n") + "; globalThis.close = closeJamfProfileEditor;", ctx);
+  ctx.close();
+  assert.equal(els.jamfNetwork.value, "");
+  assert.equal(els.jamfLocation.value, "");
+  assert.equal(els.jamfProfileKind.value, "pro");
+});
+
+test("profile names and URLs are HTML-escaped in the table, the picker and the enroll selects", () => {
+  const esc = evaluateFunction("esc", {});
+  const evil = { id: "x", kind: "pro", name: "<img onerror=1>", baseUrl: "https://a\"b.example.com", invitationCodeSet: true };
+  const rows = { innerHTML: "" }, sel = { innerHTML: "", value: "" };
+  const ctx = vm.createContext({ esc, latest: { config: { jamfProfiles: [evil] } }, document: { getElementById: id => ({ jamfProfileRows: rows, mdmProfileSelect: sel })[id] } });
+  vm.runInContext(["renderJamfProfiles", "getJamfProfiles", "jamfKind", "jamfKindLabel", "jamfCredentialStatus", "jamfProfileLabel", "esc"].map(extractFunction).join("\n") + "; globalThis.render = renderJamfProfiles;", ctx);
+  ctx.render();
+  assert.doesNotMatch(rows.innerHTML + sel.innerHTML, /<img/);
+  const enroll = { dataset: {}, value: "", options: [], set innerHTML(v) { this.html = v; this.options = []; }, get innerHTML() { return this.html; } };
+  evaluateFunctions(["syncEnrollProfileSelects", "jamfKind", "jamfKindLabel", "esc"], "syncEnrollProfileSelects", { document: { querySelectorAll: () => [enroll] } })([evil]);
+  assert.doesNotMatch(enroll.html, /<img/);
+});
+
+test("actionsColumnWidth fits the widest row of buttons plus the cell padding, with a floor", () => {
+  const width = evaluateFunction("actionsColumnWidth", { VM_COL_ACTIONS_MIN: 120 });
+  assert.equal(width([212, 236.4, 212], 29), 266, "widest row (Resume) plus padding, rounded up");
+  assert.equal(width([], 29), 120, "no rows: the floor");
+  assert.equal(width([40], 29), 120, "never narrower than the header needs");
+});
+
+test("saveVmColWidths never stores the pinned columns (Actions is measured on every render)", () => {
+  const store = {};
+  const save = evaluateFunction("saveVmColWidths", {
+    VM_COL_DEFAULTS: { name: 200, state: 132, actions: 300 },
+    VM_COL_FIXED: { name: true, actions: true },
+    VM_COLS_KEY: "k",
+    vmColWidths: { name: 200, state: 150, actions: 247 },
+    localStorage: { setItem: (k, v) => { store[k] = v; } },
+  });
+  save();
+  assert.deepEqual(JSON.parse(store.k), { state: 150 });
+});
+
+// ---- Play / pause / stop ----
+function controls(vm, busy = false) {
+  const fn = evaluateFunction("vmControlButtons", {
+    esc: v => String(v), jsArg: v => String(v),
+    VM_ICON_PLAY: "<svg-play>", VM_ICON_PAUSE: "<svg-pause>", VM_ICON_STOP: "<svg-stop>",
+  });
+  const html = fn(vm, vm.name, busy);
+  const btn = cls => {
+    const m = html.match(new RegExp('<button class="vm-ctl ' + cls + '"([^>]*)>'));
+    assert.ok(m, "no " + cls + " button");
+    return { disabled: / disabled/.test(m[1]), title: (m[1].match(/title="([^"]*)"/) || [])[1] || "", attrs: m[1] };
+  };
+  return { html, play: btn("play"), pause: btn("pause"), stop: btn("stop") };
+}
+
+test("a running suspendable VM can be paused and stopped, not played", () => {
+  const c = controls({ name: "vm1", state: "running", suspendable: true });
+  assert.equal(c.play.disabled, true);
+  assert.equal(c.pause.disabled, false);
+  assert.equal(c.stop.disabled, false);
+  assert.match(c.pause.attrs, /onclick="suspendVM\('vm1'\)"/, "Pause suspends");
+  assert.match(c.stop.attrs, /onclick="act\('stop','vm1'\)"/, "Stop shuts down as before");
+  assert.match(c.html, /<svg-play>.*<svg-pause>.*<svg-stop>/, "icons, in play / pause / stop order");
+  assert.doesNotMatch(c.html, />(Run|Stop|Resume)</, "icon buttons, no text labels");
+});
+
+test("Pause is greyed out, with the reason, when the VM was not started suspendable", () => {
+  const c = controls({ name: "vm1", state: "running", suspendable: false });
+  assert.equal(c.pause.disabled, true);
+  assert.match(c.pause.title, /not started suspendable/);
+  assert.match(c.pause.title, /Edit VM/);
+  const off = controls({ name: "vm1", state: "stopped", startSuspendable: false });
+  assert.equal(off.pause.disabled, true);
+  assert.match(off.pause.title, /Start suspendable is off/);
+});
+
+test("a stopped VM can be played; a suspended one resumes with Play and fully quits with Stop", () => {
+  const stopped = controls({ name: "vm1", state: "stopped", startSuspendable: true });
+  assert.equal(stopped.play.disabled, false);
+  assert.match(stopped.play.attrs, /onclick="act\('run','vm1'\)"/);
+  assert.equal(stopped.pause.disabled, true, "nothing to pause");
+  const susp = controls({ name: "vm1", state: "suspended", suspendable: true });
+  assert.equal(susp.play.disabled, false);
+  assert.match(susp.play.attrs, /aria-label="Resume vm1"/);
+  assert.equal(susp.pause.disabled, true, "already paused");
+  assert.equal(susp.stop.disabled, false);
+  assert.match(susp.stop.title, /discards its saved memory/);
+});
+
+test("nothing can be pressed while an operation is in flight", () => {
+  for (const state of ["running", "stopped", "suspended"]) {
+    const c = controls({ name: "vm1", state, suspendable: true }, true);
+    assert.ok(c.play.disabled && c.pause.disabled && c.stop.disabled, state);
+  }
+  const starting = controls({ name: "vm1", state: "starting", suspendable: true });
+  assert.equal(starting.play.disabled, true, "no second start while starting");
+});
+
+// On another tab the table has no layout, so every width reads 0: measuring then
+// shrank Actions to its floor and squeezed the buttons into slivers.
+test("fitActionsColumn leaves the width alone while the table is not on screen", () => {
+  let applied = 0;
+  const run = (visible) => {
+    const widths = { actions: 248 };
+    const ctx = vm.createContext({
+      vmColWidths: widths,
+      VM_COL_ACTIONS_MIN: 120,
+      applyVmColWidths: () => { applied++; },
+      getComputedStyle: () => ({ paddingLeft: "14", paddingRight: "14", borderLeftWidth: "1", borderRightWidth: "0" }),
+      document: {
+        getElementById: id => id === "localVmTable" ? { offsetParent: visible ? {} : null } : null,
+        querySelectorAll: () => [{
+          closest: () => ({}),
+          firstElementChild: { getBoundingClientRect: () => ({ left: visible ? 100 : 0 }) },
+          lastElementChild: { getBoundingClientRect: () => ({ right: visible ? 319 : 0 }) },
+        }],
+      },
+    });
+    vm.runInContext(["actionsColumnWidth", "fitActionsColumn"].map(extractFunction).join("\n") + "; fitActionsColumn();", ctx);
+    return widths.actions;
+  };
+  assert.equal(run(false), 248, "hidden: no measurement, the last good width stays");
+  assert.equal(applied, 0);
+  assert.equal(run(true), 248, "visible: 219 px of buttons + 29 px of cell = 248");
+});
+
+test("a field that depends on a switch is disabled and greyed while the switch is off", () => {
+  const sw = { checked: false };
+  const inputs = [{ disabled: false }, { disabled: false }];
+  const field = { dataset: { dependsOn: "tlsEnabled" }, classList: createMockClassList(), querySelectorAll: () => inputs };
+  const sync = evaluateFunction("syncDependentFields", {
+    document: { querySelectorAll: () => [field], getElementById: id => id === "tlsEnabled" ? sw : null },
+  });
+  sync();
+  assert.ok(inputs.every(i => i.disabled), "switch off: inputs disabled");
+  assert.ok(field.classList.contains("field-off"));
+  sw.checked = true;
+  sync();
+  assert.ok(inputs.every(i => !i.disabled), "switch on: inputs editable again");
+  assert.ok(!field.classList.contains("field-off"));
+});
+
+test("the save bar sticks only while there are unsaved changes", () => {
+  let dirty = false;
+  const bar = { classList: createMockClassList() };
+  const sync = evaluateFunction("syncSaveBar", { document: { getElementById: () => bar }, isConfigDirty: () => dirty });
+  sync();
+  assert.ok(!bar.classList.contains("dirty"));
+  dirty = true;
+  sync();
+  assert.ok(bar.classList.contains("dirty"));
+});
+
+test("the Language pill is green for English, red otherwise, and shows the code", () => {
+  const pill = evaluateFunction("readinessPill", {
+    esc: v => String(v).replace(/</g, "&lt;"),
+    READINESS_LABELS: { english: "English", other: "Not English", unknown: "Unknown" },
+  });
+  assert.match(pill("Language", "english", "english", "other", "en-GB"), /readiness-ok">Language: English \(en-GB\)</);
+  assert.match(pill("Language", "other", "english", "other", "fr-FR"), /readiness-bad">Language: Not English \(fr-FR\)</);
+  assert.match(pill("Language", "unknown", "english", "other", ""), /readiness-pill ">Language: Unknown</);
+  assert.doesNotMatch(pill("Language", "other", "english", "other", "<img>"), /<img>/, "the guest's answer is escaped");
+});
+
+// A VM name is user-controlled (and a VM made outside Tart Oven is never checked):
+// a ' must not end the JavaScript string in a button's onclick.
+test("names with quotes reach the click handlers intact and run nothing", () => {
+  const esc = evaluateFunction("esc", {});
+  const jsArg = evaluateFunction("jsArg", { esc });
+  const decode = html => html.replace(/&quot;/g, '"').replace(/&lt;/g, "<").replace(/&gt;/g, ">").replace(/&amp;/g, "&");
+  for (const name of ["Bob's Mac", "x');alert(1);('", "back\\slash", 'quo"te', "a<b>c"]) {
+    const html = evaluateFunction("vmControlButtons", { esc, jsArg, VM_ICON_PLAY: "", VM_ICON_PAUSE: "", VM_ICON_STOP: "" })(
+      { name, state: "stopped" }, esc(name), false);
+    const handler = decode(html.match(/class="vm-ctl play" onclick="([^"]*)"/)[1]);
+    const calls = [];
+    let alerted = false;
+    new Function("act", "alert", handler)((op, vmName) => calls.push([op, vmName]), () => { alerted = true; });
+    assert.deepEqual(calls, [["run", name]], "the handler gets the exact name: " + name);
+    assert.equal(alerted, false, "nothing else runs: " + name);
+  }
+});
+
+test("agentConnectSnippets: local needs only the token, remote adds the URL, self-signed adds insecure", () => {
+  const fn = evaluateFunction("agentConnectSnippets", {});
+  const local = fn("ta_abc", "http://127.0.0.1:9000", true, false);
+  assert.equal(local.claude, "claude mcp add tart-oven --scope user -e TART_OVEN_TOKEN=ta_abc -- /usr/local/bin/tart-oven mcp");
+  assert.deepEqual(JSON.parse(local.json), { mcpServers: { "tart-oven": { command: "/usr/local/bin/tart-oven", args: ["mcp"], env: { TART_OVEN_TOKEN: "ta_abc" } } } });
+  assert.equal(local.test, 'curl -s -H "Authorization: Bearer ta_abc" http://127.0.0.1:9000/api/agent/info');
+
+  const remote = fn("ta_abc", "https://oven.lan:9000", false, true);
+  assert.match(remote.claude, /-e TART_OVEN_TOKEN=ta_abc -e TART_OVEN_URL=https:\/\/oven\.lan:9000 -e TART_OVEN_INSECURE=1 -- \/usr\/local\/bin\/tart-oven mcp$/);
+  assert.equal(JSON.parse(remote.json).mcpServers["tart-oven"].env.TART_OVEN_URL, "https://oven.lan:9000");
+  assert.match(remote.test, /^curl -s -k /, "a self-signed certificate needs -k for the test");
+  assert.ok(!/TART_OVEN_INSECURE/.test(fn("t", "https://oven.lan", false, false).claude), "a real certificate needs no insecure flag");
+});
+
+test("the how-to button follows the chosen Jamf type and its popover closes when it hides", () => {
+  let closed = 0;
+  const { els, fn, ctx } = jamfEditorFixture([], { closeHelp: () => { closed++; } });
+  fn.openAddJamfProfile();
+  assert.equal(els.jamfHowProBtn.style.display, "", "Pro is the default: the invitation button shows");
+  assert.equal(els.jamfHowSchoolBtn.style.display, "none");
+  fn.setJamfEditorKind("school");
+  assert.equal(els.jamfHowProBtn.style.display, "none");
+  assert.equal(els.jamfHowSchoolBtn.style.display, "");
+  ctx.helpOwner = els.jamfHowSchoolBtn; // its popover is open
+  fn.setJamfEditorKind("pro");
+  assert.equal(els.jamfHowSchoolBtn.style.display, "none");
+  assert.equal(closed, 1, "a popover must not stay pinned to a hidden button");
+  ctx.helpOwner = els.jamfHowProBtn;
+  fn.setJamfEditorKind("pro");
+  assert.equal(closed, 1, "the visible button's popover is left open");
+});
+
+test("the connect button shows while an agent token exists and closes the instructions when none is left", () => {
+  const btn = { classList: createMockClassList(), setAttribute() {} };
+  const card = { classList: createMockClassList() };
+  card.classList.add("hidden");
+  btn.setAttribute = function (k, v) { this[k] = v; };
+  const ctx = vm.createContext({ document: { getElementById: id => id === "agentConnectBtn" ? btn : card } });
+  vm.runInContext(["setAgentConnectOpen", "syncAgentConnectButton"].map(extractFunction).join("\n") + "; globalThis.api = { setAgentConnectOpen, syncAgentConnectButton };", ctx);
+  const { setAgentConnectOpen, syncAgentConnectButton } = ctx.api;
+  btn.classList.add("hidden");
+  syncAgentConnectButton(2);
+  assert.ok(!btn.classList.contains("hidden"), "tokens exist: the button is available");
+  setAgentConnectOpen(true);
+  assert.ok(!card.classList.contains("hidden"));
+  assert.equal(btn["aria-expanded"], "true");
+  syncAgentConnectButton(0);
+  assert.ok(btn.classList.contains("hidden"), "no token left: no button");
+  assert.ok(card.classList.contains("hidden"), "and the instructions close");
+  assert.equal(btn["aria-expanded"], "false");
+});
+
+test("the instructions use the token on screen right after creation, and a placeholder later", () => {
+  const reveal = { classList: createMockClassList() };
+  const value = { textContent: "ta_FRESH" };
+  const get = evaluateFunction("currentAgentTokenOnScreen", { document: { getElementById: id => id === "agentTokenReveal" ? reveal : value } });
+  assert.equal(get(), "ta_FRESH", "the token box is showing: use it");
+  reveal.classList.add("hidden");
+  assert.equal(get(), "", "the token box is hidden (shown once): the placeholder is used instead");
+  const intro = evaluateFunction("agentConnectIntroText", { AGENT_TOKEN_PLACEHOLDER: "<agent token>" });
+  assert.match(intro(false), /Replace <agent token> with an agent token/);
+  assert.match(intro(true), /shown once: copy a command now/);
+});
+
+// Where the row menu goes: below the button, else above, else clamped inside the window.
+test("rowMenuTop keeps the menu inside the window", () => {
+  const top = evaluateFunction("rowMenuTop", {});
+  const menu = 274;
+  assert.equal(top(100, 130, menu, 900), 134, "room below: just under the button");
+  assert.equal(top(700, 730, menu, 900), 700 - menu - 4, "no room below, room above: above the button");
+  // A 420 px window: neither side holds 274 px, so it is clamped inside the window.
+  for (const [btnTop, btnBottom] of [[60, 90], [200, 230], [370, 400]]) {
+    const t = top(btnTop, btnBottom, menu, 420);
+    assert.ok(t >= 8 && t + menu <= 420 - 8, `button at ${btnTop}: menu ${t}..${t + menu} must fit a 420 px window`);
+  }
+  // A window shorter than the menu: the list is capped by CSS, so it starts at the margin.
+  assert.equal(top(100, 130, 200, 216), 8);
 });

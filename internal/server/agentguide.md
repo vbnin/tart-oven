@@ -44,7 +44,8 @@ expiry is now plus that many minutes. `GET /api/agent/vms` lists your VMs.
 Each VM has a shared folder, shown as `sharedFolder` in the VM's JSON:
 
 - `host`: the folder on the Mac running Tart Oven.
-- `guest`: the same folder inside the VM.
+- `guest`: the same folder inside the VM. It is the root of the VM's shared folder: the VM
+  sees only its own files there, not other VMs' or the host's.
 
 Write input there on one side and read it on the other. This is the way to get files in
 and out; there are no upload or download endpoints. The folder is kept for 24 hours after
