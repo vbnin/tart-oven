@@ -604,9 +604,9 @@
   /* Too narrow to keep both pinned columns side by side: everything scrolls. */
   .table-shell.no-pin .vm-table .pin-l, .table-shell.no-pin .vm-table .pin-r { position: static; }
   .table-shell.no-pin::before, .table-shell.no-pin::after { display: none; }
-  /* The open "..." menu belongs to this cell's stacking context: lift the cell
-     above the pinned cells of the rows below it, or they would cover the menu. */
-  .vm-table td.pin-r:has(.row-menu.open) { z-index: 40; }
+  /* No z-index lift for the open row's cell: the "..." menu list lives in <body>
+     while open (z-index 30), above every table layer. A lifted cell (z-index 40)
+     painted OVER the menu's top, hiding its first items. */
   .col-resizer { position: absolute; top: 0; bottom: 0; right: 0; width: 9px; cursor: col-resize; touch-action: none; }
   .col-resizer::after { content: ""; position: absolute; top: 28%; bottom: 28%; right: 3px; width: 2px; border-radius: 1px; background: var(--border); transition: background .1s; }
   .col-resizer:hover::after, .col-resizer:focus-visible::after, body.col-resizing .col-resizer.active::after { background: var(--accent); }
@@ -660,9 +660,10 @@
     display: none; position: fixed; /* fixed, not absolute: JS-positioned so it can flip above
       the button and is never clipped by the scrollable table wrapper */
     background: var(--panel); border: 1px solid var(--border); border-radius: 7px;
-    box-shadow: 0 6px 16px rgba(0, 0, 0, 0.18); z-index: 30; min-width: 165px; overflow: hidden; padding: 4px;
+    box-shadow: 0 6px 16px rgba(0, 0, 0, 0.18); z-index: 30; min-width: 165px; padding: 4px;
+    max-height: calc(100vh - 16px); overflow-y: auto; /* a window shorter than the menu scrolls it */
   }
-  .row-menu.open .row-menu-list { display: flex; flex-direction: column; gap: 1px; }
+  .row-menu.open .row-menu-list, .row-menu-list.portal-open { display: flex; flex-direction: column; gap: 1px; }
   .row-menu-list button {
     border: none; border-radius: 5px; background: transparent; text-align: left; justify-content: flex-start;
     padding: 7px 10px; height: auto; box-shadow: none; color: var(--text); width: 100%;
@@ -821,12 +822,13 @@
   .toggle-group { display: grid; grid-template-columns: repeat(auto-fill, minmax(260px, 1fr)); gap: 12px 24px; margin-top: 16px; padding-top: 14px; border-top: 1px solid var(--border); }
   .toggle-group-master { margin: 0 0 14px; padding: 0 0 14px; border-top: 0; border-bottom: 1px solid var(--border); }
   .toggle-item { display: flex; flex-direction: column; gap: 4px; min-width: 0; }
+  .jamf-how { margin-left: 10px; }
   .toggle-group-only { margin-top: 0; padding-top: 0; border-top: 0; }
   /* A switch and the fields it turns on, kept together; the fields grey out while
      the switch is off (syncDependentFields). */
   .dep-group { margin-top: 16px; padding-top: 14px; border-top: 1px solid var(--border); }
   .dep-group .toggle-group-master { padding-bottom: 10px; margin-bottom: 10px; border-bottom: 0; }
-  .field.field-off label, .field.field-off .muted { opacity: .5; }
+  .field.field-off label, .field.field-off .muted, .toggle-item.field-off label { opacity: .5; }
   /* Rarely changed fields, folded away. */
   details.advanced { margin-top: 16px; border-top: 1px solid var(--border); padding-top: 12px; }
   details.advanced > summary { cursor: pointer; font-size: 13px; font-weight: 600; color: var(--muted); list-style: none; display: inline-flex; align-items: center; gap: 6px; }
@@ -859,6 +861,11 @@
     box-shadow: 0 10px 24px rgba(0, 0, 0, 0.3);
   }
   .popover h4 { margin: 0 0 8px; font-size: 13px; }
+  .popover.popover-wide { width: 620px; }
+  .connect-step { display: flex; align-items: center; gap: 8px; margin-top: 12px; }
+  .connect-label { font-size: 13px; font-weight: 600; }
+  #agentConnect .popover-code { margin-top: 6px; }
+  .popover-code { margin: 10px 0 0; padding: 8px 10px; background: var(--code-bg); border: 1px solid var(--border); border-radius: 6px; font-family: ui-monospace, Menlo, Monaco, monospace; font-size: 11.5px; line-height: 1.45; white-space: pre; overflow-x: auto; color: var(--text); user-select: text; }
   .popover dl { margin: 0; }
   .popover dt { font-family: ui-monospace, Menlo, Monaco, monospace; font-weight: 600; margin-top: 8px; }
   .popover dd { margin: 0; color: var(--muted); }
@@ -1072,7 +1079,7 @@
           <label for="ipswSource">macOS version <span id="ipswDownloadedNote" style="color: var(--green); font-weight: 600; margin-left: 8px;"></span></label>
           <div class="ipsw-row">
             <select id="ipswSource"><option value="">Loading…</option></select>
-            <label class="ipsw-beta"><input type="checkbox" id="ipswShowBeta"> Include betas</label>
+            <label class="radio ipsw-beta"><span class="toggle"><input type="checkbox" id="ipswShowBeta"><span class="slider"></span></span> Include betas</label>
           </div>
           <label for="fromIpsw" style="margin-top: 8px;">IPSW path or URL</label>
           <div class="ipsw-row">
@@ -1094,7 +1101,7 @@
           <label for="createAutoEnrollProfile">Auto enroll at first boot<button type="button" class="help-tip warn-tip" data-help-src="autoEnrollHelp" aria-label="Warning: auto enroll is experimental" aria-expanded="false"><svg viewBox="0 0 16 16" width="16" height="16" aria-hidden="true"><path d="M8 1.5 15 14H1z" fill="currentColor"/><path d="M8 6v3.6" stroke="var(--panel)" stroke-width="1.6" stroke-linecap="round"/><circle cx="8" cy="11.7" r="0.9" fill="var(--panel)"/></svg></button></label>
           <select id="createAutoEnrollProfile" data-enroll-profiles><option value="">None</option></select>
         </div>
-        <div class="field" id="createHostnameField"><label>Hostname</label><input type="text" id="createHostname" maxlength="63" placeholder="blank = keep the source's"><label class="radio" style="font-size: 13px; margin-top: 4px;"><input type="checkbox" id="createHostnameFromName"> Same as VM name</label></div>
+        <div class="field" id="createHostnameField"><label>Hostname</label><input type="text" id="createHostname" maxlength="63" placeholder="blank = keep the source's"><label class="radio" style="font-size: 13px; margin-top: 4px;"><span class="toggle"><input type="checkbox" id="createHostnameFromName"><span class="slider"></span></span> Same as VM name</label></div>
       </div>
       <div class="field" id="ociField" style="display:none">
         <label style="font-size: 13px; font-weight: 600;">Base image</label>
@@ -1105,13 +1112,13 @@
         </div>
         <input type="text" id="ociImageInputInline" class="mono" placeholder="ghcr.io/cirruslabs/macos-sequoia-base:latest">
         <label class="radio" style="display: flex; align-items: center; gap: 6px; margin-top: 10px; font-size: 13px;">
-          <input type="checkbox" id="ociInsecureChkInline"> Allow untrusted / HTTP registry (--insecure)
+          <span class="toggle"><input type="checkbox" id="ociInsecureChkInline"><span class="slider"></span></span> Allow untrusted or HTTP registry
         </label>
       </div>
       <div class="checks" id="createChecks">
-        <label><input type="checkbox" id="createRandMac" checked> Random MAC</label>
-        <label><input type="checkbox" id="createRandSerial" checked> Random serial</label>
-        <label><input type="checkbox" id="createStartSuspendable"> Start suspendable<button type="button" class="help-tip" data-help="Lets you suspend the new VM and resume it in seconds, and take snapshots that keep its memory. Turns off its audio and entropy devices. You can change it later in Edit VM." aria-label="About Start suspendable" aria-expanded="false">?</button></label>
+        <label class="radio"><span class="toggle"><input type="checkbox" id="createRandMac" checked><span class="slider"></span></span> Random MAC</label>
+        <label class="radio"><span class="toggle"><input type="checkbox" id="createRandSerial" checked><span class="slider"></span></span> Random serial</label>
+        <label class="radio"><span class="toggle"><input type="checkbox" id="createStartSuspendable"><span class="slider"></span></span> Start suspendable<button type="button" class="help-tip" data-help="Lets you suspend the new VM and resume it in seconds, and take snapshots that keep its memory. Turns off its audio and entropy devices. You can change it later in Edit VM." aria-label="About Start suspendable" aria-expanded="false">?</button></label>
       </div>
       <div id="provisioningCreateSection" class="sub-card" style="display:none;">
         <div class="jamf-step-head"><h3>Guest provisioning (macOS 27+)</h3></div>
@@ -1121,13 +1128,13 @@
           <div class="toggle-item"><label class="radio"><span class="toggle"><input type="checkbox" id="provisioningEnabled"><span class="slider"></span></span> Provision this VM automatically</label></div>
         </div>
         <div class="grid">
-          <div class="field"><label for="provisioningFullName">Full name</label><input type="text" id="provisioningFullName" autocomplete="off"></div>
-          <div class="field"><label for="provisioningUsername">Username</label><input type="text" id="provisioningUsername" autocomplete="off"></div>
-          <div class="field"><label for="provisioningPassword">Password</label><input type="password" id="provisioningPassword" autocomplete="new-password"></div>
+          <div class="field" data-depends-on="provisioningEnabled"><label for="provisioningFullName">Full name</label><input type="text" id="provisioningFullName" autocomplete="off"></div>
+          <div class="field" data-depends-on="provisioningEnabled"><label for="provisioningUsername">Username</label><input type="text" id="provisioningUsername" autocomplete="off"></div>
+          <div class="field" data-depends-on="provisioningEnabled"><label for="provisioningPassword">Password</label><input type="password" id="provisioningPassword" autocomplete="new-password"></div>
         </div>
         <div class="toggle-group">
-          <div class="toggle-item"><label class="radio"><span class="toggle"><input type="checkbox" id="provisioningAutoLogin"><span class="slider"></span></span> Log in automatically</label></div>
-          <div class="toggle-item"><label class="radio"><span class="toggle"><input type="checkbox" id="provisioningRemoteLogin"><span class="slider"></span></span> Enable remote login (SSH)</label></div>
+          <div class="toggle-item" data-depends-on="provisioningEnabled"><label class="radio"><span class="toggle"><input type="checkbox" id="provisioningAutoLogin"><span class="slider"></span></span> Log in automatically</label></div>
+          <div class="toggle-item" data-depends-on="provisioningEnabled"><label class="radio"><span class="toggle"><input type="checkbox" id="provisioningRemoteLogin"><span class="slider"></span></span> Enable remote login (SSH)</label></div>
         </div>
         </div>
       </div>
@@ -1178,12 +1185,14 @@
             <button type="button" class="subtab-btn active" id="jamfKindProBtn" aria-pressed="true" onclick="setJamfEditorKind('pro')">Jamf Pro</button>
             <button type="button" class="subtab-btn" id="jamfKindSchoolBtn" aria-pressed="false" onclick="setJamfEditorKind('school')">Jamf School</button>
           </div>
+          <button type="button" class="ghost help-btn jamf-how" id="jamfHowProBtn" data-help-src="jamfInvitationHelp" data-help-wide="1" aria-expanded="false">How to get an enrollment invitation ID</button>
+          <button type="button" class="ghost help-btn jamf-how" id="jamfHowSchoolBtn" data-help-src="jamfSchoolHelp" style="display: none;" aria-expanded="false">How to find enrollment information</button>
           <button type="button" class="help-tip" id="jamfKindNote" style="display: none;" data-help="Changing the type discards the credentials saved for the old type. Enter the new ones below." aria-label="About changing the server type" aria-expanded="false">?</button>
         </div>
         <div class="grid">
           <div class="field"><label>Server Name</label><input type="text" id="jamfProfileName" placeholder="e.g. Production, Sandbox, Staging"></div>
           <div class="field"><label>Base URL</label><input type="url" id="jamfBaseUrl" placeholder="https://tenant.jamfcloud.com"></div>
-          <div class="field" id="jamfProFields" style="grid-column: span 2;"><label>Invitation ID<button type="button" class="help-tip" data-help="Enter the value after invitation=, not the full URL" aria-label="About Invitation ID" aria-expanded="false">?</button></label><input type="password" id="jamfInvitationCode" autocomplete="new-password" placeholder="Enter invitation value"></div>
+          <div class="field" id="jamfProFields" style="grid-column: span 2;"><label>Invitation ID</label><input type="password" id="jamfInvitationCode" autocomplete="new-password" placeholder="Enter invitation value"></div>
           <div class="field" id="jamfSchoolFields" style="grid-column: span 2; display: none;">
             <div class="grid">
               <div class="field"><label>Network ID</label><input type="password" id="jamfNetwork" autocomplete="new-password" placeholder="Enter network ID"></div>
@@ -1307,16 +1316,6 @@
       </div>
     </div>
 
-    <div class="panel" id="panel-app-prefs">
-      <h2>App Preferences</h2>
-      <div class="toggle-group toggle-group-only">
-        <div class="toggle-item"><label class="radio"><span class="toggle"><input type="checkbox" id="launchAtBoot"><span class="slider"></span></span> Launch at login</label><small id="launchAtBootStatus" class="muted"></small></div>
-        <div class="toggle-item"><label class="radio"><span class="toggle"><input type="checkbox" id="showJamfFeatures"><span class="slider"></span></span> Display Jamf-related features</label></div>
-        <div class="toggle-item"><label class="radio"><span class="toggle"><input type="checkbox" id="showAgentFeatures"><span class="slider"></span></span> Display agentic AI features</label></div>
-        <div class="toggle-item"><label class="radio"><span class="toggle"><input type="checkbox" id="checkOvenUpdates"><span class="slider"></span></span> Check for Tart Oven updates</label></div>
-      </div>
-    </div>
-
     <div class="panel" id="panel-scheduler">
       <h2>VM Scheduler</h2>
       <div class="grid">
@@ -1408,10 +1407,22 @@
       <div class="actions">
         <input type="text" id="agentTokenName" placeholder="Token name, e.g. claude" maxlength="40" autocomplete="off" style="max-width: 260px;">
         <button id="agentTokenCreateBtn" class="ghost">Create agent token</button>
+        <button type="button" id="agentConnectBtn" class="ghost hidden" aria-expanded="false" aria-controls="agentConnect">How to connect an AI client</button>
+        <button type="button" class="help-tip" data-help-src="agentAccessHelp" aria-label="What an agent can do" aria-expanded="false">?</button>
       </div>
       <div id="agentTokenReveal" class="token-reveal hidden">
         <code id="agentTokenValue" class="mono"></code>
         <button id="agentTokenCopyBtn" class="ghost">Copy</button>
+      </div>
+      <div id="agentConnect" class="sub-card hidden">
+        <div class="jamf-step-head"><h3>Connect an AI client</h3></div>
+        <p class="muted" style="margin: 0 0 10px;" id="agentConnectIntro"></p>
+        <div class="connect-step"><span class="connect-label">Claude Code (in Terminal)</span><button type="button" class="ghost tiny" data-copy="agentConnectClaude">Copy</button></div>
+        <pre class="popover-code" id="agentConnectClaude"></pre>
+        <div class="connect-step"><span class="connect-label">Claude Desktop or another MCP client: add to <code>mcpServers</code> in its config file</span><button type="button" class="ghost tiny" data-copy="agentConnectJson">Copy</button><button type="button" class="help-tip" data-help="Claude Desktop: ~/Library/Application Support/Claude/claude_desktop_config.json, then quit and reopen Claude." aria-label="Where the Claude Desktop config file is" aria-expanded="false">?</button></div>
+        <pre class="popover-code" id="agentConnectJson"></pre>
+        <div class="connect-step"><span class="connect-label">Test the token: it prints your name and templates</span><button type="button" class="ghost tiny" data-copy="agentConnectTest">Copy</button></div>
+        <pre class="popover-code" id="agentConnectTest"></pre>
       </div>
       <div id="agentTokenList"></div>
     </div>
@@ -1422,6 +1433,10 @@
         <div class="field"><label>Server label</label><input type="text" id="serverLabel" maxlength="100" placeholder="e.g. Mac Mini #1"></div>
         <div class="field"><label>Listen (host:port)</label><input type="text" id="listen"></div>
         <div class="field"><label>History retention (days)</label><input type="number" id="historyDays" min="1"></div>
+      </div>
+      <div class="toggle-group">
+        <div class="toggle-item"><label class="radio"><span class="toggle"><input type="checkbox" id="launchAtBoot"><span class="slider"></span></span> Launch at login</label><small id="launchAtBootStatus" class="muted"></small></div>
+        <div class="toggle-item"><label class="radio"><span class="toggle"><input type="checkbox" id="checkOvenUpdates"><span class="slider"></span></span> Check for Tart Oven updates</label></div>
       </div>
       <details class="advanced">
         <summary>Advanced</summary>
@@ -1461,6 +1476,14 @@
       </div>
     </div>
 
+
+    <div class="panel" id="panel-addons">
+      <h2>Add-Ons</h2>
+      <div class="toggle-group toggle-group-only">
+        <div class="toggle-item"><label class="radio"><span class="toggle"><input type="checkbox" id="showJamfFeatures"><span class="slider"></span></span> Display Jamf-related features</label></div>
+        <div class="toggle-item"><label class="radio"><span class="toggle"><input type="checkbox" id="showAgentFeatures"><span class="slider"></span></span> Display agentic AI features</label></div>
+      </div>
+    </div>
 
     <div class="actions save-bar" id="cfgSaveBar" style="margin-bottom: 18px;">
       <button id="saveBtn">Save configuration</button>
@@ -1533,25 +1556,24 @@
       <div class="field"><label>Rename to<button type="button" class="help-tip" data-help-src="nameHelpContent" data-help-note="Leave blank to keep the current name." aria-label="Name variables" aria-expanded="false">?</button></label><input type="text" id="editVmRenameNew" placeholder="blank = keep name"></div>
     </div>
     <div class="checks" style="margin-top: 8px;">
-      <label><input type="checkbox" id="editVmRandMac"> New random MAC</label>
-      <label><input type="checkbox" id="editVmRandSerial"> New random serial</label>
+      <label class="radio"><span class="toggle"><input type="checkbox" id="editVmRandMac"><span class="slider"></span></span> New random MAC</label>
+      <label class="radio"><span class="toggle"><input type="checkbox" id="editVmRandSerial"><span class="slider"></span></span> New random serial</label>
     </div>
 
     <h3 style="font-size: 12px; text-transform: uppercase; color: var(--muted); margin: 16px 0 10px; font-weight: 600;">Hostname</h3>
     <div class="grid">
-      <div class="field"><label>Hostname</label><input type="text" id="editVmHostname" maxlength="63" placeholder="blank = leave unchanged"></div>
-      <div class="field"><label>&nbsp;</label><label class="radio"><input type="checkbox" id="editVmHostnameFromName"> Same as VM name</label></div>
+      <div class="field"><label>Hostname</label><input type="text" id="editVmHostname" maxlength="63" placeholder="blank = leave unchanged"><label class="radio" style="font-size: 13px; margin-top: 4px;"><span class="toggle"><input type="checkbox" id="editVmHostnameFromName"><span class="slider"></span></span> Same as VM name</label></div>
     </div>
 
     <h3 style="font-size: 12px; text-transform: uppercase; color: var(--muted); margin: 16px 0 10px; font-weight: 600;">Suspend</h3>
     <div class="grid">
-      <div class="field"><label class="radio"><input type="checkbox" id="editVmStartSuspendable"> Start suspendable<button type="button" class="help-tip" data-help="Lets you suspend this VM and resume it in seconds, and take snapshots that keep its memory. Turns off the VM's audio and entropy devices. Takes effect the next time the VM starts." aria-label="About Start suspendable" aria-expanded="false">?</button></label></div>
+      <div class="field"><label class="radio"><span class="toggle"><input type="checkbox" id="editVmStartSuspendable"><span class="slider"></span></span> Start suspendable<button type="button" class="help-tip" data-help="Lets you suspend this VM and resume it in seconds, and take snapshots that keep its memory. Turns off the VM's audio and entropy devices. Takes effect the next time the VM starts." aria-label="About Start suspendable" aria-expanded="false">?</button></label></div>
     </div>
 
     <h3 style="font-size: 12px; text-transform: uppercase; color: var(--muted); margin: 16px 0 10px; font-weight: 600;">SSH Settings</h3>
     <div class="grid">
-      <div class="field"><label>Custom SSH user</label><input type="text" id="editVmSshUser" placeholder="blank = use default"><label class="radio hidden" id="editVmClearSshUserField" style="font-size: 13px; margin-top: 4px;"><input type="checkbox" id="editVmClearSshUser"> Remove this VM's user and use the default</label></div>
-      <div class="field"><label>Custom SSH password</label><input type="password" id="editVmSshPassword" autocomplete="new-password" placeholder="blank = use default"><label class="radio hidden" id="editVmClearSshPasswordField" style="font-size: 13px; margin-top: 4px;"><input type="checkbox" id="editVmClearSshPassword"> Remove this VM's password and use the default</label></div>
+      <div class="field"><label>Custom SSH user</label><input type="text" id="editVmSshUser" placeholder="blank = use default"><label class="radio hidden" id="editVmClearSshUserField" style="font-size: 13px; margin-top: 4px;"><span class="toggle"><input type="checkbox" id="editVmClearSshUser"><span class="slider"></span></span> Remove this VM's user and use the default</label></div>
+      <div class="field"><label>Custom SSH password</label><input type="password" id="editVmSshPassword" autocomplete="new-password" placeholder="blank = use default"><label class="radio hidden" id="editVmClearSshPasswordField" style="font-size: 13px; margin-top: 4px;"><span class="toggle"><input type="checkbox" id="editVmClearSshPassword"><span class="slider"></span></span> Remove this VM's password and use the default</label></div>
     </div>
 
     <div id="editVmEnrollmentSection">
@@ -1693,7 +1715,7 @@
     </div>
     <div class="field" style="margin-bottom: 14px;">
       <label class="radio" style="display: flex; align-items: center; gap: 6px; cursor: pointer; font-size: 13px;">
-        <input type="checkbox" id="ociInsecureChk"> Allow untrusted / HTTP registry (--insecure)
+        <span class="toggle"><input type="checkbox" id="ociInsecureChk"><span class="slider"></span></span> Allow untrusted or HTTP registry
       </label>
     </div>
     <div class="modal-actions" style="margin-top: 20px;">
@@ -2450,16 +2472,16 @@ function syncSaveBar() {
 function syncDependentFields() {
   document.querySelectorAll("[data-depends-on]").forEach(field => {
     const sw = document.getElementById(field.dataset.dependsOn);
-    const on = !!(sw && sw.checked);
+    const on = !!(sw && sw.checked && !sw.disabled); // a switch that is itself unavailable counts as off
     field.classList.toggle("field-off", !on);
     field.querySelectorAll("input, select, textarea, button:not(.help-tip)").forEach(el => { el.disabled = !on; });
   });
 }
 document.addEventListener("input", e => { if (e.target.closest && e.target.closest("#tab-config")) syncSaveBar(); });
 document.addEventListener("change", e => {
-  if (!e.target.closest || !e.target.closest("#tab-config")) return;
-  syncDependentFields();
-  syncSaveBar();
+  if (!e.target.closest) return;
+  syncDependentFields(); // switches with dependent fields live in several tabs (Guest provisioning too)
+  if (e.target.closest("#tab-config")) syncSaveBar();
 });
 function isConfigDirty() { return configLoaded && configSnapshot !== null && configFormKey() !== configSnapshot; }
 function fillConfig(c) {
@@ -2671,6 +2693,12 @@ function setJamfEditorKind(kind) {
   }
   document.getElementById("jamfProFields").style.display = kind === "pro" ? "" : "none";
   document.getElementById("jamfSchoolFields").style.display = kind === "school" ? "" : "none";
+  // The how-to button belongs to the chosen type; a popover open on the other one closes.
+  for (const [id, show] of [["jamfHowProBtn", kind === "pro"], ["jamfHowSchoolBtn", kind === "school"]]) {
+    const how = document.getElementById(id);
+    how.style.display = show ? "" : "none";
+    if (!show && helpOwner === how) closeHelp();
+  }
   const kindNote = document.getElementById("jamfKindNote");
   kindNote.style.display = prev && !same ? "" : "none";
   if (kindNote.style.display === "none" && helpOwner === kindNote) closeHelp(); // never leave a popover on a hidden button
@@ -3125,7 +3153,19 @@ function agentInstallButton(name, notRunning, agentAvailable) {
 // renderTable). closeRowMenus is the ONLY thing that clears it — a re-render
 // calls positionRowMenu directly, not closeRowMenus, so it never does.
 let openRowMenuName = null;
+// While open, the menu list lives in <body>: inside the table it sits in a sticky
+// cell of a scrolling box, and some browsers (Safari) crop a fixed-position menu
+// there at the bottom of the table. clearPortaledMenus puts it back, or drops it
+// when its row has been re-rendered meanwhile.
+function clearPortaledMenus() {
+  document.querySelectorAll("body > .row-menu-list").forEach(list => {
+    list.classList.remove("portal-open");
+    if (list._home && list._home.isConnected) list._home.appendChild(list);
+    else list.remove();
+  });
+}
 function closeRowMenus() {
+  clearPortaledMenus();
   document.querySelectorAll(".row-menu.open").forEach(el => el.classList.remove("open"));
   openRowMenuName = null;
 }
@@ -3136,21 +3176,61 @@ function toggleRowMenu(evt, name) {
   if (wasOpenForThis) return;
   openRowMenuName = name;
   positionRowMenu(name);
+  // Opened from the keyboard (a click with detail 0): move into the menu. The list
+  // lives in <body> while open, so Tab from the button would otherwise skip it.
+  if (evt.detail === 0) {
+    const first = document.querySelector("body > .row-menu-list.portal-open button:not(:disabled)");
+    if (first) first.focus();
+  }
+}
+// Where the menu list goes: below the button if it fits, else above, else wherever
+// there is most room, always inside the window (the list then scrolls itself).
+function rowMenuTop(btnTop, btnBottom, menuHeight, viewHeight) {
+  const gap = 4, margin = 8;
+  const below = viewHeight - btnBottom - gap - margin;
+  const above = btnTop - gap - margin;
+  if (menuHeight <= below) return btnBottom + gap;
+  if (menuHeight <= above) return btnTop - menuHeight - gap;
+  const preferred = below >= above ? btnBottom + gap : btnTop - menuHeight - gap;
+  return Math.max(margin, Math.min(preferred, viewHeight - menuHeight - margin));
 }
 function positionRowMenu(name) {
   const wrap = document.getElementById("rowmenu-" + name);
   if (!wrap) { openRowMenuName = null; return; } // row no longer in the (filtered) table
+  clearPortaledMenus();
   wrap.classList.add("open");
   const btn = wrap.querySelector(".row-menu-btn");
   const list = wrap.querySelector(".row-menu-list");
+  if (!list) return;
+  list._home = wrap;
+  list.classList.add("portal-open");
+  document.body.appendChild(list);
+  list.setAttribute("role", "menu");
+  list.querySelectorAll("button").forEach(b => b.setAttribute("role", "menuitem"));
+  btn.setAttribute("aria-haspopup", "menu");
   const rect = btn.getBoundingClientRect();
-  const gap = 4;
-  const menuHeight = list.offsetHeight;
-  const spaceBelow = window.innerHeight - rect.bottom;
-  const openUpward = spaceBelow < menuHeight + gap && rect.top > menuHeight + gap;
-  list.style.top = (openUpward ? rect.top - menuHeight - gap : rect.bottom + gap) + "px";
+  const menuHeight = list.offsetHeight; // already capped to the window by CSS
+  list.style.top = rowMenuTop(rect.top, rect.bottom, menuHeight, window.innerHeight) + "px";
   list.style.right = (window.innerWidth - rect.right) + "px";
 }
+// Keyboard use of the open menu: arrows move between items, Escape and Tab close it
+// and give focus back to the button that opened it.
+document.addEventListener("keydown", e => {
+  const list = document.querySelector("body > .row-menu-list.portal-open");
+  if (!list) return;
+  const active = document.activeElement;
+  const homeBtn = list._home && list._home.querySelector(".row-menu-btn");
+  if (active && active !== document.body && active !== homeBtn && !list.contains(active)) return; // typing elsewhere
+  const close = () => { closeRowMenus(); if (homeBtn && homeBtn.isConnected) homeBtn.focus(); };
+  if (e.key === "Escape" || e.key === "Tab") { e.preventDefault(); close(); return; }
+  if (e.key !== "ArrowDown" && e.key !== "ArrowUp") return;
+  e.preventDefault();
+  const items = [...list.querySelectorAll("button:not(:disabled)")];
+  if (!items.length) return;
+  const i = items.indexOf(active);
+  const next = e.key === "ArrowDown" ? (i + 1) % items.length : (i <= 0 ? items.length - 1 : i - 1);
+  items[next].focus();
+});
 document.addEventListener("click", closeRowMenus);
 window.addEventListener("resize", closeRowMenus);
 
@@ -3382,6 +3462,8 @@ function applyProvisioningAvailability(supported) {
   if (!fields) return;
   fields.style.opacity = supported ? "" : "0.5";
   fields.querySelectorAll("input").forEach((input) => { input.disabled = !supported; });
+  // On a supported host the fields still wait for "Provision this VM automatically".
+  syncDependentFields();
 }
 
 function renderHeaderStats(sample) {
@@ -4861,12 +4943,29 @@ function closeHelp() {
   helpOwner.setAttribute("aria-expanded", "false");
   helpOwner = null;
 }
+// Copies the code block of the open help popover (the Jamf invitation recipe).
+function copyPopoverCode() {
+  const code = document.querySelector("#helpPopover .popover-code");
+  if (!code) return;
+  const text = code.textContent;
+  const fallback = () => {
+    const range = document.createRange();
+    range.selectNodeContents(code);
+    const sel = window.getSelection();
+    sel.removeAllRanges();
+    sel.addRange(range);
+    toast("Copy", "Selected. Press ⌘C to copy it.", "info");
+  };
+  if (!navigator.clipboard) { fallback(); return; }
+  navigator.clipboard.writeText(text).then(() => toast("Copy", "Command copied.", "ok"), fallback);
+}
 function openHelp(btn) {
   closeHelp();
   const pop = document.getElementById("helpPopover");
   const src = btn.dataset.helpSrc && document.getElementById(btn.dataset.helpSrc);
   if (src) pop.innerHTML = src.innerHTML;
   else pop.textContent = btn.dataset.help || "";
+  pop.classList.toggle("popover-wide", !!btn.dataset.helpWide);
   if (btn.dataset.helpNote) {
     const note = document.createElement("p");
     note.textContent = btn.dataset.helpNote;
@@ -6180,21 +6279,91 @@ el("agentTemplatesList").addEventListener("change", () => {
 document.addEventListener("click", (ev) => { if (!ev.target.closest("#agentTemplates")) closeAgentTemplates(); });
 document.addEventListener("keydown", (ev) => { if (ev.key === "Escape") closeAgentTemplates(); });
 
+// The connect button shows while at least one agent token exists; with none, the
+// instructions have nothing to connect and close.
+function syncAgentConnectButton(tokenCount) {
+  const btn = document.getElementById("agentConnectBtn");
+  if (!btn) return;
+  btn.classList.toggle("hidden", tokenCount < 1);
+  if (tokenCount < 1) setAgentConnectOpen(false);
+}
 async function loadAgentTokens(authEnabled) {
   const list = document.getElementById("agentTokenList");
   if (!list) return;
   document.getElementById("agentTokenName").disabled = !authEnabled;
   document.getElementById("agentTokenCreateBtn").disabled = !authEnabled;
   document.getElementById("agentTokensInfo").textContent = authEnabled ? "" : "Generate an access token first. Agent tokens only limit access when a login is required.";
-  if (!authEnabled) { list.innerHTML = ""; return; }
+  if (!authEnabled) { list.innerHTML = ""; syncAgentConnectButton(0); return; }
   try {
     const res = await api("/api/auth/agent-tokens");
     const data = await res.json();
+    syncAgentConnectButton((data.tokens || []).length);
     list.innerHTML = (data.tokens || []).map(t =>
       '<div class="agent-token"><span class="grow"><b>' + esc(t.name) + '</b> <span class="muted">created ' + esc(fmtDateTime(t.createdAt)) + '</span></span>' +
       '<button class="ghost" data-revoke="' + esc(t.id) + '" data-name="' + esc(t.name) + '">Revoke</button></div>').join("");
   } catch (e) { /* needs sign-in */ }
 }
+// agentConnectSnippets builds the commands that connect an MCP client to this
+// server with an agent token. The MCP server is the installed binary run as a
+// subprocess (cmd/tart-oven/mcp.go): it reads TART_OVEN_TOKEN, and TART_OVEN_URL
+// only when the client is on another Mac (it finds the local server by itself);
+// TART_OVEN_INSECURE=1 accepts a self-signed certificate on a custom URL. The
+// absolute path matters: GUI clients start servers with a minimal PATH.
+function agentConnectSnippets(token, origin, local, selfSigned) {
+  const env = { TART_OVEN_TOKEN: token };
+  if (!local) env.TART_OVEN_URL = origin;
+  if (!local && selfSigned) env.TART_OVEN_INSECURE = "1";
+  const flags = Object.keys(env).map(k => "-e " + k + "=" + env[k]).join(" ");
+  const claude = "claude mcp add tart-oven --scope user " + flags + " -- /usr/local/bin/tart-oven mcp";
+  // args stays on one line: JSON.stringify(.., null, 2) would spread ["mcp"] over four.
+  const envLines = Object.keys(env).map(k => "        " + JSON.stringify(k) + ": " + JSON.stringify(env[k]));
+  const json = '{\n  "mcpServers": {\n    "tart-oven": {\n      "command": "/usr/local/bin/tart-oven",\n      "args": ["mcp"],\n      "env": {\n' +
+    envLines.join(",\n") + '\n      }\n    }\n  }\n}';
+  const test = "curl -s" + (selfSigned ? " -k" : "") + " -H \"Authorization: Bearer " + token + "\" " + origin + "/api/agent/info";
+  return { claude, json, test };
+}
+// The connect instructions are available whenever an agent token exists. A token
+// is shown only once, when created: right then the commands carry it; later they
+// carry a placeholder to replace (or create another token).
+const AGENT_TOKEN_PLACEHOLDER = "<agent token>";
+function agentConnectIntroText(hasToken) {
+  return hasToken
+    ? "The token is shown once: copy a command now. The client starts Tart Oven's MCP server itself and keeps the token in its own settings."
+    : "Replace " + AGENT_TOKEN_PLACEHOLDER + " with an agent token. A token is shown only when you create it: if you no longer have it, revoke it and create another. The client starts Tart Oven's MCP server itself and keeps the token in its own settings.";
+}
+function setAgentConnectOpen(open) {
+  document.getElementById("agentConnect").classList.toggle("hidden", !open);
+  document.getElementById("agentConnectBtn").setAttribute("aria-expanded", open ? "true" : "false");
+}
+// Which token the instructions use: the one on screen right now (just created), if any.
+function currentAgentTokenOnScreen() {
+  const reveal = document.getElementById("agentTokenReveal");
+  return reveal && !reveal.classList.contains("hidden") ? document.getElementById("agentTokenValue").textContent : "";
+}
+function toggleAgentConnect() {
+  const open = document.getElementById("agentConnect").classList.contains("hidden");
+  if (open) showAgentConnect(currentAgentTokenOnScreen()); else setAgentConnectOpen(false);
+}
+function showAgentConnect(token) {
+  const host = location.hostname;
+  const local = host === "127.0.0.1" || host === "localhost" || host === "::1" || host === "[::1]";
+  const cfg = (latest && latest.config) || {};
+  const selfSigned = location.protocol === "https:" && !cfg.tlsCertPath;
+  const sn = agentConnectSnippets(token || AGENT_TOKEN_PLACEHOLDER, location.origin, local, selfSigned);
+  document.getElementById("agentConnectIntro").textContent = agentConnectIntroText(!!token);
+  document.getElementById("agentConnectClaude").textContent = sn.claude;
+  document.getElementById("agentConnectJson").textContent = sn.json;
+  document.getElementById("agentConnectTest").textContent = sn.test;
+  setAgentConnectOpen(true);
+}
+el("agentConnectBtn").onclick = toggleAgentConnect;
+document.getElementById("agentConnect").addEventListener("click", async ev => {
+  const b = ev.target.closest("button[data-copy]");
+  if (!b) return;
+  const text = document.getElementById(b.dataset.copy).textContent;
+  try { await navigator.clipboard.writeText(text); toast("Copy", "Copied to the clipboard.", "ok"); }
+  catch (e) { toast("Copy", "Copy failed; select the text and copy it manually.", "bad"); }
+});
 el("agentTokenCreateBtn").onclick = async () => {
   const name = document.getElementById("agentTokenName").value.trim();
   if (!name) { toast("Agent token", "Enter a name for the token.", "bad"); return; }
@@ -6203,6 +6372,7 @@ el("agentTokenCreateBtn").onclick = async () => {
   const { token } = await res.json();
   document.getElementById("agentTokenValue").textContent = token;
   document.getElementById("agentTokenReveal").classList.remove("hidden");
+  showAgentConnect(token);
   document.getElementById("agentTokenName").value = "";
   loadAgentTokens(true);
 };
@@ -6218,6 +6388,7 @@ el("agentTokenList").addEventListener("click", async (ev) => {
   const res = await api("/api/auth/agent-tokens/" + encodeURIComponent(b.dataset.revoke), { method: "DELETE" });
   if (!res.ok) { toast("Agent token", await res.text(), "bad"); return; }
   document.getElementById("agentTokenReveal").classList.add("hidden");
+  if (!document.getElementById("agentConnect").classList.contains("hidden")) showAgentConnect(""); // drop the revealed token from the commands
   loadAgentTokens(true);
 });
 async function generateToken() {
@@ -6242,6 +6413,7 @@ el("authRevokeBtn").onclick = async () => {
   if (res.ok) {
     document.getElementById("authTokenReveal").classList.add("hidden");
     document.getElementById("agentTokenReveal").classList.add("hidden");
+    setAgentConnectOpen(false);
     loadSecurity();
   }
 };
@@ -6897,6 +7069,45 @@ connect();
     <li>Install Tart guest agent (or enable key-based SSH access)</li>
     <li>Set the VM's language to English (any region, such as US or UK). Auto enroll finds buttons by their English names.</li>
   </ol>
+</template>
+<template id="agentAccessHelp">
+  <h4>What an agent can do</h4>
+  <ul>
+    <li>Clone the selected templates, run shell commands in its clones, extend and destroy them.</li>
+    <li>Exchange files through its own shared folder. It cannot see your other VMs, the dashboard, the logs, or other agents' VMs and files.</li>
+    <li>At most 2 VMs run on this Mac at once, shared with you. A VM is deleted when its lease ends.</li>
+  </ul>
+  <p>Commands run as the template's SSH user. Save the configuration after turning agent access on. Full guide: Helper Guide, AI agents.</p>
+</template>
+<template id="jamfSchoolHelp">
+  <h4>Finding the network and location IDs</h4>
+  <ol>
+    <li>In Jamf School, go to <b>Devices</b> then <b>Enroll Devices</b>.</li>
+    <li>Find the <b>Network ID</b> and the <b>Location ID</b> for the location you want to enroll into. They are also the values after <code>network=</code> and <code>location=</code> in the enrollment URL.</li>
+    <li>Paste them into the two fields below, together with your Jamf School address (<code>https://yourschool.jamfcloud.com</code>).</li>
+  </ol>
+  <p>Each location has its own IDs: add one Jamf server profile per location you enroll into.</p>
+</template>
+<template id="jamfInvitationHelp">
+  <h4>Getting an enrollment invitation ID</h4>
+  <p>It is the value after <code>invitation=</code> in an enrollment URL, not the whole URL. Jamf Pro only offers to create one by email, which needs SMTP set up. The Jamf Pro API does not. In Terminal on any Mac, with an account or API role allowed to create computer invitations:</p>
+  <pre class="popover-code" id="jamfInvitationCmd">JSS="https://yourname.jamfcloud.com"
+TOKEN=$(curl -s -u "your-username" -X POST \
+  "$JSS/api/v1/auth/token" | plutil -extract token raw -)
+BODY='&lt;computer_invitation&gt;
+&lt;invitation_type&gt;DEFAULT&lt;/invitation_type&gt;
+&lt;expiration_date&gt;Unlimited&lt;/expiration_date&gt;
+&lt;multiple_users_allowed&gt;true&lt;/multiple_users_allowed&gt;
+&lt;multiple_uses_allowed&gt;true&lt;/multiple_uses_allowed&gt;
+&lt;/computer_invitation&gt;'
+ID=$(curl -s -X POST "$JSS/JSSResource/computerinvitations/id/0" \
+  -H "Authorization: Bearer $TOKEN" \
+  -H "Content-Type: application/xml" -d "$BODY" \
+  | xmllint --xpath 'string(//id)' -)
+curl -s -H "Authorization: Bearer $TOKEN" \
+  "$JSS/JSSResource/computerinvitations/id/$ID" \
+  | xmllint --xpath 'string(//invitation)' -; echo</pre>
+  <p><button type="button" class="ghost tiny" onclick="copyPopoverCode()">Copy</button> curl asks for the password. The last line prints the invitation ID. It never expires and can be used for any number of Macs.</p>
 </template>
 <template id="autoEnrollHelp">
   <h4>Experimental feature</h4>

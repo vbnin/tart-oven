@@ -128,7 +128,7 @@ On the Dashboard:
 
 The **Setup Wizard** (Configuration) opens by itself on a first run with no VMs, and you can relaunch it any time. It has five steps:
 
-1. **Environment** checks that the Mac has an Apple silicon chip, and that Tart is installed and up to date. It can install or update Tart for you, and shows a green check once Tart is in place. Below that, **Extra features** turns on the optional Jamf and agentic AI sections of the dashboard; both are off by default, and you can change them later under **App Preferences**.
+1. **Environment** checks that the Mac has an Apple silicon chip, and that Tart is installed and up to date. It can install or update Tart for you, and shows a green check once Tart is in place. Below that, **Extra features** turns on the optional Jamf and agentic AI sections of the dashboard; both are off by default, and you can change them later under **Add-Ons**.
 2. **Storage & Server** shows the VM storage path, which you can change, and the free space there. Tart Oven recommends 40 GB or more, and warns if there is less, but you can continue. It also shows the server address.
 3. **First VM** offers two routes. **Pull an OCI image** is the quickest: it downloads a prepared macOS image you can clone. **Build a fresh VM from an IPSW** starts from Apple's restore image for a clean install, in the macOS version you choose. Pick one, then pull the image or choose a version from the list; versions already downloaded are marked in green. To use a restore image you already have, type its path under **Or a file on this Mac** or click **Browse…** (the Finder window opens on the Mac running Tart Oven; from another computer, type the path). A file works even while the online list is still loading. You can also skip this step.
 4. **Purpose** sets starting defaults. **Testing / Troubleshooting** keeps the scheduler off and runs VMs with a full display and audio. **Demo / Data Generation** turns the scheduler on and runs scheduled VMs headless with audio off. Change any of it later in Configuration.
@@ -136,7 +136,7 @@ The **Setup Wizard** (Configuration) opens by itself on a first run with no VMs,
 
 ### Updates
 
-Tart Oven checks GitHub for new Tart and Tart Oven releases at startup and every 24 hours. A banner in the top right links to **Update Tart** or to the Tart Oven release page. Closing a banner hides it until a newer version appears or Tart Oven restarts. Turn each check off with **Check for Tart updates** (Tart Settings) and **Check for Tart Oven updates** (App Preferences).
+Tart Oven checks GitHub for new Tart and Tart Oven releases at startup and every 24 hours. A banner in the top right links to **Update Tart** or to the Tart Oven release page. Closing a banner hides it until a newer version appears or Tart Oven restarts. Turn each check off with **Check for Tart updates** (Tart Settings) and **Check for Tart Oven updates** (Server Settings).
 
 ### Images and VMs
 
@@ -221,7 +221,7 @@ To run a whole script, click **Run script…** and pick a `.sh` file in Finder, 
 
 Commands run as the VM's SSH user (`admin` unless you changed it under **Edit VM**), whether or not that user is logged in. When they are, commands run inside their desktop session, so scripts that drive apps still work; with nobody logged in there is no desktop session to drive. The window shows live guest agent and SSH status at the top, and each VM remembers its own console output, command history, draft and sudo password across open/close cycles.
 
-Shortcut buttons above the prompt let you run common Jamf commands in one click: `jamf manage`, `jamf recon`, `jamf policy`, and `jamf checkJSSConnection`. They appear when **Configuration → App Preferences → Display Jamf-related features** is on.
+Shortcut buttons above the prompt let you run common Jamf commands in one click: `jamf manage`, `jamf recon`, `jamf policy`, and `jamf checkJSSConnection`. They appear when **Configuration → Add-Ons → Display Jamf-related features** is on.
 
 ## Configuration
 
@@ -269,9 +269,9 @@ Keep **Exclude OCI images from scheduler** enabled so registry cache entries rem
 
 ## Jamf and MDM
 
-Tart Oven can enroll the VMs you clone in Jamf Pro or Jamf School on their first boot, with no profile on the base VM. Turn on **Configuration → App Preferences → Display Jamf-related features** (off by default), then open **VM Management → Prepare VM for Jamf**. It has two numbered steps, and auto enroll needs both:
+Tart Oven can enroll the VMs you clone in Jamf Pro or Jamf School on their first boot, with no profile on the base VM. Turn on **Configuration → Add-Ons → Display Jamf-related features** (off by default), then open **VM Management → Prepare VM for Jamf**. It has two numbered steps, and auto enroll needs both:
 
-1. **Jamf Server Profiles.** Click **+ Add Jamf Server**, choose **Jamf Pro** or **Jamf School**, and enter the server name and base URL, then the invitation ID (Pro) or the network and location IDs (School).
+1. **Jamf Server Profiles.** Click **+ Add Jamf Server**, choose **Jamf Pro** or **Jamf School**, and enter the server name and base URL, then the invitation ID (Pro) or the network and location IDs (School). In the form, the button next to the type selector explains the values. For Jamf Pro, **How to get an enrollment invitation ID** gives a Terminal recipe that creates a reusable invitation through the API, which needs no email (SMTP) setup in Jamf Pro. For Jamf School, **How to find enrollment information** says where the network and location IDs are (Devices, then Enroll Devices).
 2. **Enable Auto-Enrollment Capabilities on Base VM.** Run this script once on the base VM, before you clone it (see [Preparing the base VM](#preparing-the-base-vm)). This is the step people miss: without it, auto enroll fails on every clone.
 
 Then clone the base VM with **Random MAC** and **Random serial** on, and choose a server under **Auto enroll at first boot**. Each clone gets its own profile from that server at its first boot and enrolls itself (see [Auto-enrolling VMs at boot](#auto-enrolling-vms-at-boot-experimental)).
@@ -388,19 +388,35 @@ Build the template once, by hand, and keep it stopped:
 ### Turning it on
 
 1. Generate the dashboard access token (**Configuration → Server Settings → Access token**). Agent tokens only limit access when a login is required.
-2. Switch on **Display agentic AI features** under **Configuration → App Preferences**, then in the **Agentic AI access** section switch on **Allow AI agents to lease VMs**, pick the templates agents may clone from the **Agent templates** dropdown (tick one or more existing VMs), and set the longest lease.
-3. Click **Create agent token**, give it a name such as `claude`, and copy it. It is shown once. From Terminal: `tart-oven token agent create claude`; `tart-oven token agent list` and `tart-oven token agent revoke claude` manage them.
-4. Save the configuration.
+2. Switch on **Display agentic AI features** under **Configuration → Add-Ons**, then in the **Agentic AI access** section switch on **Allow AI agents to lease VMs**, pick the templates agents may clone from the **Agent templates** dropdown (tick one or more existing VMs), and set the longest lease.
+3. Save the configuration. Agent access only takes effect once saved.
+4. Click **Create agent token** and give it a name such as `claude`. It is shown once. **How to connect an AI client**, next to the button and available as long as a token exists, shows a ready-to-paste command for Claude Code, the config block for Claude Desktop and other MCP clients, and a `curl` line to test the token. It carries the new token right after you create it, and `<agent token>` to replace later. From Terminal: `tart-oven token agent create claude`; `tart-oven token agent list` and `tart-oven token agent revoke claude` manage them.
 
 ### Connecting an agent
 
-Claude Code, or any client that speaks the Model Context Protocol, starts `tart-oven mcp` as a subprocess:
+Claude Code, or any client that speaks the Model Context Protocol, starts Tart Oven's MCP server itself, as a subprocess; there is nothing to run by hand. Use the full path, because apps such as Claude Desktop start it with a minimal `PATH`:
 
 ```sh
-claude mcp add tart-oven --env TART_OVEN_TOKEN=<agent token> -- tart-oven mcp
+claude mcp add tart-oven --scope user -e TART_OVEN_TOKEN=<agent token> -- /usr/local/bin/tart-oven mcp
 ```
 
-It talks to the local server by default. Set `TART_OVEN_URL` to reach another one (add `TART_OVEN_INSECURE=1` for a self-signed certificate). The tools are `tart_oven_info`, `create_vm`, `vm_status`, `list_vms`, `exec`, `extend_vm` and `destroy_vm`.
+For Claude Desktop, add this to `~/Library/Application Support/Claude/claude_desktop_config.json`, then quit and reopen Claude (other MCP clients take the same block):
+
+```json
+{
+  "mcpServers": {
+    "tart-oven": {
+      "command": "/usr/local/bin/tart-oven",
+      "args": ["mcp"],
+      "env": { "TART_OVEN_TOKEN": "<agent token>" }
+    }
+  }
+}
+```
+
+It talks to the Tart Oven on the same Mac by default. From another Mac (which needs `tart-oven` installed too), also set `TART_OVEN_URL` to the server's address, and `TART_OVEN_INSECURE=1` if it uses a self-signed certificate. **Connect an AI client** fills these in for you. The client keeps the token in plain text in its own config file.
+
+To check the token works, `curl -s -H "Authorization: Bearer <agent token>" http://127.0.0.1:9000/api/agent/info` prints your token's name (`you`) and the templates. `401` means a wrong token; `agent_api_disabled` means agent access is off or not saved. In Claude Code, `claude mcp list` should show `tart-oven` as connected. The tools are `tart_oven_info`, `create_vm`, `vm_status`, `list_vms`, `exec`, `extend_vm` and `destroy_vm`.
 
 Without MCP, the same operations are plain HTTP under `/api/agent/`. The server describes itself at `/api/agent/guide` (Markdown) and `/api/agent/openapi.json`:
 
@@ -420,8 +436,8 @@ curl -H "Authorization: Bearer $TOKEN" -X DELETE http://127.0.0.1:9000/api/agent
 - An agent VM is cloned from an allowed template, runs headless on the shared (NAT) network, and appears on the Dashboard with an **agent** tag and its lease time in the Timer column. The scheduler never starts or stops it.
 - The host runs at most two VMs at once, shared with you and with other agents. When no slot is free, creating a VM fails with `capacity`.
 - A lease defaults to 60 minutes. An expired lease is checked every 30 seconds; the VM is then stopped and **deleted**, with everything inside it.
-- Each VM has its own shared folder (`<shared directory>/agent/<vm name>` on the host, `/Volumes/My Shared Files/host_resources/agent/<vm name>` in the guest). That is how an agent gets files in and out. It is kept for a day after the VM is gone.
-- Commands run through the guest agent, in a fresh shell each time. Output is capped at 1 MiB per stream, and a command is abandoned after its timeout (120 seconds by default, 30 minutes at most), though processes it started can keep running in the guest.
+- Each VM has its own shared folder: `<shared directory>/agent/<vm name>` on the host, which is all the VM sees as `/Volumes/My Shared Files/host_resources`. An agent VM never sees the rest of the shared folder, your files or other agents' files. That is how an agent gets files in and out. It is kept for a day after the VM is gone.
+- Commands run through the guest agent as the template's SSH user (set in **Edit VM**, otherwise the default from Configuration), in a fresh shell each time. Output is capped at 1 MiB per stream, and a command is abandoned after its timeout (120 seconds by default, 30 minutes at most), though processes it started can keep running in the guest.
 - A VM that fails to build or boot is deleted automatically, and the reason stays available to the agent for an hour.
 - If Tart Oven restarts, running agent VMs are stopped; the agent sees phase `stopped` and creates a new one.
 - You can still stop, inspect or delete an agent VM from the Dashboard at any time. Tart Oven logs each agent action, with the first 100 characters of every command, in the Logs tab.

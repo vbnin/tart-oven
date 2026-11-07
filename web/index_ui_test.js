@@ -2075,7 +2075,7 @@ function jamfElements(ids) {
 const JAMF_EDITOR_IDS = [
   "jamfProfileEditor", "jamfEditorTitle", "jamfProfileId", "jamfProfileKind", "jamfProfileName", "jamfBaseUrl",
   "jamfInvitationCode", "jamfNetwork", "jamfLocation", "jamfSaveStatus", "jamfKindNote",
-  "jamfKindProBtn", "jamfKindSchoolBtn", "jamfProFields", "jamfSchoolFields",
+  "jamfKindProBtn", "jamfKindSchoolBtn", "jamfProFields", "jamfSchoolFields", "jamfHowProBtn", "jamfHowSchoolBtn",
 ];
 
 function jamfEditorFixture(profiles, extraGlobals) {
@@ -2535,4 +2535,83 @@ test("names with quotes reach the click handlers intact and run nothing", () => 
     assert.deepEqual(calls, [["run", name]], "the handler gets the exact name: " + name);
     assert.equal(alerted, false, "nothing else runs: " + name);
   }
+});
+
+test("agentConnectSnippets: local needs only the token, remote adds the URL, self-signed adds insecure", () => {
+  const fn = evaluateFunction("agentConnectSnippets", {});
+  const local = fn("ta_abc", "http://127.0.0.1:9000", true, false);
+  assert.equal(local.claude, "claude mcp add tart-oven --scope user -e TART_OVEN_TOKEN=ta_abc -- /usr/local/bin/tart-oven mcp");
+  assert.deepEqual(JSON.parse(local.json), { mcpServers: { "tart-oven": { command: "/usr/local/bin/tart-oven", args: ["mcp"], env: { TART_OVEN_TOKEN: "ta_abc" } } } });
+  assert.equal(local.test, 'curl -s -H "Authorization: Bearer ta_abc" http://127.0.0.1:9000/api/agent/info');
+
+  const remote = fn("ta_abc", "https://oven.lan:9000", false, true);
+  assert.match(remote.claude, /-e TART_OVEN_TOKEN=ta_abc -e TART_OVEN_URL=https:\/\/oven\.lan:9000 -e TART_OVEN_INSECURE=1 -- \/usr\/local\/bin\/tart-oven mcp$/);
+  assert.equal(JSON.parse(remote.json).mcpServers["tart-oven"].env.TART_OVEN_URL, "https://oven.lan:9000");
+  assert.match(remote.test, /^curl -s -k /, "a self-signed certificate needs -k for the test");
+  assert.ok(!/TART_OVEN_INSECURE/.test(fn("t", "https://oven.lan", false, false).claude), "a real certificate needs no insecure flag");
+});
+
+test("the how-to button follows the chosen Jamf type and its popover closes when it hides", () => {
+  let closed = 0;
+  const { els, fn, ctx } = jamfEditorFixture([], { closeHelp: () => { closed++; } });
+  fn.openAddJamfProfile();
+  assert.equal(els.jamfHowProBtn.style.display, "", "Pro is the default: the invitation button shows");
+  assert.equal(els.jamfHowSchoolBtn.style.display, "none");
+  fn.setJamfEditorKind("school");
+  assert.equal(els.jamfHowProBtn.style.display, "none");
+  assert.equal(els.jamfHowSchoolBtn.style.display, "");
+  ctx.helpOwner = els.jamfHowSchoolBtn; // its popover is open
+  fn.setJamfEditorKind("pro");
+  assert.equal(els.jamfHowSchoolBtn.style.display, "none");
+  assert.equal(closed, 1, "a popover must not stay pinned to a hidden button");
+  ctx.helpOwner = els.jamfHowProBtn;
+  fn.setJamfEditorKind("pro");
+  assert.equal(closed, 1, "the visible button's popover is left open");
+});
+
+test("the connect button shows while an agent token exists and closes the instructions when none is left", () => {
+  const btn = { classList: createMockClassList(), setAttribute() {} };
+  const card = { classList: createMockClassList() };
+  card.classList.add("hidden");
+  btn.setAttribute = function (k, v) { this[k] = v; };
+  const ctx = vm.createContext({ document: { getElementById: id => id === "agentConnectBtn" ? btn : card } });
+  vm.runInContext(["setAgentConnectOpen", "syncAgentConnectButton"].map(extractFunction).join("\n") + "; globalThis.api = { setAgentConnectOpen, syncAgentConnectButton };", ctx);
+  const { setAgentConnectOpen, syncAgentConnectButton } = ctx.api;
+  btn.classList.add("hidden");
+  syncAgentConnectButton(2);
+  assert.ok(!btn.classList.contains("hidden"), "tokens exist: the button is available");
+  setAgentConnectOpen(true);
+  assert.ok(!card.classList.contains("hidden"));
+  assert.equal(btn["aria-expanded"], "true");
+  syncAgentConnectButton(0);
+  assert.ok(btn.classList.contains("hidden"), "no token left: no button");
+  assert.ok(card.classList.contains("hidden"), "and the instructions close");
+  assert.equal(btn["aria-expanded"], "false");
+});
+
+test("the instructions use the token on screen right after creation, and a placeholder later", () => {
+  const reveal = { classList: createMockClassList() };
+  const value = { textContent: "ta_FRESH" };
+  const get = evaluateFunction("currentAgentTokenOnScreen", { document: { getElementById: id => id === "agentTokenReveal" ? reveal : value } });
+  assert.equal(get(), "ta_FRESH", "the token box is showing: use it");
+  reveal.classList.add("hidden");
+  assert.equal(get(), "", "the token box is hidden (shown once): the placeholder is used instead");
+  const intro = evaluateFunction("agentConnectIntroText", { AGENT_TOKEN_PLACEHOLDER: "<agent token>" });
+  assert.match(intro(false), /Replace <agent token> with an agent token/);
+  assert.match(intro(true), /shown once: copy a command now/);
+});
+
+// Where the row menu goes: below the button, else above, else clamped inside the window.
+test("rowMenuTop keeps the menu inside the window", () => {
+  const top = evaluateFunction("rowMenuTop", {});
+  const menu = 274;
+  assert.equal(top(100, 130, menu, 900), 134, "room below: just under the button");
+  assert.equal(top(700, 730, menu, 900), 700 - menu - 4, "no room below, room above: above the button");
+  // A 420 px window: neither side holds 274 px, so it is clamped inside the window.
+  for (const [btnTop, btnBottom] of [[60, 90], [200, 230], [370, 400]]) {
+    const t = top(btnTop, btnBottom, menu, 420);
+    assert.ok(t >= 8 && t + menu <= 420 - 8, `button at ${btnTop}: menu ${t}..${t + menu} must fit a 420 px window`);
+  }
+  // A window shorter than the menu: the list is capped by CSS, so it starts at the margin.
+  assert.equal(top(100, 130, 200, 216), 8);
 });

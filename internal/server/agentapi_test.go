@@ -517,3 +517,79 @@ func TestShowAgentFeaturesOnUpgrade(t *testing.T) {
 		t.Error("agent access off: the panel stays hidden by default")
 	}
 }
+
+// An agent VM is given only its own folder as host_resources. The whole shared
+// folder holds other agents' files and the guest agent installer that Install
+// Agent runs as root in the owner's VMs.
+func TestAgentVMsGetOnlyTheirOwnSharedFolder(t *testing.T) {
+	if got, want := sharedDirForRun("/Users/Shared/Tart/Resources", "agent-ab12", true), "/Users/Shared/Tart/Resources/agent/agent-ab12"; got != want {
+		t.Errorf("leased VM: %q, want %q", got, want)
+	}
+	if got := sharedDirForRun("/Users/Shared/Tart/Resources", "my-vm", false); got != "/Users/Shared/Tart/Resources" {
+		t.Errorf("an ordinary VM keeps the whole shared folder, got %q", got)
+	}
+}
+
+func TestAgentVMViewPointsAtTheRootOfItsOwnShare(t *testing.T) {
+	m, _ := newAgentTestManager(t)
+	m.mu.Lock()
+	m.vms["agent-x1"] = &VM{Name: "agent-x1", State: "running", Lease: &Lease{Owner: "claude", Template: "base"}}
+	m.mu.Unlock()
+	view, ok := m.agentViewOf("agent-x1")
+	if !ok || view.SharedFolder == nil || view.SharedFolder.Guest != guestSharedMount {
+		t.Fatalf("guest path = %+v, want the root of the VM's own share", view.SharedFolder)
+	}
+	if !strings.HasSuffix(view.SharedFolder.Host, "/agent/agent-x1") {
+		t.Fatalf("host path = %q", view.SharedFolder.Host)
+	}
+}
+
+// Through the real create path: the clone keeps the template's SSH user (commands
+// run as the template's user, as the guide says), and `tart run` is given only
+// the VM's own folder as host_resources.
+func TestAgentCreateKeepsTheTemplateUserAndMountsOnlyItsFolder(t *testing.T) {
+	m, h := newAgentTestManager(t)
+	runLog := filepath.Join(t.TempDir(), "run.log")
+	logging := strings.Replace(fakeTart, "case \"$1\" in\n", "case \"$1\" in\n  run) echo \"$*\" >> \""+runLog+"\"; exit 1;;\n", 1)
+	logging = strings.Replace(logging, `clone) mkdir -p "$TART_HOME/vms/$3";;`, `clone) sleep 1; mkdir -p "$TART_HOME/vms/$3";;`, 1)
+	if err := os.WriteFile(m.cfg.TartAppPath, []byte(logging), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	m.mu.Lock()
+	m.vms["base-TEMPLATE"].SSHUser, m.vms["base-TEMPLATE"].SSHPassword = "dev", "s3cret"
+	m.mu.Unlock()
+
+	rec := do(h, "POST", "/api/agent/vms", `{"template":"base-TEMPLATE"}`, map[string]string{})
+	if rec.Code != http.StatusAccepted {
+		t.Fatalf("create = %d %s", rec.Code, rec.Body)
+	}
+	var v agentVMView
+	decode(t, rec, &v)
+	m.mu.Lock()
+	clone := m.vms[v.Name]
+	user, pass := "", ""
+	if clone != nil {
+		user, pass = clone.SSHUser, clone.SSHPassword
+	}
+	m.mu.Unlock()
+	if user != "dev" || pass != "s3cret" {
+		t.Fatalf("clone runs as %q (password kept: %v), want the template's user", user, pass == "s3cret")
+	}
+
+	deadline := time.Now().Add(30 * time.Second)
+	var args string
+	for time.Now().Before(deadline) {
+		if b, err := os.ReadFile(runLog); err == nil && len(b) > 0 {
+			args = string(b)
+			break
+		}
+		time.Sleep(100 * time.Millisecond)
+	}
+	own := "--dir=host_resources:" + filepath.Join(m.cfg.SharedDir, "agent", v.Name)
+	if !strings.Contains(args, own) {
+		t.Fatalf("tart run args = %q, want %q", args, own)
+	}
+	if strings.Contains(args, "--dir=host_resources:"+m.cfg.SharedDir+" ") {
+		t.Fatalf("an agent VM was given the whole shared folder: %q", args)
+	}
+}

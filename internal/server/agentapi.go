@@ -70,7 +70,7 @@ func (m *Manager) agentHandler(h func(http.ResponseWriter, *http.Request, princi
 		m.mu.Unlock()
 		if !on {
 			writeAgentError(w, agentErr(http.StatusForbidden, "agent_api_disabled",
-				"the agent API is off; enable it in Configuration > Agentic AI access (shown by App Preferences > Display agentic AI features)"))
+				"the agent API is off; enable it in Configuration > Agentic AI access (shown by Add-Ons > Display agentic AI features)"))
 			return
 		}
 		h(w, r, principalOf(r))
@@ -133,7 +133,7 @@ func (m *Manager) agentViewOf(name string) (agentVMView, bool) {
 		v.State, v.IP, v.GuestAgentOK, v.SSHOK = vm.State, vm.IP, vm.AgentOK, vm.SSHOK
 		v.SharedFolder = &agentSharedView{
 			Host:  sharedDir + "/" + agentSharedSub + "/" + name,
-			Guest: guestSharedMount + "/" + agentSharedSub + "/" + name,
+			Guest: guestSharedMount, // the VM's own folder is all it is given as host_resources
 		}
 	}
 	switch {
@@ -225,7 +225,7 @@ func (m *Manager) handleAgentInfo(w http.ResponseWriter, r *http.Request, p prin
 			"maxOutputBytes":    agentOutputLimit,
 			"maxWaitSec":        maxAgentWaitSec,
 		},
-		"sharedFolder": map[string]string{"hostRoot": shared + "/" + agentSharedSub, "guestRoot": guestSharedMount + "/" + agentSharedSub},
+		"sharedFolder": map[string]string{"hostRoot": shared + "/" + agentSharedSub, "guestRoot": guestSharedMount},
 		"guide":        "/api/agent/guide",
 		"openapi":      "/api/agent/openapi.json",
 	})

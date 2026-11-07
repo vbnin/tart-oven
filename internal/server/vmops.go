@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"log"
+	"os"
 	"os/exec"
 	"strings"
 	"time"
@@ -169,7 +170,8 @@ func (m *Manager) doRun(name, trigger string, opts runOptions) {
 	m.history = append(m.history, ev)
 	m.pruneHistory()
 	home := m.cfg.VMStoragePath
-	shared := m.cfg.SharedDir
+	leased := vm.Lease != nil
+	shared := sharedDirForRun(m.cfg.SharedDir, name, leased)
 	jamf := m.cfg.JamfRecon
 	extra := splitArgs(m.cfg.RunArgs)
 	if opts.Override != nil {
@@ -211,6 +213,13 @@ func (m *Manager) doRun(name, trigger string, opts runOptions) {
 	// in the background to avoid zombies. Any user-supplied custom arguments
 	// (e.g. --vnc, --no-audio) are appended last. We capture its stdout/stderr
 	// into runLog so a boot failure surfaces tart's actual error message.
+	if leased {
+		// An agent VM's own folder may not exist yet (a manual start, or one
+		// removed after its lease): tart refuses a missing --dir folder.
+		if err := os.MkdirAll(shared, 0o755); err != nil {
+			m.logln("run %s: shared folder: %v", name, err)
+		}
+	}
 	runArgs := []string{"run", name,
 		"--dir=host_resources:" + shared}
 	if netPriority != "shared" && !hasNetArg(extra) {
