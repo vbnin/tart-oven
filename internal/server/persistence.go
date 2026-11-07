@@ -133,6 +133,15 @@ func (m *Manager) load() {
 	if m.cfg.LogPath == "" {
 		m.cfg.LogPath = d.LogPath
 	}
+	// Every stored Jamf server profile predates the Pro/School distinction, so a
+	// missing (or unrecognised) kind means Jamf Pro — the only kind that existed.
+	for i := range m.cfg.JamfProfiles {
+		kind := normalizeJamfKind(m.cfg.JamfProfiles[i].Kind)
+		if kind == "" {
+			kind = JamfKindPro
+		}
+		m.cfg.JamfProfiles[i].Kind = kind
+	}
 	if p.VMs != nil {
 		m.vms = p.VMs
 	}
@@ -173,6 +182,9 @@ func (m *Manager) pruneHistory() {
 
 // save writes state atomically. Caller MUST hold m.mu.
 func (m *Manager) save() {
+	if m.statePath == "" {
+		return // a Manager built without a state file (tests) must not write one into the working directory
+	}
 	p := persisted{Config: m.cfg, VMs: m.vms, History: m.history}
 	data, err := json.MarshalIndent(p, "", "  ")
 	if err != nil {

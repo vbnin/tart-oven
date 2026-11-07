@@ -77,6 +77,20 @@ func safeMDMStageError(stage mdm.Stage) (int, string) {
 		return http.StatusBadGateway, "guest agent upload failed"
 	case mdm.StageVerification:
 		return http.StatusBadGateway, "uploaded profile verification failed"
+	// The three Jamf School stages. Naming the failed step is the entire diagnostic on
+	// that path: the profile is obtained by replaying a browser handshake of three
+	// sequential requests, which breaks if Jamf changes the enrollment page markup or
+	// the startEnrollment response shape, and knowing which step broke is the only
+	// thing that makes such a break actionable. These messages are canned, like every
+	// other arm here — internal/mdm shapes its School errors to hold no response bytes,
+	// request URL, CSRF token or network/location ID, but this function is reached by
+	// errors from everywhere, so it keeps surfacing the stage rather than err.Error().
+	case mdm.StageLanding:
+		return http.StatusBadGateway, "could not reach the Jamf School enrollment page"
+	case mdm.StageSession:
+		return http.StatusBadGateway, "Jamf School refused to start enrollment"
+	case mdm.StageDownload:
+		return http.StatusBadGateway, "could not download the enrollment profile from Jamf School"
 	default:
 		return http.StatusBadGateway, "profile transfer failed"
 	}
@@ -148,6 +162,7 @@ func (m *Manager) handleMDMProfile(w http.ResponseWriter, r *http.Request) {
 	if !profileFound {
 		targetProfile = JamfProfile{
 			Name:           "Default Server",
+			Kind:           JamfKindPro, // the legacy single-server config is always Jamf Pro
 			BaseURL:        cfg.JamfBaseURL,
 			InvitationCode: cfg.JamfInvitationCode,
 		}
@@ -167,7 +182,18 @@ func (m *Manager) handleMDMProfile(w http.ResponseWriter, r *http.Request) {
 	// A VM with a working guest agent needs neither SSH credentials nor an IP.
 	viaAgent := vmCopy.State == "running" && m.guestAgentAvailable(name)
 	baseURL, baseURLErr := normalizeJamfBaseURL(targetProfile.BaseURL)
-	if baseURLErr != nil || baseURL == "" || strings.TrimSpace(targetProfile.InvitationCode) == "" ||
+	// What counts as "configured" depends on the kind, because each kind stores only the
+	// secrets it uses and a kind switch wipes the other's: Pro generates a profile from
+	// an invitation code, while School asks its server to mint one and must say which
+	// network and location to enroll into. Anything that is not explicitly School is
+	// treated as Pro, which is also what keeps an unrecognised kind from reaching the
+	// School branch below.
+	secretsMissing := strings.TrimSpace(targetProfile.InvitationCode) == ""
+	if targetProfile.Kind == JamfKindSchool {
+		secretsMissing = strings.TrimSpace(targetProfile.Network) == "" ||
+			strings.TrimSpace(targetProfile.Location) == ""
+	}
+	if baseURLErr != nil || baseURL == "" || secretsMissing ||
 		(!viaAgent && (strings.TrimSpace(username) == "" || strings.TrimSpace(password) == "")) {
 		status, message := safeMDMStageError(mdm.StageConfiguration)
 		writeMDMProfileError(w, status, name, mdm.StageConfiguration, message)
@@ -196,20 +222,79 @@ func (m *Manager) handleMDMProfile(w http.ResponseWriter, r *http.Request) {
 		ip = strings.TrimSpace(ip)
 	}
 
-	profile, payloadUUID, err := mdm.GenerateProfile(mdm.ProfileInput{
-		BaseURL:        baseURL,
-		InvitationCode: targetProfile.InvitationCode,
-	}, cryptorand.Reader)
-	if err != nil {
-		log.Printf("MDM profile copy failed for VM %q at stage %s", name, mdm.StageConfiguration)
-		status, message := safeMDMStageError(mdm.StageConfiguration)
-		writeMDMProfileError(w, status, name, mdm.StageConfiguration, message)
-		return
-	}
+	// Checked before the profile exists, not after: a Jamf School profile is minted by
+	// the server, and every mint issues a fresh client identity that becomes a device
+	// record. Discovering we have no way to deliver it only after asking Jamf for one
+	// would leave an orphaned identity behind on every attempt.
 	if m.mdmCopier == nil && !viaAgent {
 		log.Printf("MDM profile copy failed for VM %q at stage %s", name, mdm.StageSFTP)
 		writeMDMProfileError(w, http.StatusInternalServerError, name, mdm.StageSFTP, "profile copy service unavailable")
 		return
+	}
+
+	// A School fetch makes the tenant issue a device identity, and that identity is
+	// wasted if the browser tab closes or reloads before it reaches the guest. So
+	// from here on the work no longer dies with the HTTP request, but it is still
+	// bounded. (A Jamf Pro profile is generated locally and costs nothing to redo.)
+	deliverCtx := r.Context()
+	if targetProfile.Kind == JamfKindSchool {
+		var cancelDeliver context.CancelFunc
+		deliverCtx, cancelDeliver = context.WithTimeout(context.WithoutCancel(r.Context()), schoolDeliverTimeout)
+		defer cancelDeliver()
+	}
+
+	// Only profile *production* branches on kind. Pro generates one locally from a
+	// template; School downloads one over the network. Both kinds then go through the
+	// same copier to the same path on the guest's Desktop.
+	var profile []byte
+	var payloadUUID string
+	if targetProfile.Kind == JamfKindSchool {
+		if m.schoolFetcher == nil {
+			log.Printf("MDM profile copy failed for VM %q at stage %s", name, mdm.StageLanding)
+			writeMDMProfileError(w, http.StatusInternalServerError, name, mdm.StageLanding,
+				"Jamf School profile service unavailable")
+			return
+		}
+		// Three sequential HTTPS round-trips to the tenant's server. m.mu was released
+		// above and everything since works from the cfg/vmCopy snapshots, which is what
+		// keeps this off the lock; tart.go:24 forbids network IO while holding it.
+		// Guarded by TestHandleMDMProfileFetchesSchoolProfileWithoutHoldingManagerLock.
+		// Trimmed to match the validation above, which tests the trimmed values. load()
+		// normalises only Kind, so a stored profile can still hold padded secrets (a
+		// hand-edited state.json, or any writer other than handleConfig); untrimmed
+		// they would travel into the landing URL's query as network=+12345+ and come
+		// back as an unexplained failure at the landing stage.
+		profile, err = m.schoolFetcher.FetchProfile(deliverCtx, mdm.SchoolInput{
+			BaseURL:  baseURL,
+			Network:  strings.TrimSpace(targetProfile.Network),
+			Location: strings.TrimSpace(targetProfile.Location),
+		})
+		if err != nil {
+			// internal/mdm types every error on this path with the step that failed.
+			// StageDownload is a floor for an untyped one, not a diagnosis.
+			stage := mdm.StageDownload
+			var stageErr *mdm.StageError
+			if errors.As(err, &stageErr) {
+				stage = stageErr.Stage
+			}
+			log.Printf("MDM profile copy failed for VM %q at stage %s", name, stage)
+			status, message := safeMDMStageError(stage)
+			writeMDMProfileError(w, status, name, stage, message)
+			return
+		}
+		// payloadUUID stays empty: the server generated this profile, and it normally
+		// arrives as signed DER we deliberately do not parse. See CopyAndVerify.
+	} else {
+		profile, payloadUUID, err = mdm.GenerateProfile(mdm.ProfileInput{
+			BaseURL:        baseURL,
+			InvitationCode: targetProfile.InvitationCode,
+		}, cryptorand.Reader)
+		if err != nil {
+			log.Printf("MDM profile copy failed for VM %q at stage %s", name, mdm.StageConfiguration)
+			status, message := safeMDMStageError(mdm.StageConfiguration)
+			writeMDMProfileError(w, status, name, mdm.StageConfiguration, message)
+			return
+		}
 	}
 
 	target := mdm.TransferTarget{
@@ -218,7 +303,7 @@ func (m *Manager) handleMDMProfile(w http.ResponseWriter, r *http.Request) {
 		Password: password,
 		Timeout:  time.Duration(sshTimeout) * time.Second,
 	}
-	if err := m.copyProfile(r.Context(), name, viaAgent, target, profile, payloadUUID); err != nil {
+	if err := m.copyProfile(deliverCtx, name, viaAgent, target, profile, payloadUUID); err != nil {
 		stage := mdm.StageSFTP
 		if viaAgent {
 			stage = mdm.StageAgent
@@ -232,6 +317,8 @@ func (m *Manager) handleMDMProfile(w http.ResponseWriter, r *http.Request) {
 		writeMDMProfileError(w, status, name, stage, message)
 		return
 	}
+
+	m.recordEnrollProfile(name, profile, targetProfile.Kind == JamfKindSchool)
 
 	writeJSON(w, mdmProfileResponse{
 		OK:          true,
@@ -1040,8 +1127,26 @@ func (m *Manager) handleConfig(w http.ResponseWriter, r *http.Request) {
 		}
 		for _, p := range list {
 			if strings.TrimSpace(p.BaseURL) != "" {
-				if _, err := normalizeJamfBaseURL(p.BaseURL); err != nil {
+				norm, err := normalizeJamfBaseURL(p.BaseURL)
+				if err != nil {
 					http.Error(w, err.Error(), http.StatusBadRequest)
+					return
+				}
+				// A School profile holds a private key: say so now, not at the first
+				// copy behind a generic message. A client that omits the kind keeps
+				// the stored one (see the merge below).
+				kind := p.Kind
+				if kind == "" {
+					m.mu.Lock()
+					for _, old := range m.cfg.JamfProfiles {
+						if old.ID == p.ID {
+							kind = old.Kind
+						}
+					}
+					m.mu.Unlock()
+				}
+				if kind == JamfKindSchool && !strings.HasPrefix(strings.ToLower(norm), "https://") {
+					http.Error(w, "Jamf School server base URL must use https", http.StatusBadRequest)
 					return
 				}
 			}
@@ -1176,9 +1281,9 @@ func (m *Manager) handleConfig(w http.ResponseWriter, r *http.Request) {
 	if raw, ok := fields["jamfProfiles"]; ok {
 		var list []JamfProfile
 		if json.Unmarshal(raw, &list) == nil {
-			existingMap := make(map[string]string)
+			existingMap := make(map[string]JamfProfile)
 			for _, p := range m.cfg.JamfProfiles {
-				existingMap[p.ID] = p.InvitationCode
+				existingMap[p.ID] = p
 			}
 			// The dashboard represents a legacy single-server config as a
 			// synthesized profile with id "default". When that row is saved
@@ -1186,11 +1291,15 @@ func (m *Manager) handleConfig(w http.ResponseWriter, r *http.Request) {
 			// stored legacy code so the profile isn't persisted code-less.
 			if m.cfg.JamfInvitationCode != "" {
 				if _, ok := existingMap["default"]; !ok {
-					existingMap["default"] = m.cfg.JamfInvitationCode
+					existingMap["default"] = JamfProfile{
+						Kind:           JamfKindPro,
+						InvitationCode: m.cfg.JamfInvitationCode,
+					}
 				}
 			}
 			var cleaned []JamfProfile
 			for i, p := range list {
+				prev := existingMap[p.ID]
 				p.Name = strings.TrimSpace(p.Name)
 				if p.Name == "" {
 					p.Name = fmt.Sprintf("Jamf Server %d", i+1)
@@ -1198,13 +1307,46 @@ func (m *Manager) handleConfig(w http.ResponseWriter, r *http.Request) {
 				if p.ID == "" {
 					p.ID = fmt.Sprintf("jamf-%d", time.Now().UnixNano()+int64(i))
 				}
+				// A client that doesn't know about kinds at all must not silently
+				// turn a School profile back into a Pro one.
+				p.Kind = normalizeJamfKind(p.Kind)
+				if p.Kind == "" {
+					p.Kind = normalizeJamfKind(prev.Kind)
+				}
+				if p.Kind == "" {
+					p.Kind = JamfKindPro
+				}
 				if norm, err := normalizeJamfBaseURL(p.BaseURL); err == nil && norm != "" {
 					p.BaseURL = norm
 				}
+				// Blank means "keep what is stored" for every write-only secret:
+				// the client is only ever told whether one is set, so it cannot
+				// echo the value back.
 				if strings.TrimSpace(p.InvitationCode) == "" {
-					p.InvitationCode = existingMap[p.ID]
+					p.InvitationCode = prev.InvitationCode
 				} else {
 					p.InvitationCode = strings.TrimSpace(p.InvitationCode)
+				}
+				if strings.TrimSpace(p.Network) == "" {
+					p.Network = prev.Network
+				} else {
+					p.Network = strings.TrimSpace(p.Network)
+				}
+				if strings.TrimSpace(p.Location) == "" {
+					p.Location = prev.Location
+				} else {
+					p.Location = strings.TrimSpace(p.Location)
+				}
+				// A profile only ever stores the secrets its own kind uses, so
+				// changing the kind discards the other kind's credentials rather
+				// than leaving them in state.json unreachable and unused. The
+				// consequence is deliberate: switching back means re-entering
+				// them, because write-only secrets can never be read back.
+				switch p.Kind {
+				case JamfKindSchool:
+					p.InvitationCode = ""
+				case JamfKindPro:
+					p.Network, p.Location = "", ""
 				}
 				if p.BaseURL != "" {
 					cleaned = append(cleaned, p)

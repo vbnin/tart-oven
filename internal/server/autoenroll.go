@@ -3,7 +3,9 @@ package server
 import (
 	"context"
 	cryptorand "crypto/rand"
+	"crypto/sha256"
 	"encoding/base64"
+	"encoding/hex"
 	"errors"
 	"fmt"
 	"net"
@@ -12,12 +14,23 @@ import (
 	"time"
 )
 
-// copyMDMProfileToVM generates a fresh (unexpired) enrollment profile and copies
+// copyMDMProfileToVM obtains a fresh (unexpired) enrollment profile and copies
 // it to name's Desktop, mirroring handleMDMProfile's target-selection and
 // transfer logic so both the manual "Copy MDM profile" panel and the
 // auto-enroll flow push the same kind of profile the same way. Kept separate
 // from handleMDMProfile (rather than factored out of it) to avoid touching the
-// heavily-tested HTTP handler for this first version.
+// heavily-tested HTTP handler for this first version; the Jamf School branch
+// below deliberately repeats the handler's, and the two should be kept in step.
+//
+// A Jamf Pro profile is generated locally; a Jamf School profile is downloaded,
+// and every download mints a fresh client identity (a device record) in the
+// tenant. So nothing that can fail cheaply may be left until after the fetch.
+//
+// The error text from here becomes Task.Error, an m.logs line and the process
+// log, all of which reach every browser over SSE. For School that text is built
+// from the failed stage alone (safeMDMStageError), never from an underlying
+// error, because those can carry the profile: it embeds a PKCS#12 identity and
+// that identity's cleartext password.
 func (m *Manager) copyMDMProfileToVM(ctx context.Context, name, profileID, sshUserOverride, sshPasswordOverride string) (path, payloadUUID string, err error) {
 	m.mu.Lock()
 	cfg := m.cfg
@@ -46,6 +59,7 @@ func (m *Manager) copyMDMProfileToVM(ctx context.Context, name, profileID, sshUs
 	if !profileFound {
 		targetProfile = JamfProfile{
 			Name:           "Default Server",
+			Kind:           JamfKindPro, // the legacy single-server config is always Jamf Pro
 			BaseURL:        cfg.JamfBaseURL,
 			InvitationCode: cfg.JamfInvitationCode,
 		}
@@ -65,9 +79,19 @@ func (m *Manager) copyMDMProfileToVM(ctx context.Context, name, profileID, sshUs
 	// A VM with a working guest agent needs neither SSH credentials nor an IP.
 	viaAgent := vmCopy.State == "running" && m.guestAgentAvailable(name)
 	baseURL, baseURLErr := normalizeJamfBaseURL(targetProfile.BaseURL)
-	if baseURLErr != nil || baseURL == "" || strings.TrimSpace(targetProfile.InvitationCode) == "" ||
+	// Each kind stores only the secrets it uses. Anything that is not explicitly
+	// School is treated as Pro, as in handleMDMProfile.
+	isSchool := targetProfile.Kind == JamfKindSchool
+	secretsMissing := strings.TrimSpace(targetProfile.InvitationCode) == ""
+	secretsName := "invitation code"
+	if isSchool {
+		secretsMissing = strings.TrimSpace(targetProfile.Network) == "" ||
+			strings.TrimSpace(targetProfile.Location) == ""
+		secretsName = "network or location"
+	}
+	if baseURLErr != nil || baseURL == "" || secretsMissing ||
 		(!viaAgent && (strings.TrimSpace(username) == "" || strings.TrimSpace(password) == "")) {
-		return "", "", fmt.Errorf("MDM profile configuration is incomplete (Jamf server URL, invitation code, or SSH credentials missing)")
+		return "", "", fmt.Errorf("MDM profile configuration is incomplete (Jamf server URL, %s, or SSH credentials missing)", secretsName)
 	}
 	if vmCopy.State != "running" {
 		return "", "", fmt.Errorf("VM is not running")
@@ -85,15 +109,48 @@ func (m *Manager) copyMDMProfileToVM(ctx context.Context, name, profileID, sshUs
 		ip = strings.TrimSpace(ip)
 	}
 
-	profile, uuid, err := mdm.GenerateProfile(mdm.ProfileInput{
-		BaseURL:        baseURL,
-		InvitationCode: targetProfile.InvitationCode,
-	}, cryptorand.Reader)
-	if err != nil {
-		return "", "", fmt.Errorf("generate profile: %w", err)
-	}
+	// Checked before the profile exists, not after: see the note on mint-then-fail above.
 	if m.mdmCopier == nil && !viaAgent {
 		return "", "", fmt.Errorf("profile copy service unavailable")
+	}
+
+	var profile []byte
+	var uuid string
+	if isSchool {
+		if m.schoolFetcher == nil {
+			return "", "", errors.New("Jamf School profile service unavailable")
+		}
+		// Three sequential HTTPS round-trips to the tenant's server. m.mu was released
+		// above and everything since works from the cfg/vmCopy snapshots, which is what
+		// keeps this off the lock; tart.go:24 forbids network IO while holding it.
+		// Guarded by TestCopyMDMProfileToVMFetchesSchoolProfileWithoutHoldingManagerLock.
+		// Trimmed to match the validation above, which tests the trimmed values.
+		profile, err = m.schoolFetcher.FetchProfile(ctx, mdm.SchoolInput{
+			BaseURL:  baseURL,
+			Network:  strings.TrimSpace(targetProfile.Network),
+			Location: strings.TrimSpace(targetProfile.Location),
+		})
+		if err != nil {
+			// internal/mdm types every error on this path with the step that failed.
+			// StageDownload is a floor for an untyped one, not a diagnosis.
+			stage := mdm.StageDownload
+			var stageErr *mdm.StageError
+			if errors.As(err, &stageErr) {
+				stage = stageErr.Stage
+			}
+			_, message := safeMDMStageError(stage)
+			return "", "", errors.New(message)
+		}
+		// uuid stays empty: the server generated this profile, and it normally arrives
+		// as signed DER we deliberately do not parse. See CopyAndVerify.
+	} else {
+		profile, uuid, err = mdm.GenerateProfile(mdm.ProfileInput{
+			BaseURL:        baseURL,
+			InvitationCode: targetProfile.InvitationCode,
+		}, cryptorand.Reader)
+		if err != nil {
+			return "", "", fmt.Errorf("generate profile: %w", err)
+		}
 	}
 
 	target := mdm.TransferTarget{
@@ -103,30 +160,119 @@ func (m *Manager) copyMDMProfileToVM(ctx context.Context, name, profileID, sshUs
 		Timeout:  time.Duration(sshTimeout) * time.Second,
 	}
 	if err := m.copyProfile(ctx, name, viaAgent, target, profile, uuid); err != nil {
+		if isSchool {
+			// The transport's own text (guest stderr, which can echo the command line
+			// holding the profile; SSH addresses) stays out of anything that is published.
+			stage := mdm.StageSFTP
+			if viaAgent {
+				stage = mdm.StageAgent
+			}
+			var stageErr *mdm.StageError
+			if errors.As(err, &stageErr) {
+				stage = stageErr.Stage
+			}
+			_, message := safeMDMStageError(stage)
+			return "", "", errors.New(message)
+		}
 		return "", "", fmt.Errorf("copy profile: %w", err)
 	}
+	m.recordEnrollProfile(name, profile, isSchool)
 	return mdm.ProfileDisplayPath, uuid, nil
+}
+
+// desktopProfileProbe says what lies at ~/Desktop/mdm_enroll.mobileconfig on the
+// guest: "no" (nothing there), "yes" (a plain XML plist with no PKCS#12 identity
+// payload, such as the Jamf Pro profile Tart Oven generates), or "identity
+// <sha256>" for everything else.
+//
+// It fails closed. A Jamf School profile is signed (binary), and whether its
+// PKCS#12 payload type stays readable to grep inside that envelope is unconfirmed,
+// so "carries an identity" is also assumed for any file that is not plain XML, or
+// that grep could not read (exit status other than 1). The cost of a false
+// "identity" is an error asking the user to choose a profile; the cost of a false
+// "yes" would be clones silently sharing one device identity.
+const desktopProfileProbe = `f="$HOME/` + mdm.ProfileRemotePath + `"; if [ ! -f "$f" ]; then echo no; else /usr/bin/grep -aq com.apple.security.pkcs12 "$f"; rc=$?; first=$(/usr/bin/head -c 1 "$f" 2>/dev/null); if [ "$rc" -ne 1 ] || [ "$first" != "<" ]; then echo "identity $(/usr/bin/shasum -a 256 "$f" | /usr/bin/cut -d' ' -f1)"; else echo yes; fi; fi`
+
+// identitySHA256 is how a pushed profile is fingerprinted: for the record on the VM and for the copy check.
+func identitySHA256(profile []byte) string {
+	sum := sha256.Sum256(profile)
+	return hex.EncodeToString(sum[:])
+}
+
+// desktopProfileDecision turns the probe answer into what auto-enroll does with
+// the profile it found. reuse: enroll with it. foreignIdentity: it carries a
+// device identity this VM was not given by Tart Oven (a clone of a VM that held
+// one), so it must not be used: two VMs presenting one identity collide their
+// records in Jamf School. recorded is VM.EnrollIdentitySHA256.
+func desktopProfileDecision(probeOutput, recorded string) (reuse, foreignIdentity bool) {
+	answer := strings.TrimSpace(probeOutput)
+	if i := strings.LastIndex(answer, "\n"); i >= 0 {
+		answer = strings.TrimSpace(answer[i+1:])
+	}
+	switch {
+	case answer == "yes":
+		return true, false
+	case answer == "identity" || strings.HasPrefix(answer, "identity "):
+		// "identity" alone: the file could not be read to fingerprint it, which is
+		// no reason to trust it.
+		sha := strings.TrimSpace(strings.TrimPrefix(answer, "identity"))
+		if recorded != "" && sha == recorded {
+			return true, false
+		}
+		return false, true
+	}
+	return false, false
+}
+
+// recordEnrollProfile remembers which device identity, if any, now sits on the
+// VM's Desktop. A Jamf Pro profile replaces (and so forgets) a School one.
+func (m *Manager) recordEnrollProfile(name string, profile []byte, isSchool bool) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	vm := m.vms[name]
+	if vm == nil {
+		return
+	}
+	if isSchool {
+		vm.EnrollIdentitySHA256 = identitySHA256(profile)
+	} else {
+		vm.EnrollIdentitySHA256 = ""
+	}
+	m.save()
 }
 
 // copyProfile puts the enrollment profile on the guest's Desktop and checks it
 // arrived intact: through the guest agent when viaAgent, otherwise over SFTP.
 func (m *Manager) copyProfile(ctx context.Context, name string, viaAgent bool, target mdm.TransferTarget, profile []byte, payloadUUID string) error {
 	if viaAgent {
-		return m.copyProfileViaAgent(ctx, name, profile, payloadUUID)
+		return m.copyProfileViaAgent(ctx, name, profile)
 	}
 	return m.mdmCopier.CopyAndVerify(ctx, target, profile, payloadUUID)
 }
 
 // copyProfileViaAgent is the guest-agent counterpart of the SFTP copier: it
-// writes the profile with a shell command (base64 keeps the XML out of the
-// quoting), then reads it back and compares, as the SFTP copier does. The
-// command, and so the invitation code inside the profile, is visible in the
-// host's process list for the moment `tart exec` runs.
-func (m *Manager) copyProfileViaAgent(ctx context.Context, name string, profile []byte, payloadUUID string) error {
+// writes the profile through a shell command and checks it arrived intact.
+//
+// The profile travels on the command's stdin, as one line of base64, never in
+// the command line: a Jamf School profile holds a private key and its cleartext
+// password, and `tart exec` arguments are visible to every local user in the
+// host's process list. The command reads one line instead of waiting for end of
+// input, because `tart exec -i` is not known to deliver one. umask 077 keeps the
+// file private from its first byte, and the check compares a SHA-256 taken in
+// the guest, so no profile data comes back over stdout and a binary (DER)
+// profile needs no special handling.
+func (m *Manager) copyProfileViaAgent(ctx context.Context, name string, profile []byte) error {
 	const remote = `"$HOME/` + mdm.ProfileRemotePath + `"`
-	write := fmt.Sprintf(`mkdir -p "$HOME/Desktop" && printf %%s '%s' | /usr/bin/base64 -D > %s && chmod 600 %s`,
-		base64.StdEncoding.EncodeToString(profile), remote, remote)
-	res, handled := m.execViaAgent(ctx, name, write, "")
+	// Decoded into a temporary file and moved into place, so a short or damaged
+	// line, or an agent that drops mid-stream, never leaves a truncated profile
+	// where the next run would find and reuse it, and an older file or symlink at
+	// the target is replaced rather than written through.
+	write := `umask 077; tmp="$HOME/Desktop/.mdm_enroll.$$"; IFS= read -r line && mkdir -p "$HOME/Desktop" && printf %s "$line" | /usr/bin/base64 -D > "$tmp" && chmod 600 "$tmp" && mv -f "$tmp" ` + remote + ` || { rm -f "$tmp"; exit 1; }`
+	// `tart exec -i` is not known to deliver the line on every host; without a
+	// bound the read would wait for as long as the task runs.
+	ctx, cancel := context.WithTimeout(ctx, agentPushTimeout)
+	defer cancel()
+	res, handled := m.execViaAgentInput(ctx, name, write, base64.StdEncoding.EncodeToString(profile)+"\n")
 	switch {
 	case !handled:
 		return &mdm.StageError{Stage: mdm.StageAgent, Err: errors.New("the guest agent did not respond")}
@@ -136,15 +282,12 @@ func (m *Manager) copyProfileViaAgent(ctx context.Context, name string, profile 
 		return &mdm.StageError{Stage: mdm.StageAgent, Err: fmt.Errorf("write remote profile: exit %d: %s", res.ExitCode, strings.TrimSpace(res.Stderr))}
 	}
 
-	res, handled = m.execViaAgent(ctx, name, "cat "+remote, "")
+	res, handled = m.execViaAgent(ctx, name, "/usr/bin/shasum -a 256 "+remote, "")
 	if !handled || res.Error != "" || res.ExitCode != 0 {
 		return &mdm.StageError{Stage: mdm.StageVerification, Err: errors.New("read remote profile failed")}
 	}
-	if res.Stdout != string(profile) {
+	if fields := strings.Fields(res.Stdout); len(fields) == 0 || fields[0] != identitySHA256(profile) {
 		return &mdm.StageError{Stage: mdm.StageVerification, Err: errors.New("remote profile does not match generated profile")}
-	}
-	if !strings.Contains(res.Stdout, payloadUUID) {
-		return &mdm.StageError{Stage: mdm.StageVerification, Err: errors.New("remote profile does not contain generated UUID")}
 	}
 	return nil
 }
@@ -703,12 +846,30 @@ func (m *Manager) autoEnroll(t *Task, name, profileID string) error {
 		if _, _, err := m.copyMDMProfileToVM(t.ctx, name, profileID, "", ""); err != nil {
 			return fmt.Errorf("could not push enrollment profile: %v", err)
 		}
-	} else if existsRes := m.execInGuest(t.ctx, name, `test -f "$HOME/Desktop/mdm_enroll.mobileconfig" && echo yes || echo no`, ""); existsRes.Error == "" && existsRes.ExitCode == 0 && strings.TrimSpace(existsRes.Stdout) == "yes" {
-		m.appendTaskOutput(t, "Reusing the enrollment profile already on the guest Desktop\n")
 	} else {
-		m.appendTaskOutput(t, "No enrollment profile found on the guest Desktop — pushing a fresh one\n")
-		if _, _, err := m.copyMDMProfileToVM(t.ctx, name, "", "", ""); err != nil {
-			return fmt.Errorf("could not push enrollment profile: %v", err)
+		m.mu.Lock()
+		recorded := vm.EnrollIdentitySHA256
+		m.mu.Unlock()
+		probe := m.execInGuest(t.ctx, name, desktopProfileProbe, "")
+		reuse, foreign := false, false
+		if probe.Error == "" && probe.ExitCode == 0 {
+			reuse, foreign = desktopProfileDecision(probe.Stdout, recorded)
+		}
+		switch {
+		case reuse:
+			m.appendTaskOutput(t, "Reusing the enrollment profile already on the guest Desktop\n")
+		case foreign:
+			// Not replaced silently: it may be a profile the user placed on purpose,
+			// and pushing the first configured server's profile instead could enrol
+			// the VM into a different MDM than the one intended.
+			return errors.New("the profile on the guest Desktop is signed or carries a device identity, and Tart Oven did not put it on this VM. " +
+				"Reusing it could give several VMs one identity (a Jamf School profile copied to a base VM and cloned). " +
+				"Choose a Jamf server profile for auto-enroll (Edit VM) so each VM gets its own profile")
+		default:
+			m.appendTaskOutput(t, "No enrollment profile found on the guest Desktop, pushing a fresh one\n")
+			if _, _, err := m.copyMDMProfileToVM(t.ctx, name, "", "", ""); err != nil {
+				return fmt.Errorf("could not push enrollment profile: %v", err)
+			}
 		}
 	}
 

@@ -269,12 +269,12 @@ Keep **Exclude OCI images from scheduler** enabled so registry cache entries rem
 
 ## Jamf and MDM
 
-Tart Oven can generate a Jamf enrollment profile and copy it to a running base VM over SFTP.
+Tart Oven can get a Jamf enrollment profile and copy it to a running base VM over SFTP (or the guest agent). It generates a Jamf Pro profile itself; for Jamf School it downloads one from your tenant.
 
-A safe template workflow is:
+A safe template workflow for Jamf Pro is:
 
 1. Turn on **Configuration → Server Settings → Display Jamf-related features** (off by default), then open **VM Management → Prepare VM for Jamf**.
-2. Click **Add Jamf Server** and enter the server name, Jamf Pro base URL, and invitation ID.
+2. Click **Add Jamf Server**, choose **Jamf Pro**, and enter the server name, base URL and invitation ID.
 3. Start the base VM.
 4. Select the running VM and Jamf server profile.
 5. Click **Copy profile to Desktop** — it uses that VM's own SSH username/password if set, otherwise the defaults from Configuration.
@@ -283,13 +283,15 @@ A safe template workflow is:
 8. Clone it with **Random MAC** and **Random serial** enabled.
 9. Start and enroll each clone separately.
 
+A Jamf School profile is not a template, so keep it out of the workflow above. It contains a client certificate and its password, and Jamf School creates a new one every time it is downloaded. Copy it only to a VM that will enroll itself, never to a base VM you clone: every clone would present the same device identity, and the devices would collide in Jamf School. Tart Oven downloads a fresh profile for every copy and never stores one, so each **Copy profile to Desktop** (and each auto-enroll) adds an enrollment credential in your Jamf School tenant, whether or not that VM ever enrolls. Auto-enroll set to **None** will not reuse a signed profile, or one with a device identity, that it finds on a Desktop unless Tart Oven put that exact profile on that same VM. A clone of a base VM that holds one stops with a message asking you to choose a Jamf server profile, so each VM gets its own. The server address must start with `https://`, and the profile is sent to the guest without appearing in any command line on the Mac. The download replays the steps of Jamf School's own enrollment web page, so a change to that page can break it; the error says which of its three steps failed.
+
 The **MDM** column is updated when Tart Oven probes a guest:
 
 - Grey means it has not been checked.
 - Red means no enrollment was reported.
 - Green shows an enrolled server.
 
-Jamf invitation values and guest SSH passwords are stored locally in `~/.tart-oven/state.json`. The file is owner-only, but the values are not encrypted.
+Jamf invitation values, Jamf School network and location IDs, and guest SSH passwords are stored locally in `~/.tart-oven/state.json`. The file is owner-only, but the values are not encrypted.
 
 ## Auto-enrolling VMs at boot (experimental)
 
@@ -325,7 +327,7 @@ These two permissions live on the base VM's disk, so every clone made from it af
 
 With a primed base VM:
 
-- **Auto enroll at first boot**, in **Clone from template**, is a list of your Jamf server profiles. Choose one and each clone is flagged so its very next boot — scheduler-triggered or manual — runs the enrollment script on its own: push that server's profile, click through Install and Enroll, then refresh the MDM column. Leave it on **None** to skip.
+- **Auto enroll at first boot**, in **Clone from template**, is a list of your Jamf server profiles (Pro or School; see [Jamf and MDM](#jamf-and-mdm) for what a School profile costs). Choose one and each clone is flagged so its very next boot — scheduler-triggered or manual — runs the enrollment script on its own: push that server's profile, click through Install and Enroll, then refresh the MDM column. Leave it on **None** to skip.
 - **Auto enroll at next boot**, in **Edit VM → Enrollment**, does the same once, the next time the VM starts. It clears itself after that attempt, whether it succeeds or fails.
 
 Because the chosen profile is pushed to the clone, the base VM doesn't need one: keep it un-enrolled and choose a different server for each batch of clones.

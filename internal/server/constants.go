@@ -8,6 +8,7 @@ import (
 	"regexp"
 	"strings"
 	"sync"
+	"time"
 )
 
 // ---------------------------------------------------------------------------
@@ -43,6 +44,13 @@ const (
 	defaultAutoCheckSeconds = 120
 	minAutoCheckSeconds     = 10
 	maxAutoCheckSeconds     = 86400
+
+	// schoolDeliverTimeout bounds fetching a Jamf School profile and copying it to
+	// the guest once the request that asked for it may be gone.
+	schoolDeliverTimeout = 3 * time.Minute
+
+	// agentPushTimeout bounds writing a profile to a guest through the agent.
+	agentPushTimeout = 2 * time.Minute
 )
 
 // defaultTartBin is the full path to the tart binary used by default. The

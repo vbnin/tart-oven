@@ -46,6 +46,48 @@ func TestDashboardContainsJamfProfileControls(t *testing.T) {
 	}
 }
 
+// A saved Jamf server is either Pro (invitation code) or School (network and
+// location IDs). The editor swaps the credential fields on a segmented control
+// and the table gains a Type column.
+func TestDashboardJamfProfileEditorSupportsProAndSchool(t *testing.T) {
+	b, err := Content.ReadFile("index.html")
+	if err != nil {
+		t.Fatal(err)
+	}
+	html := string(b)
+	for _, want := range []string{
+		`id="jamfKindProBtn"`, `id="jamfKindSchoolBtn"`, `id="jamfProfileKind"`,
+		`id="jamfProFields"`, `id="jamfSchoolFields"`, `id="jamfNetwork"`, `id="jamfLocation"`,
+		`id="jamfKindNote"`, `<th>Type</th>`, `<th>Base URL</th>`,
+	} {
+		if !strings.Contains(html, want) {
+			t.Errorf("dashboard missing %q", want)
+		}
+	}
+	// "Jamf Pro" is no longer the only kind of server, so neither the column
+	// nor the field may claim it.
+	for _, unwanted := range []string{`<th>Jamf Pro Base URL</th>`, `<label>Jamf Pro base URL</label>`} {
+		if strings.Contains(html, unwanted) {
+			t.Errorf("dashboard still labels the base URL as Pro-only: %q", unwanted)
+		}
+	}
+	// The secrets are write-only like the invitation code: password inputs, so
+	// they are masked while typed and never prefilled.
+	for _, id := range []string{"jamfNetwork", "jamfLocation"} {
+		if !regexp.MustCompile(`<input[^>]*type="password"[^>]*id="` + id + `"`).MatchString(html) {
+			t.Errorf("%s must be a password input", id)
+		}
+	}
+	// The unload guard must actually be registered, or a mid-copy navigation is unprotected.
+	if !strings.Contains(html, `window.addEventListener("beforeunload", warnBeforeUnload)`) {
+		t.Error("warnBeforeUnload is not registered as the beforeunload listener")
+	}
+	// Every column has a matching cell: the empty-state row spans them all.
+	if got := strings.Count(sourceSection(t, html, `<tbody id="jamfProfileRows">`, `</tbody>`), `colspan="5"`); got != 1 {
+		t.Errorf("empty-state row should span the 5 columns, found %d colspan=5", got)
+	}
+}
+
 func TestDashboardContainsPrepGoldenImageControls(t *testing.T) {
 	b, err := Content.ReadFile("index.html")
 	if err != nil {
