@@ -606,6 +606,133 @@ on run argv
 end run
 EOF
 
+cat > /tmp/ae/clickanyrole.scpt << 'EOF'
+on run argv
+  set targetName to item 1 of argv
+  set procName to item 2 of argv
+  tell application "System Events"
+    tell process procName
+      set allEls to entire contents of window 1
+      repeat with el in allEls
+        set n to ""
+        try
+          set n to (name of el) as string
+        end try
+        if n is targetName then
+          click el
+          return "clicked any-role: " & n
+        end if
+      end repeat
+      return "not found"
+    end tell
+  end tell
+end run
+EOF
+
+# setcheckbox.scpt LABEL WANT PROC: sets the AXCheckBox whose name contains
+# LABEL to WANT (1 or 0) by pressing it only when its value differs.
+cat > /tmp/ae/setcheckbox.scpt << 'EOF'
+on run argv
+  set targetSubstr to item 1 of argv
+  set wantVal to (item 2 of argv) as integer
+  set procName to item 3 of argv
+  tell application "System Events"
+    tell process procName
+      set allEls to entire contents of window 1
+      repeat with el in allEls
+        set r to ""
+        set n to ""
+        try
+          set r to (role of el) as string
+        end try
+        try
+          set n to (name of el) as string
+        end try
+        if r is "AXCheckBox" and n contains targetSubstr then
+          set v to -1
+          try
+            set v to (value of el) as integer
+          end try
+          if v is not wantVal then
+            click el
+            return "toggled checkbox: " & n
+          end if
+          return "checkbox already at " & wantVal & ": " & n
+        end if
+      end repeat
+      return "checkbox not found"
+    end tell
+  end tell
+end run
+EOF
+
+# notice.js TITLE DETAIL SECONDS: a small floating notice on the guest screen,
+# run with osascript -l JavaScript. It is a non-activating panel that ignores
+# mouse events, so it never takes keyboard focus or blocks a click on the
+# window beneath it. SECONDS 0 keeps it up until the process is killed.
+cat > /tmp/ae/notice.js << 'EOF'
+ObjC.import('Cocoa');
+function run(argv) {
+  var title = argv[0] || '';
+  var detail = argv[1] || '';
+  var secs = parseFloat(argv[2] || '0');
+  $.NSApplication.sharedApplication;
+  $.NSApp.setActivationPolicy($.NSApplicationActivationPolicyAccessory);
+  var w = 480, h = 92;
+  var sf = $.NSScreen.mainScreen.visibleFrame;
+  var rect = $.NSMakeRect(sf.origin.x + (sf.size.width - w) / 2,
+                          sf.origin.y + sf.size.height - h - 24, w, h);
+  var win = $.NSPanel.alloc.initWithContentRectStyleMaskBackingDefer(
+    rect, $.NSWindowStyleMaskBorderless | $.NSWindowStyleMaskNonactivatingPanel,
+    $.NSBackingStoreBuffered, false);
+  win.level = $.NSFloatingWindowLevel;
+  win.hidesOnDeactivate = false;
+  win.ignoresMouseEvents = true;
+  win.becomesKeyOnlyIfNeeded = true;
+  win.hasShadow = true;
+  win.opaque = true;
+  win.backgroundColor = $.NSColor.windowBackgroundColor;
+  var t = $.NSTextField.alloc.initWithFrame($.NSMakeRect(18, 12, w - 36, h - 24));
+  t.stringValue = title + '\n' + detail;
+  t.editable = false;
+  t.selectable = false;
+  t.bezeled = false;
+  t.drawsBackground = false;
+  t.font = $.NSFont.systemFontOfSize(14);
+  win.contentView.addSubview(t);
+  win.orderFrontRegardless;
+  if (secs > 0) {
+    $.NSRunLoop.currentRunLoop.runUntilDate($.NSDate.dateWithTimeIntervalSinceNow(secs));
+  } else {
+    // Stops after 20 minutes even if the shell that started it is gone and
+    // the EXIT trap never killed it: longer than the whole enrollment run.
+    var end = Date.now() + 1200000;
+    while (Date.now() < end) {
+      $.NSRunLoop.currentRunLoop.runUntilDate($.NSDate.dateWithTimeIntervalSinceNow(1));
+    }
+  }
+  win.orderOut(null);
+  return 'ok';
+}
+EOF
+
+# notice TITLE DETAIL [SECONDS]: replaces any notice still up. With no SECONDS
+# (or 0) it returns at once and the notice stays until the next call or the
+# script exits; with SECONDS it blocks for that long, so the final result is
+# seen before the script returns. A failed notice never fails the run.
+NOTICE_PID=""
+notice() {
+  [ -n "$NOTICE_PID" ] && kill "$NOTICE_PID" 2>/dev/null
+  NOTICE_PID=""
+  if [ "${3:-0}" = "0" ]; then
+    osascript -l JavaScript /tmp/ae/notice.js "$1" "$2" 0 >/dev/null 2>&1 &
+    NOTICE_PID=$!
+  else
+    osascript -l JavaScript /tmp/ae/notice.js "$1" "$2" "$3" >/dev/null 2>&1 || true
+  fi
+}
+trap '[ -n "$NOTICE_PID" ] && kill "$NOTICE_PID" 2>/dev/null' EXIT
+
 dumpproc() { osascript /tmp/ae/dumpproc.scpt "$1" 2>&1; }
 frontproc() { osascript -e 'tell application "System Events" to name of first process whose frontmost is true' 2>&1; }
 log() { echo "[$(date +%T)] $*" | tee -a "$LOG"; }
@@ -679,6 +806,7 @@ try_generic_continue() {
 # own change there) — Phase 1 exits on its very first check when Setup
 # Assistant isn't running, so it costs nothing on a guest that's already
 # past OOBE.
+notice "Enrollment in progress" "Tart Oven is setting up this Mac. Please leave the keyboard and mouse alone."
 log "Phase 1: checking for Setup Assistant OOBE"
 OOBE_DONE=0
 for i in $(seq 1 75); do
@@ -725,6 +853,29 @@ for i in $(seq 1 75); do
     osascript /tmp/ae/clickexact.scpt "Continue" "Setup Assistant" >>"$LOG" 2>&1
   elif echo "$PANE" | grep -q "Your Mac is Ready for FileVault"; then
     osascript /tmp/ae/clickexact.scpt "Not Now" "Setup Assistant" >>"$LOG" 2>&1
+  elif echo "$PANE" | grep -q "Enable Ask Siri"; then
+    # "Enable Ask Siri" is checked by default. Unchecking it keeps the Siri
+    # setup off; Continue is enabled either way.
+    osascript /tmp/ae/setcheckbox.scpt "Enable Ask Siri" 0 "Setup Assistant" >>"$LOG" 2>&1
+    sleep 1
+    osascript /tmp/ae/clickexact.scpt "Continue" "Setup Assistant" >>"$LOG" 2>&1
+  elif echo "$PANE" | grep -q "Improve Siri & Dictation"; then
+    # Continue stays disabled until one of the two radio buttons is picked.
+    # Radio buttons are not AXButton, so pick "Not Now" by name, any role.
+    osascript /tmp/ae/clickanyrole.scpt "Not Now" "Setup Assistant" >>"$LOG" 2>&1
+    sleep 1
+    osascript /tmp/ae/clickexact.scpt "Continue" "Setup Assistant" >>"$LOG" 2>&1
+  elif echo "$PANE" | grep -q "Select a Siri Voice"; then
+    # Continue stays disabled until a voice is chosen. "Choose For Me" picks one;
+    # if that label is missing, select the first voice and continue.
+    RES=$(osascript /tmp/ae/clickexact.scpt "Choose For Me" "Setup Assistant" 2>&1)
+    case "$RES" in
+      clicked*) ;;
+      *) osascript /tmp/ae/clickanyrole.scpt "Voice 1" "Setup Assistant" >>"$LOG" 2>&1 ;;
+    esac
+    # Choosing a voice does not move on by itself, so press Continue after it.
+    sleep 1
+    osascript /tmp/ae/clickexact.scpt "Continue" "Setup Assistant" >>"$LOG" 2>&1
   else
     log "Unrecognized pane: $(echo "$PANE" | head -1 | cut -c1-80) - trying generic fallback"
     try_generic_continue
@@ -734,11 +885,13 @@ done
 
 if [ "$OOBE_DONE" != "1" ]; then
   log "FATAL: OOBE did not complete within timeout, aborting"
+  notice "Enrollment failed" "Setup Assistant did not finish. See /tmp/auto_enroll.log on the guest." 15
   echo "RESULT=OOBE_TIMEOUT"
   exit 2
 fi
 
 # ---------- Phase 2: Device Management - install the profile via the "+" flow ----------
+notice "Enrollment in progress" "Installing the MDM profile."
 log "Phase 2: navigating to Device Management"
 open "x-apple.systempreferences:com.apple.preferences.configurationprofiles"
 sleep 2
@@ -832,6 +985,7 @@ for i in $(seq 1 20); do
   STATUS=$(profiles status -type enrollment 2>&1)
   if echo "$STATUS" | grep -q "MDM enrollment: Yes"; then
     log "ENROLLED: $STATUS"
+    notice "Enrollment complete" "This Mac is enrolled in MDM." 10
     echo "RESULT=ENROLLED"
     exit 0
   fi
@@ -840,6 +994,7 @@ done
 
 log "Timed out. Final status: $(profiles status -type enrollment 2>&1)"
 dumpproc "System Settings" | grep -i "fail\|expired" | tee -a "$LOG"
+notice "Enrollment failed" "This Mac is not enrolled in MDM. See /tmp/auto_enroll.log on the guest." 15
 echo "RESULT=NOT_ENROLLED"
 exit 1
 `

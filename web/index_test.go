@@ -1426,3 +1426,23 @@ func TestNoTableLayerIsAboveTheOpenRowMenu(t *testing.T) {
 		}
 	}
 }
+
+// The bulk delete trash button sits left of "+ Create VM" and starts hidden.
+func TestBulkDeleteButtonSitsLeftOfCreate(t *testing.T) {
+	b, err := Content.ReadFile("index.html")
+	if err != nil {
+		t.Fatal(err)
+	}
+	html := string(b)
+	if strings.Count(html, `id="bulkDeleteBtn"`) != 1 {
+		t.Fatal("bulkDeleteBtn must exist exactly once")
+	}
+	trash := strings.Index(html, `id="bulkDeleteBtn"`)
+	create := strings.Index(html, `onclick="openCreateVmModal()">+ Create VM`)
+	if create < 0 || trash > create {
+		t.Errorf("the trash button must come before \"+ Create VM\" in the Local VMs header")
+	}
+	if !strings.Contains(html[trash:trash+400], `class="danger hidden"`) {
+		t.Error("the trash button must start hidden and use the red danger style")
+	}
+}

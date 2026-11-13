@@ -27,9 +27,15 @@ go.work.sum
 
 # Local agent/editor working files
 settings.local.json
-.claude/
 .vscode/
 .idea/
+
+# Agent files stay out of this public repo (dev-standard HR-13)
+CLAUDE.md
+CLAUDE.local.md
+.claude/
+docs/dev/
+*.bak-doctor
 
 # Package files
 *.pkg
