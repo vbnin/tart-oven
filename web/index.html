@@ -36,6 +36,8 @@
     --text: #fafafa;
     --muted: #b0b0b9;
     --row-hover: rgba(59, 130, 246, 0.08);
+    --row-running: rgba(16, 185, 129, 0.2);
+    --row-running-hover: rgba(16, 185, 129, 0.28);
     --scroll-shade: rgba(0, 0, 0, 0.4);
     --btn-ghost: #26262d;
     --btn-ghost-hover: #32323b;
@@ -81,6 +83,8 @@
     --text: #09090b;
     --muted: #5c5c66;
     --row-hover: rgba(37, 99, 235, 0.06);
+    --row-running: rgba(16, 185, 129, 0.12);
+    --row-running-hover: rgba(16, 185, 129, 0.18);
     --scroll-shade: rgba(0, 0, 0, 0.12);
     --btn-ghost: #ffffff;
     --btn-ghost-hover: #e8ebf0;
@@ -532,6 +536,10 @@
     background: transparent; border: 1px solid rgba(244, 63, 94, 0.35); color: var(--red); font-weight: 500; box-shadow: none;
   }
   button.danger:hover:not(:disabled) { background: rgba(244, 63, 94, 0.1); border-color: var(--red); }
+  /* Icon-only trash button: a square the height of the Create button. flex: none
+     stops the header's flex row from squeezing the button or the SVG inside it. */
+  #bulkDeleteBtn { flex: none; width: 38px; height: 38px; padding: 0; }
+  #bulkDeleteBtn svg { flex: none; width: 18px; height: 18px; display: block; }
   button.big { padding: 9px 20px; font-size: 14.5px; font-weight: 600; border-radius: 6px; }
   button:disabled { opacity: .45; cursor: not-allowed; transform: none; }
   button.pause { background: rgba(245, 158, 11, 0.12); color: var(--amber); border: 1px solid rgba(245, 158, 11, 0.35); }
@@ -553,8 +561,8 @@
   .sort-arrows button:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; border-radius: 2px; }
   tr:last-child td { border-bottom: none; }
   tr:hover td { background: var(--row-hover); }
-  tr.row-running td { background: rgba(16, 185, 129, 0.04); }
-  tr.row-running:hover td { background: rgba(16, 185, 129, 0.08); }
+  tr.row-running td { background: var(--row-running); }
+  tr.row-running:hover td { background: var(--row-running-hover); }
   td.name { width: 200px; min-width: 172px; max-width: 260px; word-break: normal; overflow-wrap: break-word; }
   td.name b { font-weight: 600; font-size: 14px; line-height: 1.35; }
   td.acts { white-space: nowrap; width: 1%; text-align: right; }
@@ -598,9 +606,12 @@
   .vm-table tr td.pin-r, .vm-table tr:hover td.pin-r, .vm-table tr.row-running td.pin-r, .vm-table tr.row-running:hover td.pin-r {
     background-color: var(--panel); background-image: none; z-index: 2;
   }
-  .vm-table tr.row-running td.pin-l { background-image: linear-gradient(rgba(16, 185, 129, 0.04), rgba(16, 185, 129, 0.04)); }
+  .vm-table tr.row-running td.pin-l { background-image: linear-gradient(var(--row-running), var(--row-running)); }
   .vm-table tr:hover td.pin-l { background-image: linear-gradient(var(--row-hover), var(--row-hover)); }
-  .vm-table tr.row-running:hover td.pin-l { background-image: linear-gradient(rgba(16, 185, 129, 0.08), rgba(16, 185, 129, 0.08)); }
+  .vm-table tr.row-running:hover td.pin-l { background-image: linear-gradient(var(--row-running-hover), var(--row-running-hover)); }
+  /* Rows picked for bulk delete: a blue tint, opaque under the pinned cells. */
+  .vm-table tr.vm-selected td { background-color: rgba(59, 130, 246, 0.14); }
+  .vm-table tr.vm-selected td.pin-l, .vm-table tr.vm-selected td.pin-r { background-color: var(--panel); background-image: linear-gradient(rgba(59, 130, 246, 0.14), rgba(59, 130, 246, 0.14)); }
   /* Too narrow to keep both pinned columns side by side: everything scrolls. */
   .table-shell.no-pin .vm-table .pin-l, .table-shell.no-pin .vm-table .pin-r { position: static; }
   .table-shell.no-pin::before, .table-shell.no-pin::after { display: none; }
@@ -879,6 +890,8 @@
   #ipswStatus { min-height: 0; }
   .run-args-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(260px, 1fr)); gap: 8px 16px; }
   .run-arg { font-size: 14px; }
+  /* A toggle the modal holds in a fixed state (No audio while Suspendable is on). */
+  .run-arg.is-locked { opacity: 0.5; cursor: not-allowed; }
   .run-arg .arg-flag { color: var(--muted); font-size: 12px; margin-left: 2px; }
   .modal-scroll { max-height: 70vh; overflow-y: auto; margin: 0 -6px; padding: 0 6px; }
   .modal-backdrop { position: absolute; inset: 0; background: rgba(0,0,0,.65); backdrop-filter: blur(4px); -webkit-backdrop-filter: blur(4px); }
@@ -963,6 +976,7 @@
       <div style="display:flex;align-items:center;justify-content:space-between;gap:12px;flex-wrap:wrap;margin-bottom:14px">
         <h2 style="margin:0; display:flex; align-items:baseline; gap:8px">Local VMs <span id="localVmCount" class="title-count"></span></h2>
         <div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap">
+          <button type="button" id="bulkDeleteBtn" class="danger hidden" onclick="deleteSelectedVMs()" title="Delete the selected VMs" aria-label="Delete the selected VMs"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 6h18"/><path d="M8 6V4h8v2"/><path d="M19 6l-1 14H6L5 6"/><path d="M10 11v6M14 11v6"/></svg></button>
           <button type="button" onclick="openCreateVmModal()">+ Create VM</button>
           <button type="button" id="pauseBtn">…</button>
           <button type="button" id="refreshBtn" class="ghost" title="Re-check all VMs against Tart, clear stuck statuses, and run Refresh info on running VMs">⟳ Refresh</button>
@@ -3418,6 +3432,96 @@ async function deleteVMFromRow(name) {
   } catch (e) { toast("Delete failed", e.message, "bad"); }
 }
 
+// Row selection for bulk delete. A plain click selects only that row, Command
+// toggles it, and Shift selects the rows from the last clicked row to this one,
+// in on-screen order. Shift keeps the anchor, as Finder does.
+let selectedVMNames = new Set();
+let selectionAnchor = "";
+function nextVmSelection(selected, order, name, anchor, mods) {
+  if (mods.shift && anchor && order.includes(anchor)) {
+    const a = order.indexOf(anchor), b = order.indexOf(name);
+    const lo = Math.min(a, b), hi = Math.max(a, b);
+    const next = mods.toggle ? new Set(selected) : new Set();
+    order.slice(lo, hi + 1).forEach(n => next.add(n));
+    return { selected: next, anchor };
+  }
+  if (mods.toggle) {
+    const next = new Set(selected);
+    if (next.has(name)) next.delete(name); else next.add(name);
+    return { selected: next, anchor: name };
+  }
+  return { selected: new Set([name]), anchor: name };
+}
+// Keeps only the selected names that are still VMs, so a deleted VM drops out.
+function pruneVmSelection(selected, names) {
+  return new Set([...selected].filter(n => names.includes(n)));
+}
+function vmRowClick(evt) {
+  if (evt.target.closest("button, a, input, select, textarea, label, .row-menu, .help-tip, .tag-clear")) return;
+  const tr = evt.target.closest("#localVmRows tr[data-vm]");
+  if (!tr) return;
+  const order = Array.from(document.querySelectorAll("#localVmRows tr[data-vm]")).map(r => r.dataset.vm);
+  const r = nextVmSelection(selectedVMNames, order, tr.dataset.vm, selectionAnchor, { shift: evt.shiftKey, toggle: evt.metaKey });
+  selectedVMNames = r.selected;
+  selectionAnchor = r.anchor;
+  const sel = window.getSelection && window.getSelection();
+  if (sel) sel.removeAllRanges(); // Shift-click must not select text across rows
+  updateVmSelectionUI();
+}
+document.addEventListener("click", vmRowClick);
+function updateVmSelectionUI() {
+  // Prune against the rows on screen, so a VM hidden by the search or the
+  // running filter cannot be deleted without being seen in the table.
+  const names = Array.from(document.querySelectorAll("#localVmRows tr[data-vm]")).map(tr => tr.dataset.vm);
+  selectedVMNames = pruneVmSelection(selectedVMNames, names);
+  document.querySelectorAll("#localVmRows tr[data-vm]").forEach(tr => tr.classList.toggle("vm-selected", selectedVMNames.has(tr.dataset.vm)));
+  const btn = document.getElementById("bulkDeleteBtn");
+  if (!btn) return;
+  const count = selectedVMNames.size;
+  btn.classList.toggle("hidden", count === 0);
+  btn.title = count === 1 ? "Delete the selected VM" : "Delete " + count + " selected VMs";
+  btn.setAttribute("aria-label", btn.title);
+}
+// Deletes the selected stopped VMs one by one with the same endpoint as Delete
+// VM, after one confirmation that names them all. Running or busy VMs are
+// skipped (Tart Oven won't delete a running VM). Snapshots go with their VM,
+// as the default choice in the single-VM dialog does. VMs that fail stay selected.
+// bulkDeleteBusy stops a second click (or a double click) starting another run
+// while the first is still deleting, which would send duplicate delete calls.
+let bulkDeleteBusy = false;
+async function deleteSelectedVMs() {
+  if (bulkDeleteBusy) return;
+  bulkDeleteBusy = true;
+  try { await runBulkDelete(); } finally { bulkDeleteBusy = false; }
+}
+async function runBulkDelete() {
+  const vms = [...selectedVMNames].map(n => latest.vms.find(v => v.name === n)).filter(Boolean);
+  const runnable = vms.filter(v => v.state === "stopped" && !v.busy);
+  const skipped = vms.filter(v => !runnable.includes(v));
+  if (!runnable.length) {
+    toast("Delete", "None of the selected VMs can be deleted while they are running, suspended or busy. Stop them first.", "bad");
+    return;
+  }
+  const snapTotal = runnable.reduce((n, v) => n + (v.snapshots || []).length, 0);
+  let text = "Permanently delete " + runnable.length + " VM" + (runnable.length === 1 ? "" : "s") + "?\n\n" + runnable.map(v => "  " + v.name).join("\n");
+  if (snapTotal) text += "\n\nTheir " + snapTotal + " snapshot" + (snapTotal === 1 ? " is" : "s are") + " deleted too.";
+  if (skipped.length) text += "\n\nSkipped (stop them first): " + skipped.map(v => v.name).join(", ");
+  text += "\n\nThis cannot be undone.";
+  if (!confirm(text)) return;
+  const done = [], failed = [], failedNames = [];
+  for (const vm of runnable) {
+    try {
+      const res = await api("/api/vm/delete", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ name: vm.name, snapshots: "delete" }) });
+      const d = await res.json();
+      if (d.error) { failed.push(vm.name + ": " + d.error); failedNames.push(vm.name); } else done.push(vm.name);
+    } catch (e) { failed.push(vm.name + ": " + e.message); failedNames.push(vm.name); }
+  }
+  selectedVMNames = new Set(failedNames);
+  updateVmSelectionUI();
+  if (failed.length) toast("Delete", done.length + " deleted, " + failed.length + " failed: " + failed.join("; "), "bad", "panel-tart-logs");
+  else toast("Delete", done.length + " VM" + (done.length === 1 ? "" : "s") + " deleted.", "", "panel-tart-logs");
+}
+
 async function installAgent(name) {
   const agentInfo = await fetch("/api/guest-agent").then(r => r.json()).catch(() => ({ available: false }));
   const versionText = agentInfo.available && agentInfo.version ? " " + agentInfo.version : "";
@@ -4578,6 +4682,7 @@ function renderTable(vms) {
   if (!filtered.length) {
     const msg = query ? "No VMs match your search." : (runningOnly ? "No running VMs." : "No VMs found at this storage path.");
     tbody.innerHTML = '<tr><td colspan="11" class="muted">' + msg + '</td></tr>';
+    updateVmSelectionUI();
     const emptyWrap = document.getElementById("vmScroll");
     if (emptyWrap) emptyWrap.scrollLeft = 0; // the message is not a pinned cell
     updateVmScrollHints();
@@ -4603,7 +4708,7 @@ function renderTable(vms) {
     const noScreen = (vm.state === "running" && vm.ip) ? "" : " disabled";
     const effUser = guestUserFor(vm).name;
     const rowClass = vm.state === "running" ? ' class="row-running"' : '';
-    return '<tr' + rowClass + '>' +
+    return '<tr' + rowClass + ' data-vm="' + n + '">' +
       '<td class="name pin-l"><b>' + n + '</b>' + tags + '</td>' +
       '<td class="nowrap"><span class="state s-' + vm.state + '"><span class="dot"></span>' + vm.state + '</span></td>' +
       '<td class="nowrap">' + ip + '</td>' +
@@ -4633,6 +4738,7 @@ function renderTable(vms) {
         '<button class="ghost" onclick="openVmInfoModal(\'' + q + '\')" title="VM details for ' + esc(n) + '" aria-label="VM details for ' + esc(n) + '" style="padding: 4px 8px; font-size: 14px; margin-left: 4px;">ⓘ</button>' +
       '</div></td></tr>';
   }).join("");
+  updateVmSelectionUI();
   // The row HTML above is fully regenerated on every SSE push, which would
   // otherwise silently close an open "⋯" menu a few seconds after opening it
   // (every server broadcast, not a real dismissal) — reapply it if it's still
@@ -5695,17 +5801,49 @@ function updateRunArgsPreview() {
   parts.push(...args.map(quoteArg));
   document.getElementById("runArgsPreview").textContent = parts.join(" ");
 }
+function runArgToggle(arg) { return runArgToggles().find(t => t.dataset.arg === arg); }
+// --suspendable turns audio off, so while Suspendable is on No audio is forced on
+// and greyed out. Turning Suspendable off gives back the No audio choice the user
+// had made before.
+function syncRunArgSuspendable() {
+  const sus = runArgToggle("--suspendable"), audio = runArgToggle("--no-audio");
+  if (!sus || !audio) return;
+  const row = audio.closest("label");
+  if (sus.checked) {
+    if (!audio.disabled) audio.dataset.userValue = audio.checked ? "1" : "0";
+    audio.checked = true;
+    audio.disabled = true;
+    row.classList.add("is-locked");
+    row.title = "Suspendable turns audio off, so No audio is always on while Suspendable is on.";
+  } else {
+    if (audio.disabled) audio.checked = audio.dataset.userValue === "1";
+    audio.disabled = false;
+    row.classList.remove("is-locked");
+    row.title = "";
+  }
+}
 function openRunArgsModal(name) {
   runArgsModalName = name;
   document.getElementById("runArgsModalName").textContent = name;
   const cfg = (latest && latest.config) || {};
+  const vm = ((latest && latest.vms) || []).find(v => v.name === name) || {};
   const rest = splitArgs(cfg.runArgs || "");
+  runArgToggle("--no-audio").disabled = false; // reset a lock left by the last open
   for (const t of runArgToggles()) {
     if (t.dataset.arg === "@shared") { t.checked = cfg.netPriority === "shared"; continue; }
     const i = rest.indexOf(t.dataset.arg);
     t.checked = i >= 0;
     if (i >= 0) rest.splice(i, 1);
   }
+  // The VM's own Start suspendable setting is this run's Suspendable. The server
+  // always adds --suspendable for such a VM, whatever the modal says, so the
+  // toggle is locked on rather than shown as a choice it would ignore.
+  const sus = runArgToggle("--suspendable");
+  if (vm.startSuspendable) sus.checked = true;
+  sus.disabled = !!vm.startSuspendable;
+  sus.closest("label").title = vm.startSuspendable ? "Start suspendable is on for " + name + ". Turn it off in Edit VM to run without it." : "";
+  sus.closest("label").classList.toggle("is-locked", !!vm.startSuspendable);
+  syncRunArgSuspendable();
   document.getElementById("runArgsOther").value = rest.map(quoteArg).join(" ");
   updateRunArgsPreview();
   document.getElementById("runArgsModal").classList.remove("hidden");
@@ -5733,6 +5871,7 @@ for (const t of runArgToggles()) {
     if (t.checked && t.dataset.group) {
       runArgToggles().forEach(o => { if (o !== t && o.dataset.group === t.dataset.group) o.checked = false; });
     }
+    syncRunArgSuspendable();
     updateRunArgsPreview();
   });
 }

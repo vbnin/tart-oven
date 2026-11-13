@@ -1456,13 +1456,16 @@ test("renderTable toggles emptyDashboardHero visibility based on local VM count"
       if (id === "vmSearch") return { value: "" };
       return null;
     },
+    querySelectorAll: () => [],
   };
 
   const renderTable = evaluateFunctions(
-    ["isOCI", "renderOCIImages", "guestUserFor", "isLive", "snapshotsCell", "renderTable"],
+    ["isOCI", "renderOCIImages", "guestUserFor", "isLive", "snapshotsCell", "renderTable", "updateVmSelectionUI", "pruneVmSelection"],
     "renderTable",
     {
       document,
+      latest: null,
+      selectedVMNames: new Set(),
       esc: (s) => s,
       fmtAgo: () => "",
       fmtDateTime: () => "",
@@ -2614,4 +2617,68 @@ test("rowMenuTop keeps the menu inside the window", () => {
   }
   // A window shorter than the menu: the list is capped by CSS, so it starts at the margin.
   assert.equal(top(100, 130, 200, 216), 8);
+});
+
+// Bulk delete: a plain click selects one VM, Command toggles it, and Shift takes
+// the rows from the anchor to the clicked row in on-screen order.
+test("bulk delete selection: click, Command and Shift", () => {
+  const ctx = vm.createContext({});
+  vm.runInContext(extractFunction("nextVmSelection") + "\n" + extractFunction("pruneVmSelection") +
+    "\nglobalThis.sel = nextVmSelection; globalThis.prune = pruneVmSelection;", ctx);
+  const order = ["a", "b", "c", "d", "e"];
+  const names = s => [...s].sort();
+  let r = ctx.sel(new Set(), order, "b", "", { shift: false, toggle: false });
+  assert.deepEqual(names(r.selected), ["b"]);
+  assert.equal(r.anchor, "b");
+  r = ctx.sel(r.selected, order, "d", r.anchor, { shift: false, toggle: true });
+  assert.deepEqual(names(r.selected), ["b", "d"], "Command adds the row");
+  assert.equal(r.anchor, "d");
+  r = ctx.sel(r.selected, order, "d", r.anchor, { shift: false, toggle: true });
+  assert.deepEqual(names(r.selected), ["b"], "Command on a selected row removes it");
+  r = ctx.sel(r.selected, order, "e", "b", { shift: true, toggle: false });
+  assert.deepEqual(names(r.selected), ["b", "c", "d", "e"], "Shift selects the range from the anchor");
+  assert.equal(r.anchor, "b", "Shift keeps the anchor");
+  r = ctx.sel(r.selected, order, "a", "b", { shift: true, toggle: true });
+  assert.deepEqual(names(r.selected), ["a", "b", "c", "d", "e"], "Command+Shift adds the range");
+  r = ctx.sel(new Set(["x"]), order, "c", "", { shift: true, toggle: false });
+  assert.deepEqual(names(r.selected), ["c"], "Shift without an anchor selects just the row");
+  assert.deepEqual(names(ctx.prune(new Set(["a", "gone"]), ["a", "b"])), ["a"], "deleted VMs drop out");
+});
+
+// Run with arguments: Suspendable turns audio off, so No audio is forced on and
+// locked while it is on, and the user's own No audio choice comes back when it
+// is turned off.
+test("run with arguments: Suspendable forces No audio on and restores it", () => {
+  const makeToggle = (arg, checked) => {
+    const label = { classList: createMockClassList(), title: "" };
+    return { dataset: { arg }, checked, disabled: false, closest: () => label, label };
+  };
+  const sus = makeToggle("--suspendable", false);
+  const audio = makeToggle("--no-audio", false);
+  const ctx = vm.createContext({ document: { querySelectorAll: () => [sus, audio] } });
+  vm.runInContext([extractFunction("runArgToggles"), extractFunction("runArgToggle"), extractFunction("syncRunArgSuspendable"),
+    "globalThis.sync = syncRunArgSuspendable;"].join("\n"), ctx);
+  // Suspendable off: nothing is forced.
+  ctx.sync();
+  assert.equal(audio.checked, false);
+  assert.equal(audio.disabled, false);
+  // Suspendable on: No audio is forced on, locked and greyed out.
+  sus.checked = true;
+  ctx.sync();
+  assert.equal(audio.checked, true);
+  assert.equal(audio.disabled, true);
+  assert.equal(audio.label.classList.contains("is-locked"), true);
+  // Suspendable off again: the user's earlier choice (off) comes back.
+  sus.checked = false;
+  ctx.sync();
+  assert.equal(audio.checked, false);
+  assert.equal(audio.disabled, false);
+  assert.equal(audio.label.classList.contains("is-locked"), false);
+  // A user who chose No audio keeps it when Suspendable is turned off.
+  audio.checked = true;
+  sus.checked = true;
+  ctx.sync();
+  sus.checked = false;
+  ctx.sync();
+  assert.equal(audio.checked, true);
 });

@@ -4,7 +4,7 @@ Tart Oven is a local web console for managing [Tart](https://github.com/openai/t
 
 Tart Oven runs on macOS and manages macOS virtual machines.
 
-Current release: **2.3.0** · [Changelog](CHANGELOG.md)
+Current release: **2.3.1** · [Changelog](CHANGELOG.md)
 
 <p align="center">
   <img src="assets/screenshots/Tart%20Oven%20Screenshot%201.png" alt="Tart Oven screenshot 1" width="900">
@@ -28,13 +28,13 @@ Tart Oven limits the host to two running VMs at a time. Apple's macOS license al
 
 ### 1. Install Tart Oven
 
-Download `TartOven-2.3.0.pkg` from the [release page](https://github.com/vbnin/tart-oven/releases).
+Download `TartOven-2.3.1.pkg` from the [release page](https://github.com/vbnin/tart-oven/releases).
 
 Open the package in Finder or install it from Terminal:
 
 ```sh
 cd "$HOME/Downloads"
-sudo installer -pkg "./TartOven-2.3.0.pkg" -target /
+sudo installer -pkg "./TartOven-2.3.1.pkg" -target /
 ```
 
 The package installs:
@@ -171,7 +171,7 @@ The Dashboard provides three buttons next to each VM: **Play** (blue), **Pause**
 
 - **Play** starts a stopped VM, or resumes a suspended one where it left off.
 - **Pause** suspends a running VM: it saves the VM's memory and stops it, and **Play** brings it back in seconds. It is greyed out for a VM that was not started suspendable (see [Snapshots and suspend](#snapshots-and-suspend)).
-- **Run with arguments** (⋯ menu) opens a window to choose `tart run` options for one run: display (headless, Screen Sharing, or Virtualization VNC, which works before login and in recovery), network (shared NAT, host only, Softnet) and options such as no audio or boot into recovery. The choice replaces **Custom run arguments** for that run, and **Restart VM** keeps it. It opens pre-filled with what a normal run would use.
+- **Run with arguments** (⋯ menu) opens a window to choose `tart run` options for one run: display (headless, Screen Sharing, or Virtualization VNC, which works before login and in recovery), network (shared NAT, host only, Softnet) and options such as no audio or boot into recovery. The choice replaces **Custom run arguments** for that run, and **Restart VM** keeps it. It opens pre-filled with what a normal run would use. **Suspendable** follows the VM's **Start suspendable** setting and stays on while that setting is on. Suspendable turns audio off, so **No audio** is forced on and greyed out while Suspendable is on.
 - **Restart VM** (⋯ menu) restarts a running VM, keeping the options chosen in **Run with arguments**.
 - **Stop** shuts the VM down. On a paused (suspended) VM it discards the saved memory, so the VM quits fully. On a running VM it asks Tart to stop it with a short timeout and may force termination. Enable **Prioritize clean shutdown** in **Configuration → SSH & Commands** to instead ask the guest to shut down cleanly (via the guest agent or SSH) first (up to 30 seconds) before falling back to the fast stop. It is safer for guests that need time to flush state on power-off.
 - **VM Snapshots** (⋯ menu) opens the VM's snapshots.
@@ -182,6 +182,7 @@ The Dashboard provides three buttons next to each VM: **Play** (blue), **Pause**
 - **Hostname** (Edit VM, or Create / clone VMs) sets the guest's computer name, local hostname and hostname with `scutil`, either to a custom name or **Same as VM name**. It's applied while the VM is running, or at its next boot, and needs the guest agent or SSH plus the guest's sudo password. Characters other than letters, digits and hyphens become hyphens in the network names.
 - **Auto enroll at next boot** (Edit VM → Enrollment) — see [Auto-enrolling VMs at boot](#auto-enrolling-vms-at-boot-experimental) below.
 - **Delete VM** (⋯ menu) permanently deletes that VM, after a confirmation prompt. A VM with snapshots asks whether to delete them too, or to use one of them as the VM.
+- **Delete several VMs at once:** click a VM row to select it, **Command**-click to add or remove rows, and **Shift**-click to select the rows between the last clicked row and this one. A red trash icon appears left of **+ Create VM**; it asks once, then deletes the selected stopped VMs and their snapshots. Running VMs are skipped.
 
 Tart Oven only manages macOS guests; Linux VMs are not supported.
 

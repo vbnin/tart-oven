@@ -12,6 +12,21 @@ A few terms appear throughout:
 - **MDM / Jamf Pro** — the system that manages enrolled Macs. Tart Oven can prepare
   a VM for enrollment and report whether a guest is enrolled.
 
+## 2.3.1 (2026-11-13)
+
+### Added
+
+- **Delete several VMs at once.** Click a VM row to select it. **Command**-click adds or removes a row, and **Shift**-click selects the rows between the last clicked row and this one. A red trash icon appears left of **+ Create VM**. It asks once, listing the VMs and their snapshots, then deletes the selected stopped VMs. Running or busy VMs are skipped, and any that fail stay selected.
+
+### Changed
+
+- **Auto-enroll handles the Siri setup panes.** On macOS 26.6 the Setup Assistant asks about Siri, Siri improvements and a Siri voice, and Continue stays disabled until a choice is made, so the script used to stall. It now unchecks **Enable Ask Siri**, picks **Not Now** for audio sharing, and lets Setup Assistant choose the voice.
+- **Auto-enroll shows progress on the VM screen.** A small notice appears at the top of the guest screen while enrollment runs, then reports **Enrollment complete** or **Enrollment failed**. It does not take keyboard focus or block clicks.
+
+### Fixed
+
+- **Run with arguments reflects the VM.** The window now opens with the VM's own **Start suspendable** setting, so **Suspendable** is on, and it stays locked on while that setting is on, since the server always starts such a VM suspendable. While Suspendable is on, **No audio** is forced on and greyed out, because a suspendable run has no audio. Turning Suspendable off gives back your earlier No audio choice.
+
 ## 2.3.0 (2026-11-07)
 
 ### Added

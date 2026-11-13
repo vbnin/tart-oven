@@ -148,7 +148,7 @@ func TestAutoEnrollScriptAppleScriptsCompile(t *testing.T) {
 	if _, err := exec.LookPath("osacompile"); err != nil {
 		t.Skip("osacompile not available")
 	}
-	for _, name := range []string{"sheetstate", "clickgeneric", "dumpproc"} {
+	for _, name := range []string{"sheetstate", "clickgeneric", "dumpproc", "setcheckbox", "clickanyrole"} {
 		src := scriptSection(t, "cat > /tmp/ae/"+name+".scpt << 'EOF'", "EOF")
 		lines := strings.Split(src, "\n")
 		body := strings.Join(lines[1:len(lines)-2], "\n") // drop the cat line and the EOF line
@@ -159,6 +159,55 @@ func TestAutoEnrollScriptAppleScriptsCompile(t *testing.T) {
 		}
 		if out, err := exec.Command("osacompile", "-o", filepath.Join(dir, name+".scpt"), in).CombinedOutput(); err != nil {
 			t.Errorf("%s.scpt does not compile: %v\n%s", name, err, out)
+		}
+	}
+	// notice.js is JavaScript for Automation, so it compiles with -l JavaScript.
+	src := scriptSection(t, "cat > /tmp/ae/notice.js << 'EOF'", "EOF")
+	lines := strings.Split(src, "\n")
+	body := strings.Join(lines[1:len(lines)-2], "\n")
+	dir := t.TempDir()
+	in := filepath.Join(dir, "notice.js")
+	if err := os.WriteFile(in, []byte(body+"\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if out, err := exec.Command("osacompile", "-l", "JavaScript", "-o", filepath.Join(dir, "notice.scpt"), in).CombinedOutput(); err != nil {
+		t.Errorf("notice.js does not compile: %v\n%s", err, out)
+	}
+}
+
+// The Siri panes of Setup Assistant (macOS 26.6.x) stalled the script: "Enable
+// Ask Siri" is checked by default, and on "Improve Siri & Dictation" and
+// "Select a Siri Voice" Continue stays disabled until a radio button or voice
+// is picked, so the generic Continue fallback never found an enabled button.
+func TestAutoEnrollScriptHandlesSiriPanes(t *testing.T) {
+	for _, want := range []string{
+		`"Enable Ask Siri"`,          // uncheck the box
+		`"Improve Siri & Dictation"`, // pick Not Now so Continue enables
+		`"Not Now"`,
+		`"Choose For Me"`,   // voice pane: let Setup Assistant pick
+		`clickanyrole.scpt`, // radio buttons are not AXButton
+		`setcheckbox.scpt`,
+	} {
+		if !strings.Contains(autoEnrollScript, want) {
+			t.Errorf("autoEnrollScript does not handle the Siri pane piece %s", want)
+		}
+	}
+}
+
+// The guest shows progress and the final result in a small non-activating
+// window (notice.js, run with osascript -l JavaScript), so the user at the VM
+// screen can see what the script is doing and whether it worked.
+func TestAutoEnrollScriptShowsGuestNotices(t *testing.T) {
+	for _, want := range []string{
+		"notice.js",
+		`notice "Enrollment in progress"`,
+		`notice "Enrollment complete"`,
+		`notice "Enrollment failed"`,
+		"NSPanel",
+		"NSWindowStyleMaskNonactivatingPanel",
+	} {
+		if !strings.Contains(autoEnrollScript, want) {
+			t.Errorf("autoEnrollScript lacks the guest notice piece %q", want)
 		}
 	}
 }
