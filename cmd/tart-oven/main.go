@@ -22,9 +22,11 @@ func main() {
 		cmd, args = args[0], args[1:]
 	}
 
-	// `token agent create name -state path`: the subcommand words precede the flags too.
+	// `token agent create name -state path`, `run-app vm App.app -state path`,
+	// `crash-reports vm -state path` and `crash-report vm file -state path`: the
+	// leading words precede the flags too.
 	var sub []string
-	if cmd == "token" {
+	if cmd == "token" || cmd == "run-app" || cmd == "crash-reports" || cmd == "crash-report" {
 		n := 0
 		for n < len(args) && !strings.HasPrefix(args[n], "-") {
 			n++
@@ -43,7 +45,8 @@ func main() {
 		return
 	}
 	if cmd != "serve" {
-		os.Exit(runCommand(cmd, *stateFlag, sub...))
+		// Positional arguments after the flags (run-app's VM and app) go to the command too.
+		os.Exit(runCommand(cmd, *stateFlag, append(sub, flags.Args()...)...))
 	}
 
 	if err := os.MkdirAll(filepath.Dir(*stateFlag), 0o755); err != nil {

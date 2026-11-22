@@ -950,6 +950,10 @@ func (m *Manager) routes() *http.ServeMux {
 		writeJSON(w, map[string]bool{"ok": true})
 	})
 
+	mux.HandleFunc("/api/vm/run-app", m.handleRunApp)
+	mux.HandleFunc("/api/vm/crash-reports", m.handleCrashReports)
+	mux.HandleFunc("/api/vm/crash-report", m.handleCrashReport)
+
 	mux.HandleFunc("/api/guest-agent", func(w http.ResponseWriter, r *http.Request) {
 		m.mu.Lock()
 		info := m.guestAgent

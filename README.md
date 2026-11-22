@@ -4,7 +4,7 @@ Tart Oven is a local web console for managing [Tart](https://github.com/openai/t
 
 Tart Oven runs on macOS and manages macOS virtual machines.
 
-Current release: **2.3.1** · [Changelog](CHANGELOG.md)
+Current release: **2.4.0** · [Changelog](CHANGELOG.md)
 
 <p align="center">
   <img src="assets/screenshots/Tart%20Oven%20Screenshot%201.png" alt="Tart Oven screenshot 1" width="900">
@@ -28,13 +28,13 @@ Tart Oven limits the host to two running VMs at a time. Apple's macOS license al
 
 ### 1. Install Tart Oven
 
-Download `TartOven-2.3.1.pkg` from the [release page](https://github.com/vbnin/tart-oven/releases).
+Download `TartOven-2.4.0.pkg` from the [release page](https://github.com/vbnin/tart-oven/releases).
 
 Open the package in Finder or install it from Terminal:
 
 ```sh
 cd "$HOME/Downloads"
-sudo installer -pkg "./TartOven-2.3.1.pkg" -target /
+sudo installer -pkg "./TartOven-2.4.0.pkg" -target /
 ```
 
 The package installs:
@@ -223,6 +223,64 @@ To run a whole script, click **Run script…** and pick a `.sh` file in Finder, 
 Commands run as the VM's SSH user (`admin` unless you changed it under **Edit VM**), whether or not that user is logged in. When they are, commands run inside their desktop session, so scripts that drive apps still work; with nobody logged in there is no desktop session to drive. The window shows live guest agent and SSH status at the top, and each VM remembers its own console output, command history, draft and sudo password across open/close cycles.
 
 Shortcut buttons above the prompt let you run common Jamf commands in one click: `jamf manage`, `jamf recon`, `jamf policy`, and `jamf checkJSSConnection`. They appear when **Configuration → Add-Ons → Display Jamf-related features** is on.
+
+### Running a built app in a VM
+
+`tart-oven run-app` copies a built Mac app into a running VM and starts it there, then prints the first few seconds of the app's output. It does not attach a debugger.
+
+```
+tart-oven run-app "HelloVM" "/path/to/HelloVM.app"
+```
+
+- The VM must be running, and its user must be logged in at the console, because the app opens its window in that session.
+- The app is copied into the **VM shared directory** (set in Configuration, and seen in the guest as `host_resources`) under `vm-apps/<VM>/`, and started from there. Running it again replaces the copy and stops the previous run.
+- The app's output goes to a log in the VM at `/private/tmp/tart-oven-run/<App>/run.log`.
+
+To run an Xcode build in a VM, see [Use Tart Oven for app debugging in Xcode](#use-tart-oven-for-app-debugging-in-xcode).
+
+### Crash reports from a VM
+
+`tart-oven crash-reports` lists the crash reports a VM has written, newest first. Add an app name to see only that app's reports. `tart-oven crash-report` prints one of them.
+
+```
+tart-oven crash-reports "HelloVM" HelloTart
+tart-oven crash-report "HelloVM" HelloTart-2026-11-22-121542.ips
+```
+
+Reports are read from `~/Library/Logs/DiagnosticReports` in the VM, as the VM's user. The VM must be running. Nothing in the VM is changed.
+
+### Use Tart Oven for app debugging in Xcode
+
+Tart Oven can run the app you are building in an Xcode project inside a VM. Press **Command-B** (Build), and the app is copied into the VM and starts there, while Xcode stays on your Mac. This is useful for checking how an app behaves on a clean macOS guest. There is no debugger: breakpoints and stepping are not available. The app's printed output and any crash reports are the debugging tools.
+
+**Before you start**
+
+1. Install Tart Oven 2.4.0 or later.
+2. Start a macOS VM in Tart Oven. Someone must be logged in at the VM's console, and the Tart guest agent must be installed (**⋯ → Install Agent**).
+3. Note the VM's name, as shown in the list.
+
+**Add the post-action**
+
+1. In Xcode, choose **Product → Scheme → Edit Scheme…**.
+2. Select **Build** in the left column, then **Post-actions**.
+3. Click **+**, choose **New Run Script Action**, and set **Provide build settings from** to your app target.
+4. Paste this script, and replace `YOUR-VM-NAME` with the VM's name:
+
+```
+exec "/Library/Application Support/Tart Oven/tart-oven" run-app "YOUR-VM-NAME" "$BUILT_PRODUCTS_DIR/$FULL_PRODUCT_NAME"
+```
+
+5. Click **Close**.
+
+**Use it**
+
+- **Command-B (Build)** builds the app, copies it into the VM, and starts it there. Xcode reports the build as successful once the app has started.
+- **Command-R (Run)** also starts a copy on your Mac, because Xcode's Run action always does that. Use Command-B when you want the app only in the VM.
+- If the VM is not running, nobody is logged in there, or the Tart Oven server is not running, the build fails and Xcode shows the Tart Oven message.
+
+**After a crash**
+
+Use `tart-oven crash-reports` and `tart-oven crash-report` (see above) to read the crash report for the app that crashed in the VM.
 
 ## Configuration
 
