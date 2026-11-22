@@ -12,6 +12,13 @@ A few terms appear throughout:
 - **MDM / Jamf Pro** — the system that manages enrolled Macs. Tart Oven can prepare
   a VM for enrollment and report whether a guest is enrolled.
 
+## 2.4.0 (2026-11-22)
+
+### Added
+
+- **Run an Xcode build in a VM.** `tart-oven run-app <VM> <App.app>` copies a built app into the VM's shared folder, starts it in the VM's logged-in session, and prints the first few seconds of its output. Add it as a Build post-action in the scheme, and Command-B runs the app in the VM. The VM user must be logged in at the console. No debugger is attached. The README explains the setup.
+- **Read a VM's crash reports.** `tart-oven crash-reports <VM> [app]` lists the reports in the VM's `~/Library/Logs/DiagnosticReports`, newest first, optionally for one app. `tart-oven crash-report <VM> <file>` prints one report. Nothing in the VM is changed.
+
 ## 2.3.1 (2026-11-13)
 
 ### Added

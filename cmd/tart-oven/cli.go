@@ -1,11 +1,13 @@
 package main
 
 import (
+	"bytes"
 	"context"
 	"crypto/tls"
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"net"
 	"net/http"
 	"os"
@@ -39,6 +41,10 @@ Commands:
   token agent create <name>   create an agent-scope token (limited to /api/agent/*); printed once
   token agent list            list agent tokens
   token agent revoke <name>   remove an agent token
+  run-app <vm> <App.app>   copy a built app into the VM's shared folder, start it in the
+                           guest's logged-in session, and print the first seconds of its log
+  crash-reports <vm> [app]   list the VM's crash reports, newest first
+  crash-report <vm> <file>    print one crash report from the VM
   mcp             serve the agent API to an AI client over stdio (MCP); see README
   help            show this help
 
@@ -201,11 +207,82 @@ func (c *cli) agentToken(dir string, args []string) error {
 	return nil
 }
 
+// runAppClientTimeout is longer than the server's own run-app limit, so the
+// server, not this client, decides when a run has taken too long.
+const runAppClientTimeout = 3 * time.Minute
+
+// runApp handles `run-app <vm> <App.app>`: the running server copies the app
+// into the VM's shared folder and starts it there, then sends back the pid and
+// the first seconds of its log, which are written to out.
+func (c *cli) runApp(args []string, out io.Writer) error {
+	if len(args) != 2 {
+		return errors.New("usage: tart-oven run-app <vm> <path/to/App.app>")
+	}
+	appPath, err := filepath.Abs(args[1])
+	if err != nil {
+		return err
+	}
+	payload, err := json.Marshal(map[string]string{"name": args[0], "appPath": appPath})
+	if err != nil {
+		return err
+	}
+	req, err := http.NewRequest(http.MethodPost, c.url+"/api/vm/run-app", bytes.NewReader(payload))
+	if err != nil {
+		return err
+	}
+	req.Header.Set("Content-Type", "application/json")
+	if key := auth.ReadControlKey(filepath.Dir(c.statePath)); key != "" {
+		req.Header.Set("X-Tart-Oven-Control", key)
+	}
+	client := &http.Client{Timeout: runAppClientTimeout, Transport: c.client.Transport}
+	resp, err := client.Do(req)
+	if err != nil {
+		return err
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode == http.StatusUnauthorized {
+		return errors.New("the server refused the request (401); the dashboard token may be set, so run-app needs the local control key")
+	}
+	var reply struct {
+		OK      bool   `json:"ok"`
+		Pid     int    `json:"pid"`
+		Running bool   `json:"running"`
+		Log     string `json:"log"`
+		Error   string `json:"error"`
+	}
+	if err := json.NewDecoder(resp.Body).Decode(&reply); err != nil {
+		return fmt.Errorf("the server answered with HTTP %d and no usable reply", resp.StatusCode)
+	}
+	if !reply.OK {
+		if reply.Error == "" {
+			reply.Error = fmt.Sprintf("HTTP %d", resp.StatusCode)
+		}
+		return errors.New(reply.Error)
+	}
+	fmt.Fprintf(out, "started %s on %s (pid %d)\n", filepath.Base(appPath), args[0], reply.Pid)
+	if !reply.Running {
+		fmt.Fprintln(out, "it had stopped by the time of the check; its log is below")
+	}
+	if reply.Log != "" {
+		fmt.Fprint(out, reply.Log)
+		if !strings.HasSuffix(reply.Log, "\n") {
+			fmt.Fprintln(out)
+		}
+	}
+	return nil
+}
+
 // runCommand dispatches a client subcommand and returns the process exit code.
 func runCommand(cmd, statePath string, args ...string) int {
 	c := newCLI(statePath)
 	var err error
 	switch cmd {
+	case "run-app":
+		err = c.runApp(args, os.Stdout)
+	case "crash-reports":
+		err = c.runCrashReports(args, os.Stdout)
+	case "crash-report":
+		err = c.runCrashReport(args, os.Stdout)
 	case "start":
 		err = c.start()
 	case "stop":
